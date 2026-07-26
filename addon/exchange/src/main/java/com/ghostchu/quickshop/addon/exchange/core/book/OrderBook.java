@@ -131,6 +131,13 @@ public final class OrderBook {
     return List.copyOf(snapshot);
   }
 
+  public List<Order> snapshot() {
+    ArrayList<Order> result = new ArrayList<>();
+    bids.values().forEach(level -> result.addAll(level.values()));
+    asks.values().forEach(level -> result.addAll(level.values()));
+    return List.copyOf(result);
+  }
+
   private static void requireActiveLimitOrder(Order order) {
     if (order == null || order.type() != OrderType.LIMIT || order.limitPrice() == null
         || (order.status() != OrderStatus.OPEN && order.status() != OrderStatus.PARTIALLY_FILLED)) {
