@@ -1,0 +1,92 @@
+package com.ghostchu.quickshop.addon.exchange.core.book;
+
+import com.ghostchu.quickshop.addon.exchange.core.model.Order;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
+
+import java.math.BigDecimal;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.Optional;
+import java.util.TreeMap;
+import java.util.UUID;
+
+public final class OrderBook {
+  private final NavigableMap<BigDecimal, LinkedHashMap<UUID, Order>> bids =
+      new TreeMap<>(Comparator.reverseOrder());
+  private final NavigableMap<BigDecimal, LinkedHashMap<UUID, Order>> asks = new TreeMap<>();
+  private final Map<UUID, BigDecimal> priceByOrder = new HashMap<>();
+  private final Map<UUID, OrderSide> sideByOrder = new HashMap<>();
+
+  public void add(Order order) {
+    requireActiveLimitOrder(order);
+    if (priceByOrder.containsKey(order.orderId())) {
+      throw new IllegalArgumentException("resting order requires a unique id");
+    }
+    levels(order.side()).computeIfAbsent(order.limitPrice(), ignored -> new LinkedHashMap<>())
+        .put(order.orderId(), order);
+    priceByOrder.put(order.orderId(), order.limitPrice());
+    sideByOrder.put(order.orderId(), order.side());
+  }
+
+  public Optional<Order> best(OrderSide side) {
+    NavigableMap<BigDecimal, LinkedHashMap<UUID, Order>> levels = levels(side);
+    if (levels.isEmpty()) {
+      return Optional.empty();
+    }
+    return levels.firstEntry().getValue().values().stream().findFirst();
+  }
+
+  public Optional<Order> cancel(UUID orderId) {
+    BigDecimal price = priceByOrder.remove(orderId);
+    OrderSide side = sideByOrder.remove(orderId);
+    if (price == null || side == null) {
+      return Optional.empty();
+    }
+    LinkedHashMap<UUID, Order> level = levels(side).get(price);
+    Order removed = level.remove(orderId);
+    if (level.isEmpty()) {
+      levels(side).remove(price);
+    }
+    return Optional.ofNullable(removed);
+  }
+
+  public void replaceRemaining(Order order) {
+    requireActiveLimitOrder(order);
+    BigDecimal price = priceByOrder.get(order.orderId());
+    OrderSide side = sideByOrder.get(order.orderId());
+    if (price == null || side == null) {
+      throw new IllegalArgumentException("order is not resting");
+    }
+    if (side != order.side() || price.compareTo(order.limitPrice()) != 0) {
+      throw new IllegalArgumentException("replacement must retain order side and price");
+    }
+    LinkedHashMap<UUID, Order> level = levels(side).get(price);
+    if (level == null || !level.containsKey(order.orderId())) {
+      throw new IllegalStateException("resting order index is inconsistent");
+    }
+    level.replace(order.orderId(), order);
+  }
+
+  public int openOrderCount() {
+    return priceByOrder.size();
+  }
+
+  private static void requireActiveLimitOrder(Order order) {
+    if (order == null || order.type() != OrderType.LIMIT || order.limitPrice() == null
+        || (order.status() != OrderStatus.OPEN && order.status() != OrderStatus.PARTIALLY_FILLED)) {
+      throw new IllegalArgumentException("resting order must be an active limit order");
+    }
+  }
+
+  private NavigableMap<BigDecimal, LinkedHashMap<UUID, Order>> levels(OrderSide side) {
+    if (side == null) {
+      throw new IllegalArgumentException("order side is required");
+    }
+    return side == OrderSide.BUY ? bids : asks;
+  }
+}
