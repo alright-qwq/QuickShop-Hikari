@@ -106,22 +106,41 @@ class FeesMarketAndSelfTradeTest {
   }
 
   @Test
-  void rejectsMarketOrderWithNoExecutableContraLiquidityWithoutMutatingBook() {
+  void rejectsMarketBuyWithAnEmptyAskBook() {
     OrderBook book = new OrderBook();
     MatchingEngine engine = engine(book, new AtomicLong());
     Order marketBuy = market(OrderSide.BUY, "99.00", 1, 1);
 
     assertThatThrownBy(() -> engine.submit(marketBuy)).isInstanceOf(IllegalArgumentException.class);
     assertThat(book.openOrderCount()).isZero();
+  }
 
+  @Test
+  void cancelsMarketBuyWhenNonemptyAskBookIsOutsideSlippageBoundary() {
+    OrderBook book = new OrderBook();
+    MatchingEngine engine = engine(book, new AtomicLong());
     Order restingAsk = limit(OrderSide.SELL, "101.00", 1, UUID.randomUUID(), 2);
     engine.submit(restingAsk);
-    assertThatThrownBy(() -> engine.submit(marketBuy)).isInstanceOf(IllegalArgumentException.class);
-    assertThat(book.openOrderCount()).isEqualTo(1);
+    MatchResult result = engine.submit(market(OrderSide.BUY, "99.00", 1, 1));
 
-    Order marketSell = market(OrderSide.SELL, "102.00", 1, 3);
-    assertThatThrownBy(() -> engine.submit(marketSell)).isInstanceOf(IllegalArgumentException.class);
-    assertThat(book.openOrderCount()).isEqualTo(1);
+    assertThat(result.trades()).isEmpty();
+    assertThat(result.finalOrder().status()).isEqualTo(OrderStatus.CANCELLED);
+    assertThat(result.rested()).isFalse();
+    assertThat(book.orders(OrderSide.SELL)).containsExactly(restingAsk);
+  }
+
+  @Test
+  void cancelsMarketSellWhenNoBidIsExecutable() {
+    OrderBook book = new OrderBook();
+    MatchingEngine engine = engine(book, new AtomicLong());
+    Order restingBid = limit(OrderSide.BUY, "100.00", 1, UUID.randomUUID(), 2);
+    engine.submit(restingBid);
+    MatchResult result = engine.submit(market(OrderSide.SELL, "101.00", 1, 3));
+
+    assertThat(result.trades()).isEmpty();
+    assertThat(result.finalOrder().status()).isEqualTo(OrderStatus.CANCELLED);
+    assertThat(result.rested()).isFalse();
+    assertThat(book.orders(OrderSide.BUY)).containsExactly(restingBid);
   }
 
   @Test
