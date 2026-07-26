@@ -10,4 +10,10 @@ class ModuleSmokeTest {
     assertThat(Main.class.getName())
         .isEqualTo("com.ghostchu.quickshop.addon.exchange.Main");
   }
+
+  @Test
+  void includesDefaultConfigOnClasspath() {
+    assertThat(Main.class.getResource("/config.yml"))
+        .isNotNull();
+  }
 }
