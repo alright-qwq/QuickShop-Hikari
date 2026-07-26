@@ -5,11 +5,13 @@ import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
+import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -22,6 +24,9 @@ public final class MatchingEngine {
 
   public MatchingEngine(OrderBook book, LongSupplier matchSequence,
                         Supplier<Instant> now, Supplier<UUID> tradeIds) {
+    if (book == null || matchSequence == null || now == null || tradeIds == null) {
+      throw new IllegalArgumentException("matching dependencies are required");
+    }
     this.book = book;
     this.matchSequence = matchSequence;
     this.now = now;
@@ -29,42 +34,99 @@ public final class MatchingEngine {
   }
 
   public MatchResult submit(Order incoming) {
+    validateIncoming(incoming);
+    if (book.contains(incoming.orderId())) {
+      throw new IllegalArgumentException("order is already resting");
+    }
+    if (!book.acceptsMarket(incoming.marketId())) {
+      throw new IllegalArgumentException("order market does not match book");
+    }
+    OrderSide opposite = incoming.side() == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
+    List<Order> candidates = book.orders(opposite);
+    if (wouldSelfTrade(incoming, candidates)) {
+      return new MatchResult(incoming, List.of(), List.of(), false, true);
+    }
+
     ArrayList<Order> makers = new ArrayList<>();
     ArrayList<Trade> trades = new ArrayList<>();
     Order taker = incoming;
-    OrderSide opposite = incoming.side() == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
-    while (taker.remainingQuantity() > 0) {
-      Order maker = book.best(opposite).orElse(null);
-      if (maker == null || !crosses(taker, maker)) {
+    for (Order maker : candidates) {
+      if (taker.remainingQuantity() == 0 || !crosses(taker, maker)) {
         break;
-      }
-      if (maker.accountId().equals(taker.accountId())) {
-        return new MatchResult(taker, makers, trades, false, true);
       }
       long quantity = Math.min(taker.remainingQuantity(), maker.remainingQuantity());
       Instant executedAt = now.get();
-      taker = taker.withRemaining(taker.remainingQuantity() - quantity, executedAt);
+      Order nextTaker = taker.withRemaining(taker.remainingQuantity() - quantity, executedAt);
       Order changedMaker = maker.withRemaining(maker.remainingQuantity() - quantity, executedAt);
-      if (changedMaker.remainingQuantity() == 0) {
-        book.cancel(maker.orderId());
-      } else {
-        book.replaceRemaining(changedMaker);
-      }
-      makers.add(changedMaker);
       UUID buyer = incoming.side() == OrderSide.BUY ? incoming.accountId() : maker.accountId();
       UUID seller = incoming.side() == OrderSide.SELL ? incoming.accountId() : maker.accountId();
-      trades.add(new Trade(tradeIds.get(), incoming.marketId(), maker.orderId(), incoming.orderId(),
+      Trade trade = new Trade(tradeIds.get(), incoming.marketId(), maker.orderId(), incoming.orderId(),
           buyer, seller, maker.limitPrice(), quantity,
-          BigDecimal.ZERO, BigDecimal.ZERO, matchSequence.getAsLong(), executedAt));
+          BigDecimal.ZERO, BigDecimal.ZERO, matchSequence.getAsLong(), executedAt);
+      taker = nextTaker;
+      makers.add(changedMaker);
+      trades.add(trade);
     }
     if (taker.type() == OrderType.MARKET && taker.remainingQuantity() > 0) {
       taker = taker.withStatus(OrderStatus.CANCELLED, now.get());
     }
     boolean rested = taker.remainingQuantity() > 0 && taker.type() == OrderType.LIMIT;
+
+    // All validation and object construction above is complete before mutating the book.
+    for (Order changedMaker : makers) {
+      if (changedMaker.remainingQuantity() == 0) {
+        if (book.cancel(changedMaker.orderId()).isEmpty()) {
+          throw new IllegalStateException("maker disappeared during matching");
+        }
+      } else {
+        book.replaceRemaining(changedMaker);
+      }
+    }
     if (rested) {
       book.add(taker);
     }
     return new MatchResult(taker, makers, trades, rested, false);
+  }
+
+  private static void validateIncoming(Order incoming) {
+    if (incoming == null || incoming.orderId() == null || incoming.requestId() == null
+        || incoming.accountId() == null || incoming.marketId() == null
+        || incoming.marketId().isBlank() || incoming.side() == null || incoming.type() == null
+        || incoming.timeInForce() == null || incoming.status() != OrderStatus.OPEN
+        || incoming.remainingQuantity() != incoming.originalQuantity()
+        || incoming.originalQuantity() <= 0) {
+      throw new IllegalArgumentException("incoming order is not submit-eligible");
+    }
+    if (incoming.type() == OrderType.LIMIT
+        && (incoming.limitPrice() == null || incoming.slippageBoundary() != null
+        || incoming.timeInForce() != TimeInForce.GTC)) {
+      throw new IllegalArgumentException("invalid limit incoming order");
+    }
+    if (incoming.type() == OrderType.MARKET
+        && (incoming.slippageBoundary() == null || incoming.limitPrice() != null
+        || incoming.timeInForce() != TimeInForce.IOC)) {
+      throw new IllegalArgumentException("invalid market incoming order");
+    }
+  }
+
+  private static boolean wouldSelfTrade(Order incoming, List<Order> candidates) {
+    long remaining = incoming.remainingQuantity();
+    for (Order maker : candidates) {
+      if (!maker.marketId().equals(incoming.marketId())) {
+        throw new IllegalArgumentException("maker market does not match incoming order");
+      }
+      if (!crosses(incoming, maker)) {
+        break;
+      }
+      if (maker.accountId().equals(incoming.accountId())) {
+        return remaining > 0;
+      }
+      remaining -= Math.min(remaining, maker.remainingQuantity());
+      if (remaining == 0) {
+        break;
+      }
+    }
+    return false;
   }
 
   private static boolean crosses(Order taker, Order maker) {

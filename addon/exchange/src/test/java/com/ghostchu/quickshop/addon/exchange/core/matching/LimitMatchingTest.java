@@ -15,6 +15,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LimitMatchingTest {
   @Test
@@ -34,9 +35,82 @@ class LimitMatchingTest {
     assertThat(result.rested()).isTrue();
   }
 
+  @Test
+  void rejectsEntireIncomingOrderBeforeItWouldReachSelfTrade() {
+    OrderBook book = new OrderBook();
+    MatchingEngine engine = engine(book);
+    UUID incomingAccount = UUID.randomUUID();
+    Order externalMaker = order(OrderSide.SELL, "99.00", 1, 1, UUID.randomUUID(),
+        "diamond-usd", UUID.randomUUID());
+    Order ownMaker = order(OrderSide.SELL, "100.00", 1, 2, incomingAccount,
+        "diamond-usd", UUID.randomUUID());
+    engine.submit(externalMaker);
+    engine.submit(ownMaker);
+    Order incoming = order(OrderSide.BUY, "101.00", 2, 3, incomingAccount,
+        "diamond-usd", UUID.randomUUID());
+
+    MatchResult result = engine.submit(incoming);
+
+    assertThat(result.selfTradeRejected()).isTrue();
+    assertThat(result.trades()).isEmpty();
+    assertThat(result.changedMakers()).isEmpty();
+    assertThat(result.finalOrder()).isEqualTo(incoming);
+    assertThat(book.openOrderCount()).isEqualTo(2);
+    assertThat(book.best(OrderSide.SELL)).contains(externalMaker);
+  }
+
+  @Test
+  void rejectsDuplicateCrossMarketAndNonOpenIncomingOrdersWithoutMutation() {
+    OrderBook book = new OrderBook();
+    MatchingEngine engine = engine(book);
+    Order maker = order(OrderSide.SELL, "100.00", 2, 1, UUID.randomUUID(),
+        "diamond-usd", UUID.randomUUID());
+    engine.submit(maker);
+
+    Order duplicate = order(OrderSide.BUY, "101.00", 1, 2, UUID.randomUUID(),
+        "diamond-usd", maker.orderId());
+    Order otherMarket = order(OrderSide.BUY, "101.00", 1, 3, UUID.randomUUID(),
+        "gold-usd", UUID.randomUUID());
+    Order partiallyFilled = order(OrderSide.BUY, "101.00", 2, 4, UUID.randomUUID(),
+        "diamond-usd", UUID.randomUUID()).withRemaining(1, Instant.EPOCH.plusSeconds(1));
+
+    assertThatThrownBy(() -> engine.submit(duplicate)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> engine.submit(otherMarket)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> engine.submit(partiallyFilled)).isInstanceOf(IllegalArgumentException.class);
+    assertThat(book.openOrderCount()).isEqualTo(1);
+    assertThat(book.best(OrderSide.SELL)).contains(maker);
+  }
+
+  @Test
+  void supplierFailureDoesNotMutateRestingMaker() {
+    OrderBook book = new OrderBook();
+    AtomicLong matches = new AtomicLong();
+    MatchingEngine engine = new MatchingEngine(book, matches::incrementAndGet,
+        () -> Instant.parse("2026-07-26T00:00:00Z"), () -> null);
+    Order maker = order(OrderSide.SELL, "100.00", 1, 1);
+    engine.submit(maker);
+
+    assertThatThrownBy(() -> engine.submit(order(OrderSide.BUY, "100.00", 1, 2)))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(book.openOrderCount()).isEqualTo(1);
+    assertThat(book.best(OrderSide.SELL)).contains(maker);
+  }
+
   private static Order order(OrderSide side, String price, long quantity, long sequence) {
-    return new Order(UUID.randomUUID(), UUID.randomUUID(), "diamond-usd", UUID.randomUUID(),
+    return order(side, price, quantity, sequence, UUID.randomUUID(),
+        "diamond-usd", UUID.randomUUID());
+  }
+
+  private static Order order(OrderSide side, String price, long quantity, long sequence,
+                             UUID accountId, String marketId, UUID orderId) {
+    return new Order(orderId, UUID.randomUUID(), marketId, accountId,
         side, OrderType.LIMIT, TimeInForce.GTC, new BigDecimal(price), null,
         quantity, quantity, OrderStatus.OPEN, sequence, 1, 1, Instant.EPOCH, Instant.EPOCH);
+  }
+
+  private static MatchingEngine engine(OrderBook book) {
+    AtomicLong matches = new AtomicLong();
+    return new MatchingEngine(book, matches::incrementAndGet,
+        () -> Instant.parse("2026-07-26T00:00:00Z"), UUID::randomUUID);
   }
 }

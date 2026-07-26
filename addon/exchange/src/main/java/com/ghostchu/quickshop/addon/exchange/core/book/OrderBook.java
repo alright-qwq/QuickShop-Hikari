@@ -6,9 +6,11 @@ import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
@@ -22,9 +24,13 @@ public final class OrderBook {
   private final NavigableMap<BigDecimal, LinkedHashMap<UUID, Order>> asks = new TreeMap<>();
   private final Map<UUID, BigDecimal> priceByOrder = new HashMap<>();
   private final Map<UUID, OrderSide> sideByOrder = new HashMap<>();
+  private String marketId;
 
   public void add(Order order) {
     requireActiveLimitOrder(order);
+    if (!acceptsMarket(order.marketId())) {
+      throw new IllegalArgumentException("order market does not match book");
+    }
     if (priceByOrder.containsKey(order.orderId())) {
       throw new IllegalArgumentException("resting order requires a unique id");
     }
@@ -32,6 +38,9 @@ public final class OrderBook {
         .put(order.orderId(), order);
     priceByOrder.put(order.orderId(), order.limitPrice());
     sideByOrder.put(order.orderId(), order.side());
+    if (marketId == null) {
+      marketId = order.marketId();
+    }
   }
 
   public Optional<Order> best(OrderSide side) {
@@ -52,6 +61,9 @@ public final class OrderBook {
     Order removed = level.remove(orderId);
     if (level.isEmpty()) {
       levels(side).remove(price);
+    }
+    if (priceByOrder.isEmpty()) {
+      marketId = null;
     }
     return Optional.ofNullable(removed);
   }
@@ -81,6 +93,23 @@ public final class OrderBook {
 
   public int openOrderCount() {
     return priceByOrder.size();
+  }
+
+  public boolean contains(UUID orderId) {
+    return orderId != null && priceByOrder.containsKey(orderId);
+  }
+
+  public boolean acceptsMarket(String candidateMarketId) {
+    return candidateMarketId != null && !candidateMarketId.isBlank()
+        && (marketId == null || marketId.equals(candidateMarketId));
+  }
+
+  public List<Order> orders(OrderSide side) {
+    ArrayList<Order> snapshot = new ArrayList<>();
+    for (LinkedHashMap<UUID, Order> level : levels(side).values()) {
+      snapshot.addAll(level.values());
+    }
+    return List.copyOf(snapshot);
   }
 
   private static void requireActiveLimitOrder(Order order) {
