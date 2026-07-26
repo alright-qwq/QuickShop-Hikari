@@ -7,6 +7,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -18,16 +19,20 @@ import java.util.function.Supplier;
 
 public final class MatchingEngine {
   private final OrderBook book;
+  private final MarketRules rules;
+  private final FeeCalculator fees;
   private final LongSupplier matchSequence;
   private final Supplier<Instant> now;
   private final Supplier<UUID> tradeIds;
 
-  public MatchingEngine(OrderBook book, LongSupplier matchSequence,
+  public MatchingEngine(OrderBook book, MarketRules rules, FeeCalculator fees, LongSupplier matchSequence,
                         Supplier<Instant> now, Supplier<UUID> tradeIds) {
-    if (book == null || matchSequence == null || now == null || tradeIds == null) {
+    if (book == null || rules == null || fees == null || matchSequence == null || now == null || tradeIds == null) {
       throw new IllegalArgumentException("matching dependencies are required");
     }
     this.book = book;
+    this.rules = rules;
+    this.fees = fees;
     this.matchSequence = matchSequence;
     this.now = now;
     this.tradeIds = tradeIds;
@@ -35,6 +40,9 @@ public final class MatchingEngine {
 
   public MatchResult submit(Order incoming) {
     validateIncoming(incoming);
+    if (!rules.marketId().equals(incoming.marketId())) {
+      throw new IllegalArgumentException("order market does not match rules");
+    }
     if (book.contains(incoming.orderId())) {
       throw new IllegalArgumentException("order is already resting");
     }
@@ -60,9 +68,12 @@ public final class MatchingEngine {
       Order changedMaker = maker.withRemaining(maker.remainingQuantity() - quantity, executedAt);
       UUID buyer = incoming.side() == OrderSide.BUY ? incoming.accountId() : maker.accountId();
       UUID seller = incoming.side() == OrderSide.SELL ? incoming.accountId() : maker.accountId();
+      BigDecimal notional = maker.limitPrice().multiply(BigDecimal.valueOf(quantity));
+      BigDecimal makerFee = fees.fee(notional, rules.makerFeeRate());
+      BigDecimal takerFee = fees.fee(notional, rules.takerFeeRate());
       Trade trade = new Trade(tradeIds.get(), incoming.marketId(), maker.orderId(), incoming.orderId(),
           buyer, seller, maker.limitPrice(), quantity,
-          BigDecimal.ZERO, BigDecimal.ZERO, matchSequence.getAsLong(), executedAt);
+          makerFee, takerFee, matchSequence.getAsLong(), executedAt);
       taker = nextTaker;
       makers.add(changedMaker);
       trades.add(trade);

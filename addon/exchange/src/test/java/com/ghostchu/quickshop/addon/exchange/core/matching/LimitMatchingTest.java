@@ -1,6 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.core.matching;
 
 import com.ghostchu.quickshop.addon.exchange.core.book.OrderBook;
+import com.ghostchu.quickshop.addon.exchange.core.TestFixtures;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
@@ -21,8 +22,8 @@ class LimitMatchingTest {
   @Test
   void fillsAcrossMakersAtTheirPricesAndRestsRemainder() {
     AtomicLong matches = new AtomicLong();
-    MatchingEngine engine = new MatchingEngine(new OrderBook(), matches::incrementAndGet,
-        () -> Instant.parse("2026-07-26T00:00:00Z"), UUID::randomUUID);
+    MatchingEngine engine = new MatchingEngine(new OrderBook(), TestFixtures.rules(), new FeeCalculator(2),
+        matches::incrementAndGet, () -> Instant.parse("2026-07-26T00:00:00Z"), UUID::randomUUID);
     engine.submit(order(OrderSide.SELL, "99.00", 4, 1));
     engine.submit(order(OrderSide.SELL, "100.00", 4, 2));
 
@@ -85,8 +86,8 @@ class LimitMatchingTest {
   void supplierFailureDoesNotMutateRestingMaker() {
     OrderBook book = new OrderBook();
     AtomicLong matches = new AtomicLong();
-    MatchingEngine engine = new MatchingEngine(book, matches::incrementAndGet,
-        () -> Instant.parse("2026-07-26T00:00:00Z"), () -> null);
+    MatchingEngine engine = new MatchingEngine(book, TestFixtures.rules(), new FeeCalculator(2),
+        matches::incrementAndGet, () -> Instant.parse("2026-07-26T00:00:00Z"), () -> null);
     Order maker = order(OrderSide.SELL, "100.00", 1, 1);
     engine.submit(maker);
 
@@ -100,8 +101,8 @@ class LimitMatchingTest {
   void replacementPreflightPreventsPartialPublicationWhenClockMovesBackward() {
     OrderBook book = new OrderBook();
     AtomicLong matches = new AtomicLong();
-    MatchingEngine engine = new MatchingEngine(book, matches::incrementAndGet,
-        () -> Instant.EPOCH.plusSeconds(5), UUID::randomUUID);
+    MatchingEngine engine = new MatchingEngine(book, TestFixtures.rules(), new FeeCalculator(2),
+        matches::incrementAndGet, () -> Instant.EPOCH.plusSeconds(5), UUID::randomUUID);
     Order firstMaker = order(OrderSide.SELL, "99.00", 1, 1);
     Order secondMaker = withUpdatedAt(order(OrderSide.SELL, "100.00", 2, 2),
         Instant.EPOCH.plusSeconds(10));
@@ -148,8 +149,8 @@ class LimitMatchingTest {
 
   private static MatchingEngine engine(OrderBook book) {
     AtomicLong matches = new AtomicLong();
-    return new MatchingEngine(book, matches::incrementAndGet,
-        () -> Instant.parse("2026-07-26T00:00:00Z"), UUID::randomUUID);
+    return new MatchingEngine(book, TestFixtures.rules(), new FeeCalculator(2),
+        matches::incrementAndGet, () -> Instant.parse("2026-07-26T00:00:00Z"), UUID::randomUUID);
   }
 
   private static Order withUpdatedAt(Order order, Instant updatedAt) {
