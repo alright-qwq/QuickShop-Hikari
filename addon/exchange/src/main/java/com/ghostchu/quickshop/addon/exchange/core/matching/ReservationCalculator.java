@@ -41,19 +41,22 @@ public final class ReservationCalculator {
 
     long remaining = order.remainingQuantity();
     BigDecimal notional = BigDecimal.ZERO;
+    BigDecimal feesForFills = BigDecimal.ZERO;
     for (Order maker : contraOrders) {
       validateExecutableMaker(maker, order);
       if (maker.limitPrice().compareTo(order.slippageBoundary()) > 0) {
         break;
       }
       long quantity = Math.min(remaining, maker.remainingQuantity());
-      notional = notional.add(maker.limitPrice().multiply(BigDecimal.valueOf(quantity)));
+      BigDecimal fillNotional = maker.limitPrice().multiply(BigDecimal.valueOf(quantity));
+      notional = notional.add(fillNotional);
+      feesForFills = feesForFills.add(fees.fee(fillNotional, rules.takerFeeRate()));
       remaining -= quantity;
       if (remaining == 0) {
         break;
       }
     }
-    return new Reservation(notional.add(fees.fee(notional, rules.takerFeeRate())), 0);
+    return new Reservation(notional.add(feesForFills), 0);
   }
 
   private static void validate(Order order, MarketRules rules) {

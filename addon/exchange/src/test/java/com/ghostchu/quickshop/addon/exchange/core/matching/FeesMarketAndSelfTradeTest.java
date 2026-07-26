@@ -94,6 +94,18 @@ class FeesMarketAndSelfTradeTest {
   }
 
   @Test
+  void reservesMarketBuyFeesRoundedForEachExecutableFill() {
+    OrderBook book = new OrderBook();
+    book.add(limit(OrderSide.SELL, "1.01", 1, UUID.randomUUID(), 1));
+    book.add(limit(OrderSide.SELL, "1.01", 1, UUID.randomUUID(), 2));
+    ReservationCalculator reservations = new ReservationCalculator(new FeeCalculator(2));
+    Order marketBuy = market(OrderSide.BUY, "1.01", 2, 3);
+
+    assertThat(reservations.reserve(marketBuy, TestFixtures.rules(), book.orders(OrderSide.SELL)))
+        .isEqualTo(new Reservation(new BigDecimal("2.04"), 0));
+  }
+
+  @Test
   void rejectsMarketOrderWithNoExecutableContraLiquidityWithoutMutatingBook() {
     OrderBook book = new OrderBook();
     MatchingEngine engine = engine(book, new AtomicLong());
