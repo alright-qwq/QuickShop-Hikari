@@ -60,24 +60,19 @@ public final class MatchingEngine {
       throw new IllegalArgumentException("order market does not match book");
     }
     OrderSide opposite = incoming.side() == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
-    List<Order> candidates = book.orders(opposite);
-    if (incoming.type() == OrderType.MARKET && incoming.side() == OrderSide.BUY && candidates.isEmpty()) {
+    if (incoming.type() == OrderType.MARKET && incoming.side() == OrderSide.BUY
+        && book.best(opposite).isEmpty()) {
       throw new IllegalArgumentException("market order has no executable contra liquidity");
     }
-    List<Order> executableCandidates = candidates.stream()
-        .filter(maker -> executablePrice.test(maker.limitPrice()))
-        .toList();
-    if (wouldSelfTrade(incoming, executableCandidates)) {
+    ExecutionPlan executionPlan = planExecution(incoming, opposite);
+    if (executionPlan.selfTradeRejected()) {
       return new MatchResult(incoming, List.of(), List.of(), false, true);
     }
 
     ArrayList<Order> makers = new ArrayList<>();
     ArrayList<Trade> trades = new ArrayList<>();
     Order taker = incoming;
-    for (Order maker : executableCandidates) {
-      if (taker.remainingQuantity() == 0 || !crosses(taker, maker)) {
-        break;
-      }
+    for (Order maker : executionPlan.makers()) {
       long quantity = Math.min(taker.remainingQuantity(), maker.remainingQuantity());
       Instant executedAt = now.get();
       Order nextTaker = taker.withRemaining(taker.remainingQuantity() - quantity, executedAt);
@@ -149,9 +144,10 @@ public final class MatchingEngine {
     }
   }
 
-  private static boolean wouldSelfTrade(Order incoming, List<Order> candidates) {
+  private ExecutionPlan planExecution(Order incoming, OrderSide opposite) {
+    ArrayList<Order> makers = new ArrayList<>();
     long remaining = incoming.remainingQuantity();
-    for (Order maker : candidates) {
+    for (Order maker : book.executableOrders(opposite, executablePrice)) {
       if (!maker.marketId().equals(incoming.marketId())) {
         throw new IllegalArgumentException("maker market does not match incoming order");
       }
@@ -159,14 +155,15 @@ public final class MatchingEngine {
         break;
       }
       if (maker.accountId().equals(incoming.accountId())) {
-        return remaining > 0;
+        return new ExecutionPlan(List.of(), remaining > 0);
       }
+      makers.add(maker);
       remaining -= Math.min(remaining, maker.remainingQuantity());
       if (remaining == 0) {
         break;
       }
     }
-    return false;
+    return new ExecutionPlan(makers, false);
   }
 
   private static boolean crosses(Order taker, Order maker) {
@@ -175,5 +172,11 @@ public final class MatchingEngine {
     return taker.side() == OrderSide.BUY
         ? maker.limitPrice().compareTo(boundary) <= 0
         : maker.limitPrice().compareTo(boundary) >= 0;
+  }
+
+  private record ExecutionPlan(List<Order> makers, boolean selfTradeRejected) {
+    private ExecutionPlan {
+      makers = List.copyOf(makers);
+    }
   }
 }

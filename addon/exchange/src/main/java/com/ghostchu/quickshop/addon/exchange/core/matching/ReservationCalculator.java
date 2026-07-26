@@ -1,12 +1,13 @@
 package com.ghostchu.quickshop.addon.exchange.core.matching;
 
+import com.ghostchu.quickshop.addon.exchange.core.book.OrderBook;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 
 import java.math.BigDecimal;
-import java.util.List;
+import java.util.function.Predicate;
 
 public final class ReservationCalculator {
   private final FeeCalculator fees;
@@ -26,23 +27,27 @@ public final class ReservationCalculator {
     if (order.type() == OrderType.MARKET) {
       throw new IllegalArgumentException("market buy reservation requires executable depth");
     }
-    BigDecimal notional = order.limitPrice().multiply(BigDecimal.valueOf(order.remainingQuantity()));
-    return new Reservation(notional.add(fees.fee(notional, rules.takerFeeRate())), 0);
+    BigDecimal quantity = BigDecimal.valueOf(order.remainingQuantity());
+    BigDecimal notional = order.limitPrice().multiply(quantity);
+    BigDecimal maximumFeeRate = rules.makerFeeRate().max(rules.takerFeeRate());
+    BigDecimal maximumPerFillFees = fees.fee(order.limitPrice(), maximumFeeRate).multiply(quantity);
+    return new Reservation(notional.add(maximumPerFillFees), 0);
   }
 
-  public Reservation reserve(Order order, MarketRules rules, List<Order> contraOrders) {
+  public Reservation reserve(Order order, MarketRules rules, OrderBook book,
+                             Predicate<BigDecimal> executablePrice) {
     validate(order, rules);
-    if (contraOrders == null) {
-      throw new IllegalArgumentException("contra order depth is required");
-    }
     if (order.side() == OrderSide.SELL || order.type() == OrderType.LIMIT) {
       return reserve(order, rules);
+    }
+    if (book == null || executablePrice == null) {
+      throw new IllegalArgumentException("book and executable price guard are required");
     }
 
     long remaining = order.remainingQuantity();
     BigDecimal notional = BigDecimal.ZERO;
     BigDecimal feesForFills = BigDecimal.ZERO;
-    for (Order maker : contraOrders) {
+    for (Order maker : book.executableOrders(OrderSide.SELL, executablePrice)) {
       validateExecutableMaker(maker, order);
       if (maker.limitPrice().compareTo(order.slippageBoundary()) > 0) {
         break;

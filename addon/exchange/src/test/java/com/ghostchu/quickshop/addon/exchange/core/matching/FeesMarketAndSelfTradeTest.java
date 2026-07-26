@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.core.matching;
 
 import com.ghostchu.quickshop.addon.exchange.core.TestFixtures;
 import com.ghostchu.quickshop.addon.exchange.core.book.OrderBook;
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
@@ -79,6 +80,19 @@ class FeesMarketAndSelfTradeTest {
   }
 
   @Test
+  void reservesMaximumPerFillFeeForLimitBuyThatMayRest() {
+    MarketRules makerCostsMore = new MarketRules("diamond-usd", "USD", new BigDecimal("1.01"),
+        new BigDecimal("0.01"), new BigDecimal("100.00"), new BigDecimal("0.01"),
+        1, 10_000, 2, new BigDecimal("0.003"), new BigDecimal("0.001"));
+    ReservationCalculator reservations = new ReservationCalculator(new FeeCalculator(2));
+
+    Reservation reserved = reservations.reserve(
+        limit(OrderSide.BUY, "1.01", 2, UUID.randomUUID(), 1), makerCostsMore);
+
+    assertThat(reserved).isEqualTo(new Reservation(new BigDecimal("2.04"), 0));
+  }
+
+  @Test
   void reservesOnlyExecutableMarketBuyDepthAtMakerPrices() {
     OrderBook book = new OrderBook();
     book.add(limit(OrderSide.SELL, "100.00", 1, UUID.randomUUID(), 1));
@@ -89,7 +103,7 @@ class FeesMarketAndSelfTradeTest {
         OrderSide.BUY, OrderType.MARKET, TimeInForce.IOC, null, new BigDecimal("102.00"),
         5, 5, OrderStatus.OPEN, 4, 1, 1, Instant.EPOCH, Instant.EPOCH);
 
-    assertThat(reservations.reserve(marketBuy, TestFixtures.rules(), book.orders(OrderSide.SELL)))
+    assertThat(reservations.reserve(marketBuy, TestFixtures.rules(), book, price -> true))
         .isEqualTo(new Reservation(new BigDecimal("302.61"), 0));
   }
 
@@ -101,8 +115,22 @@ class FeesMarketAndSelfTradeTest {
     ReservationCalculator reservations = new ReservationCalculator(new FeeCalculator(2));
     Order marketBuy = market(OrderSide.BUY, "1.01", 2, 3);
 
-    assertThat(reservations.reserve(marketBuy, TestFixtures.rules(), book.orders(OrderSide.SELL)))
+    assertThat(reservations.reserve(marketBuy, TestFixtures.rules(), book, price -> true))
         .isEqualTo(new Reservation(new BigDecimal("2.04"), 0));
+  }
+
+  @Test
+  void marketBuyReservationSkipsProtectedDepthLikeMatching() {
+    OrderBook book = new OrderBook();
+    book.add(limit(OrderSide.SELL, "70.00", 5, UUID.randomUUID(), 1));
+    book.add(limit(OrderSide.SELL, "90.00", 1, UUID.randomUUID(), 2));
+    ReservationCalculator reservations = new ReservationCalculator(new FeeCalculator(2));
+    Order marketBuy = market(OrderSide.BUY, "100.00", 1, 3);
+
+    Reservation reserved = reservations.reserve(marketBuy, TestFixtures.rules(), book,
+        price -> price.compareTo(new BigDecimal("80.00")) >= 0);
+
+    assertThat(reserved).isEqualTo(new Reservation(new BigDecimal("90.18"), 0));
   }
 
   @Test

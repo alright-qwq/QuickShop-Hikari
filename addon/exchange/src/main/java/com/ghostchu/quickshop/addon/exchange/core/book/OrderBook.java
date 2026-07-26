@@ -65,6 +65,17 @@ public final class OrderBook {
     return Optional.empty();
   }
 
+  public Iterable<Order> executableOrders(OrderSide side, Predicate<BigDecimal> executablePrice) {
+    if (executablePrice == null) {
+      throw new IllegalArgumentException("executable price predicate is required");
+    }
+    NavigableMap<BigDecimal, LinkedHashMap<UUID, Order>> selectedLevels = levels(side);
+    return () -> selectedLevels.entrySet().stream()
+        .filter(level -> executablePrice.test(level.getKey()))
+        .flatMap(level -> level.getValue().values().stream())
+        .iterator();
+  }
+
   public Optional<Order> cancel(UUID orderId) {
     BigDecimal price = priceByOrder.remove(orderId);
     OrderSide side = sideByOrder.remove(orderId);

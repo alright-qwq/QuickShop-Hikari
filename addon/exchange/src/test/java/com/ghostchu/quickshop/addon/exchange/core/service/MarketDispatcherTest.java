@@ -184,25 +184,33 @@ class MarketDispatcherTest {
   }
 
   @Test
-  void closeUsesOneDeadlineAcrossMarkets() throws InterruptedException {
+  void closeUsesOneDeadlineAndReportsProcessorsThatIgnoreInterruption() throws InterruptedException {
     CountDownLatch processorsStarted = new CountDownLatch(2);
     CountDownLatch releaseProcessors = new CountDownLatch(1);
+    CountDownLatch processorsFinished = new CountDownLatch(2);
     MarketDispatcher dispatcher = new MarketDispatcher(resultStore(), submitted -> {
       processorsStarted.countDown();
-      awaitIgnoringInterrupts(releaseProcessors);
-      return new CommandResult(submitted.requestId(), submitted.operation());
+      try {
+        awaitIgnoringInterrupts(releaseProcessors);
+        return new CommandResult(submitted.requestId(), submitted.operation());
+      } finally {
+        processorsFinished.countDown();
+      }
     }, Duration.ofMillis(400));
 
-    dispatcher.submit(command("diamond-usd", "first"));
-    dispatcher.submit(command("gold-usd", "second"));
+    CompletableFuture<CommandResult> first = dispatcher.submit(command("diamond-usd", "first"));
+    CompletableFuture<CommandResult> second = dispatcher.submit(command("gold-usd", "second"));
     assertThat(processorsStarted.await(1, TimeUnit.SECONDS)).isTrue();
     CompletableFuture<Void> closing = CompletableFuture.runAsync(dispatcher::close);
 
     try {
-      assertThat(closing).succeedsWithin(Duration.ofMillis(650));
+      assertThatThrownBy(() -> closing.get(650, TimeUnit.MILLISECONDS))
+          .hasCauseInstanceOf(IllegalStateException.class);
+      assertThat(first.isCompletedExceptionally()).isTrue();
+      assertThat(second.isCompletedExceptionally()).isTrue();
     } finally {
       releaseProcessors.countDown();
-      closing.join();
+      assertThat(processorsFinished.await(1, TimeUnit.SECONDS)).isTrue();
     }
   }
 
@@ -210,10 +218,15 @@ class MarketDispatcherTest {
   void closeTimeoutCompletesRemovedQueuedTasksExceptionally() throws InterruptedException {
     CountDownLatch firstStarted = new CountDownLatch(1);
     CountDownLatch releaseFirst = new CountDownLatch(1);
+    CountDownLatch firstFinished = new CountDownLatch(1);
     MarketDispatcher dispatcher = new MarketDispatcher(resultStore(), submitted -> {
       if (submitted.operation().equals("first")) {
         firstStarted.countDown();
-        awaitIgnoringInterrupts(releaseFirst);
+        try {
+          awaitIgnoringInterrupts(releaseFirst);
+        } finally {
+          firstFinished.countDown();
+        }
       }
       return new CommandResult(submitted.requestId(), submitted.operation());
     }, Duration.ofMillis(100));
@@ -223,12 +236,13 @@ class MarketDispatcherTest {
     CompletableFuture<CommandResult> queued = dispatcher.submit(command("diamond-usd", "queued"));
 
     try {
-      dispatcher.close();
+      assertThatThrownBy(dispatcher::close).isInstanceOf(IllegalStateException.class);
 
+      assertThat(first.isCompletedExceptionally()).isTrue();
       assertThat(queued.isCompletedExceptionally()).isTrue();
     } finally {
       releaseFirst.countDown();
-      first.join();
+      assertThat(firstFinished.await(1, TimeUnit.SECONDS)).isTrue();
     }
   }
 

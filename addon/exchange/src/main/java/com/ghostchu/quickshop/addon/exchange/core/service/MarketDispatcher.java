@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -24,6 +25,7 @@ public final class MarketDispatcher implements AutoCloseable {
   private final Object lifecycleLock = new Object();
   private final Map<String, ExecutorService> executors = new HashMap<>();
   private final Map<RequestKey, CompletableFuture<CommandResult>> inFlight = new ConcurrentHashMap<>();
+  private final Set<DispatchTask> activeTasks = ConcurrentHashMap.newKeySet();
   private boolean closed;
 
   public MarketDispatcher(RequestResultStore requestResults, MarketCommandProcessor processor) {
@@ -59,10 +61,12 @@ public final class MarketDispatcher implements AutoCloseable {
       CompletableFuture<CommandResult> result = new CompletableFuture<>();
       DispatchTask task = new DispatchTask(command, requestKey, result);
       inFlight.put(requestKey, result);
+      activeTasks.add(task);
       try {
         executor.execute(task);
       } catch (RejectedExecutionException rejected) {
         inFlight.remove(requestKey, result);
+        activeTasks.remove(task);
         result.completeExceptionally(rejected);
       }
       return result;
@@ -82,7 +86,7 @@ public final class MarketDispatcher implements AutoCloseable {
     }
 
     long deadline = System.nanoTime() + closeTimeoutNanos;
-    boolean interrupted = false;
+    InterruptedException interruption = null;
     for (ExecutorService executor : acceptedExecutors) {
       long remainingNanos = deadline - System.nanoTime();
       if (remainingNanos <= 0) {
@@ -93,7 +97,7 @@ public final class MarketDispatcher implements AutoCloseable {
           break;
         }
       } catch (InterruptedException exception) {
-        interrupted = true;
+        interruption = exception;
         break;
       }
     }
@@ -103,8 +107,25 @@ public final class MarketDispatcher implements AutoCloseable {
         cancelQueuedTasks(executor.shutdownNow());
       }
     }
-    if (interrupted) {
-      Thread.currentThread().interrupt();
+
+    int nonTerminatedExecutors = 0;
+    for (ExecutorService executor : acceptedExecutors) {
+      if (!executor.isTerminated()) {
+        nonTerminatedExecutors++;
+      }
+    }
+    if (interruption != null || nonTerminatedExecutors > 0) {
+      CancellationException cancellation = new CancellationException(
+          "Market dispatcher processor did not terminate before the close deadline");
+      List<DispatchTask> nonTerminatedTasks = List.copyOf(activeTasks);
+      nonTerminatedTasks.forEach(task -> task.cancelAfterTimeout(cancellation));
+      IllegalStateException shutdownFailure = new IllegalStateException(
+          "Market dispatcher closed with " + nonTerminatedTasks.size() + " processor task(s) still active",
+          interruption);
+      if (interruption != null) {
+        Thread.currentThread().interrupt();
+      }
+      throw shutdownFailure;
     }
   }
 
@@ -146,6 +167,7 @@ public final class MarketDispatcher implements AutoCloseable {
         result.completeExceptionally(failure);
       } finally {
         inFlight.remove(requestKey, result);
+        activeTasks.remove(this);
       }
     }
 
@@ -153,6 +175,11 @@ public final class MarketDispatcher implements AutoCloseable {
       result.completeExceptionally(
           new CancellationException("Market dispatcher closed before command execution"));
       inFlight.remove(requestKey, result);
+      activeTasks.remove(this);
+    }
+
+    private void cancelAfterTimeout(CancellationException cancellation) {
+      result.completeExceptionally(cancellation);
     }
   }
 
