@@ -1,0 +1,41 @@
+package com.ghostchu.quickshop.addon.exchange.core.risk;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+
+public final class CircuitBreaker {
+  private final RiskLimits limits;
+  private int lastLevel;
+  private Instant haltedUntil;
+
+  public CircuitBreaker(RiskLimits limits) {
+    this.limits = limits;
+  }
+
+  public TradePermission onPrice(BigDecimal price, BigDecimal reference, Instant now) {
+    if (haltedUntil != null && now.isBefore(haltedUntil)) {
+      return TradePermission.halted(haltedUntil, lastLevel);
+    }
+    BigDecimal move = price.subtract(reference).abs()
+        .divide(reference, 12, RoundingMode.HALF_UP);
+    if (lastLevel >= 1 && move.compareTo(limits.levelTwoMove()) >= 0) {
+      lastLevel = 2;
+      haltedUntil = now.plus(limits.levelTwoHalt());
+      return TradePermission.halted(haltedUntil, 2);
+    }
+    if (move.compareTo(limits.levelOneMove()) >= 0) {
+      lastLevel = 1;
+      haltedUntil = now.plus(limits.levelOneHalt());
+      return TradePermission.halted(haltedUntil, 1);
+    }
+    return TradePermission.open();
+  }
+
+  public void resume(Instant now) {
+    if (haltedUntil == null || now.isBefore(haltedUntil)) {
+      throw new IllegalStateException("halt has not expired");
+    }
+    haltedUntil = null;
+  }
+}

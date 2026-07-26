@@ -17,6 +17,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 public final class OrderBook {
   private final NavigableMap<BigDecimal, LinkedHashMap<UUID, Order>> bids =
@@ -49,6 +50,19 @@ public final class OrderBook {
       return Optional.empty();
     }
     return levels.firstEntry().getValue().values().stream().findFirst();
+  }
+
+  public Optional<Order> bestExecutable(OrderSide side, Predicate<BigDecimal> executablePrice) {
+    for (Map.Entry<BigDecimal, LinkedHashMap<UUID, Order>> level : levels(side).entrySet()) {
+      if (!executablePrice.test(level.getKey())) {
+        continue;
+      }
+      Optional<Order> first = level.getValue().values().stream().findFirst();
+      if (first.isPresent()) {
+        return first;
+      }
+    }
+    return Optional.empty();
   }
 
   public Optional<Order> cancel(UUID orderId) {

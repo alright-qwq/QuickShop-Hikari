@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.LongSupplier;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 public final class MatchingEngine {
@@ -24,10 +25,18 @@ public final class MatchingEngine {
   private final LongSupplier matchSequence;
   private final Supplier<Instant> now;
   private final Supplier<UUID> tradeIds;
+  private final Predicate<BigDecimal> executablePrice;
 
   public MatchingEngine(OrderBook book, MarketRules rules, FeeCalculator fees, LongSupplier matchSequence,
                         Supplier<Instant> now, Supplier<UUID> tradeIds) {
-    if (book == null || rules == null || fees == null || matchSequence == null || now == null || tradeIds == null) {
+    this(book, rules, fees, matchSequence, now, tradeIds, price -> true);
+  }
+
+  public MatchingEngine(OrderBook book, MarketRules rules, FeeCalculator fees, LongSupplier matchSequence,
+                        Supplier<Instant> now, Supplier<UUID> tradeIds,
+                        Predicate<BigDecimal> executablePrice) {
+    if (book == null || rules == null || fees == null || matchSequence == null || now == null
+        || tradeIds == null || executablePrice == null) {
       throw new IllegalArgumentException("matching dependencies are required");
     }
     this.book = book;
@@ -36,6 +45,7 @@ public final class MatchingEngine {
     this.matchSequence = matchSequence;
     this.now = now;
     this.tradeIds = tradeIds;
+    this.executablePrice = executablePrice;
   }
 
   public MatchResult submit(Order incoming) {
@@ -54,14 +64,17 @@ public final class MatchingEngine {
     if (incoming.type() == OrderType.MARKET && incoming.side() == OrderSide.BUY && candidates.isEmpty()) {
       throw new IllegalArgumentException("market order has no executable contra liquidity");
     }
-    if (wouldSelfTrade(incoming, candidates)) {
+    List<Order> executableCandidates = candidates.stream()
+        .filter(maker -> executablePrice.test(maker.limitPrice()))
+        .toList();
+    if (wouldSelfTrade(incoming, executableCandidates)) {
       return new MatchResult(incoming, List.of(), List.of(), false, true);
     }
 
     ArrayList<Order> makers = new ArrayList<>();
     ArrayList<Trade> trades = new ArrayList<>();
     Order taker = incoming;
-    for (Order maker : candidates) {
+    for (Order maker : executableCandidates) {
       if (taker.remainingQuantity() == 0 || !crosses(taker, maker)) {
         break;
       }
