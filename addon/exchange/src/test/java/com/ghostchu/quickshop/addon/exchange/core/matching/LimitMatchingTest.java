@@ -96,6 +96,44 @@ class LimitMatchingTest {
     assertThat(book.best(OrderSide.SELL)).contains(maker);
   }
 
+  @Test
+  void replacementPreflightPreventsPartialPublicationWhenClockMovesBackward() {
+    OrderBook book = new OrderBook();
+    AtomicLong matches = new AtomicLong();
+    MatchingEngine engine = new MatchingEngine(book, matches::incrementAndGet,
+        () -> Instant.EPOCH.plusSeconds(5), UUID::randomUUID);
+    Order firstMaker = order(OrderSide.SELL, "99.00", 1, 1);
+    Order secondMaker = withUpdatedAt(order(OrderSide.SELL, "100.00", 2, 2),
+        Instant.EPOCH.plusSeconds(10));
+    engine.submit(firstMaker);
+    engine.submit(secondMaker);
+
+    assertThatThrownBy(() -> engine.submit(order(OrderSide.BUY, "101.00", 2, 3)))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(book.openOrderCount()).isEqualTo(2);
+    assertThat(book.best(OrderSide.SELL)).contains(firstMaker);
+    assertThat(book.cancel(firstMaker.orderId())).contains(firstMaker);
+    assertThat(book.best(OrderSide.SELL)).contains(secondMaker);
+  }
+
+  @Test
+  void nonPositivePricesAreRejectedBeforeTheBookCanMutate() {
+    OrderBook book = new OrderBook();
+    MatchingEngine engine = engine(book);
+
+    assertThatThrownBy(() -> engine.submit(new Order(
+        UUID.randomUUID(), UUID.randomUUID(), "diamond-usd", UUID.randomUUID(),
+        OrderSide.BUY, OrderType.LIMIT, TimeInForce.GTC, BigDecimal.ZERO, null,
+        1, 1, OrderStatus.OPEN, 1, 1, 1, Instant.EPOCH, Instant.EPOCH)))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> engine.submit(new Order(
+        UUID.randomUUID(), UUID.randomUUID(), "diamond-usd", UUID.randomUUID(),
+        OrderSide.BUY, OrderType.MARKET, TimeInForce.IOC, null, new BigDecimal("-1.00"),
+        1, 1, OrderStatus.OPEN, 2, 1, 1, Instant.EPOCH, Instant.EPOCH)))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(book.openOrderCount()).isZero();
+  }
+
   private static Order order(OrderSide side, String price, long quantity, long sequence) {
     return order(side, price, quantity, sequence, UUID.randomUUID(),
         "diamond-usd", UUID.randomUUID());
@@ -112,5 +150,12 @@ class LimitMatchingTest {
     AtomicLong matches = new AtomicLong();
     return new MatchingEngine(book, matches::incrementAndGet,
         () -> Instant.parse("2026-07-26T00:00:00Z"), UUID::randomUUID);
+  }
+
+  private static Order withUpdatedAt(Order order, Instant updatedAt) {
+    return new Order(order.orderId(), order.requestId(), order.marketId(), order.accountId(),
+        order.side(), order.type(), order.timeInForce(), order.limitPrice(), order.slippageBoundary(),
+        order.originalQuantity(), order.remainingQuantity(), order.status(), order.prioritySequence(),
+        order.configVersion(), order.feeVersion(), order.createdAt(), updatedAt);
   }
 }

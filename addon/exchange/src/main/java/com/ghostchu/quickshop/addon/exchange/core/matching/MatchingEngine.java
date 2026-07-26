@@ -72,6 +72,17 @@ public final class MatchingEngine {
     }
     boolean rested = taker.remainingQuantity() > 0 && taker.type() == OrderType.LIMIT;
 
+    // Preflight every publication so a later replacement cannot fail after an earlier mutation.
+    for (Order changedMaker : makers) {
+      if (changedMaker.remainingQuantity() == 0) {
+        if (!book.contains(changedMaker.orderId())) {
+          throw new IllegalStateException("maker disappeared during matching");
+        }
+      } else {
+        book.validateReplacement(changedMaker);
+      }
+    }
+
     // All validation and object construction above is complete before mutating the book.
     for (Order changedMaker : makers) {
       if (changedMaker.remainingQuantity() == 0) {
@@ -98,12 +109,14 @@ public final class MatchingEngine {
       throw new IllegalArgumentException("incoming order is not submit-eligible");
     }
     if (incoming.type() == OrderType.LIMIT
-        && (incoming.limitPrice() == null || incoming.slippageBoundary() != null
+        && (incoming.limitPrice() == null || incoming.limitPrice().signum() <= 0
+        || incoming.slippageBoundary() != null
         || incoming.timeInForce() != TimeInForce.GTC)) {
       throw new IllegalArgumentException("invalid limit incoming order");
     }
     if (incoming.type() == OrderType.MARKET
-        && (incoming.slippageBoundary() == null || incoming.limitPrice() != null
+        && (incoming.slippageBoundary() == null || incoming.slippageBoundary().signum() <= 0
+        || incoming.limitPrice() != null
         || incoming.timeInForce() != TimeInForce.IOC)) {
       throw new IllegalArgumentException("invalid market incoming order");
     }

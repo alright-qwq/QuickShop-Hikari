@@ -62,13 +62,18 @@ public final class OrderBook {
     if (level.isEmpty()) {
       levels(side).remove(price);
     }
-    if (priceByOrder.isEmpty()) {
-      marketId = null;
-    }
     return Optional.ofNullable(removed);
   }
 
   public void replaceRemaining(Order order) {
+    replacementLevel(order).replace(order.orderId(), order);
+  }
+
+  public void validateReplacement(Order order) {
+    replacementLevel(order);
+  }
+
+  private LinkedHashMap<UUID, Order> replacementLevel(Order order) {
     requireActiveLimitOrder(order);
     BigDecimal price = priceByOrder.get(order.orderId());
     OrderSide side = sideByOrder.get(order.orderId());
@@ -88,7 +93,7 @@ public final class OrderBook {
         || order.updatedAt().isBefore(current.updatedAt())) {
       throw new IllegalArgumentException("replacement may only reduce remaining quantity");
     }
-    level.replace(order.orderId(), order);
+    return level;
   }
 
   public int openOrderCount() {
