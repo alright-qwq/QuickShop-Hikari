@@ -51,6 +51,9 @@ public final class MatchingEngine {
     }
     OrderSide opposite = incoming.side() == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
     List<Order> candidates = book.orders(opposite);
+    if (incoming.type() == OrderType.MARKET && !hasExecutableContraQuantity(incoming, candidates)) {
+      throw new IllegalArgumentException("market order has no executable contra liquidity");
+    }
     if (wouldSelfTrade(incoming, candidates)) {
       return new MatchResult(incoming, List.of(), List.of(), false, true);
     }
@@ -148,6 +151,21 @@ public final class MatchingEngine {
       remaining -= Math.min(remaining, maker.remainingQuantity());
       if (remaining == 0) {
         break;
+      }
+    }
+    return false;
+  }
+
+  private static boolean hasExecutableContraQuantity(Order incoming, List<Order> candidates) {
+    for (Order maker : candidates) {
+      if (!maker.marketId().equals(incoming.marketId())) {
+        throw new IllegalArgumentException("maker market does not match incoming order");
+      }
+      if (!crosses(incoming, maker)) {
+        break;
+      }
+      if (maker.remainingQuantity() > 0) {
+        return true;
       }
     }
     return false;

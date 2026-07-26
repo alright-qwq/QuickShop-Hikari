@@ -6,6 +6,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 public final class ReservationCalculator {
   private final FeeCalculator fees;
@@ -18,18 +19,57 @@ public final class ReservationCalculator {
   }
 
   public Reservation reserve(Order order, MarketRules rules) {
+    validate(order, rules);
+    if (order.side() == OrderSide.SELL) {
+      return new Reservation(BigDecimal.ZERO, order.remainingQuantity());
+    }
+    if (order.type() == OrderType.MARKET) {
+      throw new IllegalArgumentException("market buy reservation requires executable depth");
+    }
+    BigDecimal notional = order.limitPrice().multiply(BigDecimal.valueOf(order.remainingQuantity()));
+    return new Reservation(notional.add(fees.fee(notional, rules.takerFeeRate())), 0);
+  }
+
+  public Reservation reserve(Order order, MarketRules rules, List<Order> contraOrders) {
+    validate(order, rules);
+    if (contraOrders == null) {
+      throw new IllegalArgumentException("contra order depth is required");
+    }
+    if (order.side() == OrderSide.SELL || order.type() == OrderType.LIMIT) {
+      return reserve(order, rules);
+    }
+
+    long remaining = order.remainingQuantity();
+    BigDecimal notional = BigDecimal.ZERO;
+    for (Order maker : contraOrders) {
+      validateExecutableMaker(maker, order);
+      if (maker.limitPrice().compareTo(order.slippageBoundary()) > 0) {
+        break;
+      }
+      long quantity = Math.min(remaining, maker.remainingQuantity());
+      notional = notional.add(maker.limitPrice().multiply(BigDecimal.valueOf(quantity)));
+      remaining -= quantity;
+      if (remaining == 0) {
+        break;
+      }
+    }
+    return new Reservation(notional.add(fees.fee(notional, rules.takerFeeRate())), 0);
+  }
+
+  private static void validate(Order order, MarketRules rules) {
     if (order == null || rules == null) {
       throw new IllegalArgumentException("order and market rules are required");
     }
     if (!rules.marketId().equals(order.marketId())) {
       throw new IllegalArgumentException("order market does not match rules");
     }
-    if (order.side() == OrderSide.SELL) {
-      return new Reservation(BigDecimal.ZERO, order.remainingQuantity());
+  }
+
+  private static void validateExecutableMaker(Order maker, Order incoming) {
+    if (maker == null || maker.side() != OrderSide.SELL || maker.type() != OrderType.LIMIT
+        || maker.limitPrice() == null || maker.limitPrice().signum() <= 0
+        || maker.remainingQuantity() <= 0 || !maker.marketId().equals(incoming.marketId())) {
+      throw new IllegalArgumentException("invalid executable maker depth");
     }
-    BigDecimal maximumPrice = order.type() == OrderType.LIMIT
-        ? order.limitPrice() : order.slippageBoundary();
-    BigDecimal notional = maximumPrice.multiply(BigDecimal.valueOf(order.remainingQuantity()));
-    return new Reservation(notional.add(fees.fee(notional, rules.takerFeeRate())), 0);
   }
 }

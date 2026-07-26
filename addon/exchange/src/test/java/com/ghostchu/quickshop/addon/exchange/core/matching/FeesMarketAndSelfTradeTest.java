@@ -70,15 +70,46 @@ class FeesMarketAndSelfTradeTest {
   }
 
   @Test
-  void reservesWorstCaseAssetsForEachOrderSide() {
+  void reservesWorstCaseAssetsForLimitBuyAndSell() {
     ReservationCalculator reservations = new ReservationCalculator(new FeeCalculator(2));
     assertThat(reservations.reserve(limit(OrderSide.SELL, "100.00", 3, UUID.randomUUID(), 1),
         TestFixtures.rules())).isEqualTo(new Reservation(BigDecimal.ZERO, 3));
+    assertThat(reservations.reserve(limit(OrderSide.BUY, "100.00", 2, UUID.randomUUID(), 2),
+        TestFixtures.rules())).isEqualTo(new Reservation(new BigDecimal("200.40"), 0));
+  }
+
+  @Test
+  void reservesOnlyExecutableMarketBuyDepthAtMakerPrices() {
+    OrderBook book = new OrderBook();
+    book.add(limit(OrderSide.SELL, "100.00", 1, UUID.randomUUID(), 1));
+    book.add(limit(OrderSide.SELL, "101.00", 2, UUID.randomUUID(), 2));
+    book.add(limit(OrderSide.SELL, "103.00", 3, UUID.randomUUID(), 3));
+    ReservationCalculator reservations = new ReservationCalculator(new FeeCalculator(2));
     Order marketBuy = new Order(UUID.randomUUID(), UUID.randomUUID(), "diamond-usd", UUID.randomUUID(),
-        OrderSide.BUY, OrderType.MARKET, TimeInForce.IOC, null, new BigDecimal("105.00"),
-        2, 2, OrderStatus.OPEN, 2, 1, 1, Instant.EPOCH, Instant.EPOCH);
-    assertThat(reservations.reserve(marketBuy, TestFixtures.rules()))
-        .isEqualTo(new Reservation(new BigDecimal("210.42"), 0));
+        OrderSide.BUY, OrderType.MARKET, TimeInForce.IOC, null, new BigDecimal("102.00"),
+        5, 5, OrderStatus.OPEN, 4, 1, 1, Instant.EPOCH, Instant.EPOCH);
+
+    assertThat(reservations.reserve(marketBuy, TestFixtures.rules(), book.orders(OrderSide.SELL)))
+        .isEqualTo(new Reservation(new BigDecimal("302.61"), 0));
+  }
+
+  @Test
+  void rejectsMarketOrderWithNoExecutableContraLiquidityWithoutMutatingBook() {
+    OrderBook book = new OrderBook();
+    MatchingEngine engine = engine(book, new AtomicLong());
+    Order marketBuy = market(OrderSide.BUY, "99.00", 1, 1);
+
+    assertThatThrownBy(() -> engine.submit(marketBuy)).isInstanceOf(IllegalArgumentException.class);
+    assertThat(book.openOrderCount()).isZero();
+
+    Order restingAsk = limit(OrderSide.SELL, "101.00", 1, UUID.randomUUID(), 2);
+    engine.submit(restingAsk);
+    assertThatThrownBy(() -> engine.submit(marketBuy)).isInstanceOf(IllegalArgumentException.class);
+    assertThat(book.openOrderCount()).isEqualTo(1);
+
+    Order marketSell = market(OrderSide.SELL, "102.00", 1, 3);
+    assertThatThrownBy(() -> engine.submit(marketSell)).isInstanceOf(IllegalArgumentException.class);
+    assertThat(book.openOrderCount()).isEqualTo(1);
   }
 
   @Test
@@ -101,6 +132,12 @@ class FeesMarketAndSelfTradeTest {
   private static Order limit(OrderSide side, String price, long quantity, UUID account, long sequence) {
     return new Order(UUID.randomUUID(), UUID.randomUUID(), "diamond-usd", account,
         side, OrderType.LIMIT, TimeInForce.GTC, new BigDecimal(price), null,
+        quantity, quantity, OrderStatus.OPEN, sequence, 1, 1, Instant.EPOCH, Instant.EPOCH);
+  }
+
+  private static Order market(OrderSide side, String boundary, long quantity, long sequence) {
+    return new Order(UUID.randomUUID(), UUID.randomUUID(), "diamond-usd", UUID.randomUUID(),
+        side, OrderType.MARKET, TimeInForce.IOC, null, new BigDecimal(boundary),
         quantity, quantity, OrderStatus.OPEN, sequence, 1, 1, Instant.EPOCH, Instant.EPOCH);
   }
 }
