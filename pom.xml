@@ -503,6 +503,7 @@
         <module>addon/discordsrv</module>
         <module>addon/displaycontrol</module>
         <module>addon/discount</module>
+        <module>addon/exchange</module>
         <module>addon/dyesigns</module>
         <module>addon/dynmap</module>
         <module>addon/limited</module>
