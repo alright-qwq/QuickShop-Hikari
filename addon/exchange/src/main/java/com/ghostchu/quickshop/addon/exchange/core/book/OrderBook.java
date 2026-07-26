@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -69,6 +70,12 @@ public final class OrderBook {
     if (level == null || !level.containsKey(order.orderId())) {
       throw new IllegalStateException("resting order index is inconsistent");
     }
+    Order current = level.get(order.orderId());
+    if (!retainsImmutableFields(current, order)
+        || order.remainingQuantity() >= current.remainingQuantity()
+        || order.updatedAt().isBefore(current.updatedAt())) {
+      throw new IllegalArgumentException("replacement may only reduce remaining quantity");
+    }
     level.replace(order.orderId(), order);
   }
 
@@ -88,5 +95,22 @@ public final class OrderBook {
       throw new IllegalArgumentException("order side is required");
     }
     return side == OrderSide.BUY ? bids : asks;
+  }
+
+  private static boolean retainsImmutableFields(Order current, Order replacement) {
+    return current.orderId().equals(replacement.orderId())
+        && current.requestId().equals(replacement.requestId())
+        && current.marketId().equals(replacement.marketId())
+        && current.accountId().equals(replacement.accountId())
+        && current.side() == replacement.side()
+        && current.type() == replacement.type()
+        && current.timeInForce() == replacement.timeInForce()
+        && Objects.equals(current.limitPrice(), replacement.limitPrice())
+        && Objects.equals(current.slippageBoundary(), replacement.slippageBoundary())
+        && current.originalQuantity() == replacement.originalQuantity()
+        && current.prioritySequence() == replacement.prioritySequence()
+        && current.configVersion() == replacement.configVersion()
+        && current.feeVersion() == replacement.feeVersion()
+        && current.createdAt().equals(replacement.createdAt());
   }
 }

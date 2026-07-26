@@ -83,6 +83,23 @@ class OrderBookTest {
     assertThat(book.openOrderCount()).isZero();
   }
 
+  @Test
+  void rejectsReplacementThatChangesImmutableFieldsOrIncreasesQuantity() {
+    Order resting = order(OrderSide.BUY, "100.00", 1)
+        .withRemaining(5, Instant.EPOCH.plusSeconds(1));
+
+    assertReplacementRejected(resting, replacement(resting, UUID.randomUUID(),
+        resting.accountId(), resting.originalQuantity(), 4, resting.prioritySequence()));
+    assertReplacementRejected(resting, replacement(resting, resting.requestId(),
+        UUID.randomUUID(), resting.originalQuantity(), 4, resting.prioritySequence()));
+    assertReplacementRejected(resting, replacement(resting, resting.requestId(),
+        resting.accountId(), 20, 4, resting.prioritySequence()));
+    assertReplacementRejected(resting, replacement(resting, resting.requestId(),
+        resting.accountId(), resting.originalQuantity(), 4, resting.prioritySequence() + 1));
+    assertReplacementRejected(resting, replacement(resting, resting.requestId(),
+        resting.accountId(), resting.originalQuantity(), 7, resting.prioritySequence()));
+  }
+
   private static Order order(OrderSide side, String price, long sequence) {
     return new Order(UUID.randomUUID(), UUID.randomUUID(), "diamond-usd", UUID.randomUUID(),
         side, OrderType.LIMIT, TimeInForce.GTC, new BigDecimal(price), null,
@@ -94,5 +111,24 @@ class OrderBookTest {
         side, order.type(), order.timeInForce(), price, order.slippageBoundary(),
         order.originalQuantity(), order.remainingQuantity(), order.status(), order.prioritySequence(),
         order.configVersion(), order.feeVersion(), order.createdAt(), order.updatedAt());
+  }
+
+  private static Order replacement(Order order, UUID requestId, UUID accountId,
+                                   long originalQuantity, long remainingQuantity,
+                                   long prioritySequence) {
+    return new Order(order.orderId(), requestId, order.marketId(), accountId,
+        order.side(), order.type(), order.timeInForce(), order.limitPrice(), order.slippageBoundary(),
+        originalQuantity, remainingQuantity, OrderStatus.PARTIALLY_FILLED, prioritySequence,
+        order.configVersion(), order.feeVersion(), order.createdAt(), order.updatedAt().plusSeconds(1));
+  }
+
+  private static void assertReplacementRejected(Order resting, Order replacement) {
+    OrderBook book = new OrderBook();
+    book.add(resting);
+
+    assertThatThrownBy(() -> book.replaceRemaining(replacement))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(book.best(resting.side())).contains(resting);
+    assertThat(book.openOrderCount()).isEqualTo(1);
   }
 }
