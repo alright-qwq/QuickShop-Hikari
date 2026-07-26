@@ -8,12 +8,16 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class MarketDispatcherTest {
   @Test
@@ -33,6 +37,48 @@ class MarketDispatcherTest {
       assertThat(first).isEqualTo(duplicate);
       assertThat(otherAccount).isNotEqualTo(first);
       assertThat(calls).hasValue(2);
+    }
+  }
+
+  @Test
+  void concurrentDuplicatesAcrossMarketsRunProcessorOnceAndShareTheFirstResult()
+      throws InterruptedException {
+    CountDownLatch firstStarted = new CountDownLatch(1);
+    CountDownLatch releaseFirst = new CountDownLatch(1);
+    CountDownLatch duplicateProcessed = new CountDownLatch(1);
+    AtomicInteger calls = new AtomicInteger();
+    UUID accountId = UUID.randomUUID();
+    UUID requestId = UUID.randomUUID();
+    MarketDispatcher dispatcher = new MarketDispatcher(resultStore(), submitted -> {
+      calls.incrementAndGet();
+      if (submitted.marketId().equals("diamond-usd")) {
+        firstStarted.countDown();
+        await(releaseFirst);
+      } else {
+        duplicateProcessed.countDown();
+      }
+      return new CommandResult(submitted.requestId(), submitted.marketId());
+    });
+
+    try {
+      CompletableFuture<CommandResult> first =
+          dispatcher.submit(command("diamond-usd", accountId, requestId));
+      assertThat(firstStarted.await(1, TimeUnit.SECONDS)).isTrue();
+
+      CompletableFuture<CommandResult> duplicate =
+          dispatcher.submit(command("gold-usd", accountId, requestId));
+      boolean duplicateRanBeforeFirstFinished = duplicateProcessed.await(200, TimeUnit.MILLISECONDS);
+      releaseFirst.countDown();
+
+      CommandResult firstResult = first.join();
+      CommandResult duplicateResult = duplicate.join();
+      assertThat(duplicateRanBeforeFirstFinished).isFalse();
+      assertThat(calls).hasValue(1);
+      assertThat(firstResult.outcome()).isEqualTo("diamond-usd");
+      assertThat(duplicateResult).isSameAs(firstResult);
+    } finally {
+      releaseFirst.countDown();
+      dispatcher.close();
     }
   }
 
@@ -100,6 +146,92 @@ class MarketDispatcherTest {
     assertThat(calls).hasValue(2);
   }
 
+  @Test
+  void submitDuringCloseIsOutsideTheAcceptedWorkBoundary() throws InterruptedException {
+    CountDownLatch firstStarted = new CountDownLatch(1);
+    CountDownLatch releaseFirst = new CountDownLatch(1);
+    MarketDispatcher dispatcher = new MarketDispatcher(resultStore(), submitted -> {
+      if (submitted.operation().equals("blocking")) {
+        firstStarted.countDown();
+        await(releaseFirst);
+      }
+      return new CommandResult(submitted.requestId(), submitted.operation());
+    });
+
+    CompletableFuture<CommandResult> first =
+        dispatcher.submit(command("diamond-usd", UUID.randomUUID(), UUID.randomUUID(), "blocking"));
+    assertThat(firstStarted.await(1, TimeUnit.SECONDS)).isTrue();
+    CompletableFuture<Void> closing = CompletableFuture.runAsync(dispatcher::close);
+
+    try {
+      assertThat(awaitSubmissionRejection(dispatcher, "diamond-usd")).isTrue();
+      assertThat(closing).isNotDone();
+      LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(50));
+
+      CompletableFuture<CommandResult> late =
+          dispatcher.submit(command("gold-usd", UUID.randomUUID(), UUID.randomUUID(), "late"));
+
+      assertThat(late.isCompletedExceptionally()).isTrue();
+      assertThatThrownBy(late::join)
+          .isInstanceOf(CompletionException.class)
+          .hasCauseInstanceOf(RejectedExecutionException.class);
+    } finally {
+      releaseFirst.countDown();
+    }
+
+    assertThat(closing).succeedsWithin(Duration.ofSeconds(2));
+    assertThat(first.join().outcome()).isEqualTo("blocking");
+  }
+
+  @Test
+  void closeUsesOneDeadlineAcrossMarkets() throws InterruptedException {
+    CountDownLatch processorsStarted = new CountDownLatch(2);
+    CountDownLatch releaseProcessors = new CountDownLatch(1);
+    MarketDispatcher dispatcher = new MarketDispatcher(resultStore(), submitted -> {
+      processorsStarted.countDown();
+      awaitIgnoringInterrupts(releaseProcessors);
+      return new CommandResult(submitted.requestId(), submitted.operation());
+    }, Duration.ofMillis(400));
+
+    dispatcher.submit(command("diamond-usd", "first"));
+    dispatcher.submit(command("gold-usd", "second"));
+    assertThat(processorsStarted.await(1, TimeUnit.SECONDS)).isTrue();
+    CompletableFuture<Void> closing = CompletableFuture.runAsync(dispatcher::close);
+
+    try {
+      assertThat(closing).succeedsWithin(Duration.ofMillis(650));
+    } finally {
+      releaseProcessors.countDown();
+      closing.join();
+    }
+  }
+
+  @Test
+  void closeTimeoutCompletesRemovedQueuedTasksExceptionally() throws InterruptedException {
+    CountDownLatch firstStarted = new CountDownLatch(1);
+    CountDownLatch releaseFirst = new CountDownLatch(1);
+    MarketDispatcher dispatcher = new MarketDispatcher(resultStore(), submitted -> {
+      if (submitted.operation().equals("first")) {
+        firstStarted.countDown();
+        awaitIgnoringInterrupts(releaseFirst);
+      }
+      return new CommandResult(submitted.requestId(), submitted.operation());
+    }, Duration.ofMillis(100));
+
+    CompletableFuture<CommandResult> first = dispatcher.submit(command("diamond-usd", "first"));
+    assertThat(firstStarted.await(1, TimeUnit.SECONDS)).isTrue();
+    CompletableFuture<CommandResult> queued = dispatcher.submit(command("diamond-usd", "queued"));
+
+    try {
+      dispatcher.close();
+
+      assertThat(queued.isCompletedExceptionally()).isTrue();
+    } finally {
+      releaseFirst.countDown();
+      first.join();
+    }
+  }
+
   private static ExchangeCommand command(String marketId, String operation) {
     return command(marketId, UUID.randomUUID(), UUID.randomUUID(), operation);
   }
@@ -135,6 +267,44 @@ class MarketDispatcherTest {
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
       throw new AssertionError(interrupted);
+    }
+  }
+
+  private static boolean awaitSubmissionRejection(MarketDispatcher dispatcher, String marketId)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (System.nanoTime() < deadline) {
+      try {
+        CompletableFuture<CommandResult> submission = dispatcher.submit(command(marketId, "probe"));
+        if (submission.isCompletedExceptionally()) {
+          try {
+            submission.join();
+          } catch (CompletionException exception) {
+            if (exception.getCause() instanceof RejectedExecutionException) {
+              return true;
+            }
+          }
+        }
+      } catch (RejectedExecutionException rejected) {
+        return true;
+      }
+      Thread.sleep(1);
+    }
+    return false;
+  }
+
+  private static void awaitIgnoringInterrupts(CountDownLatch latch) {
+    boolean interrupted = false;
+    while (true) {
+      try {
+        latch.await();
+        break;
+      } catch (InterruptedException ignored) {
+        interrupted = true;
+      }
+    }
+    if (interrupted) {
+      Thread.currentThread().interrupt();
     }
   }
 
