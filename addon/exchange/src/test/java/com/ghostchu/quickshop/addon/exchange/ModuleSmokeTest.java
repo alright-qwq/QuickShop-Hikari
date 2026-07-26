@@ -2,6 +2,8 @@ package com.ghostchu.quickshop.addon.exchange;
 
 import org.junit.jupiter.api.Test;
 
+import java.net.URL;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ModuleSmokeTest {
@@ -12,8 +14,15 @@ class ModuleSmokeTest {
   }
 
   @Test
-  void includesDefaultConfigOnClasspath() {
-    assertThat(Main.class.getResource("/config.yml"))
+  void includesDefaultConfigFromExchangeOutput() {
+    URL codeSourceUrl = Main.class.getProtectionDomain().getCodeSource().getLocation();
+    URL configUrl = Main.class.getResource("/config.yml");
+
+    assertThat(codeSourceUrl)
         .isNotNull();
+    assertThat(configUrl)
+        .isNotNull();
+    assertThat(configUrl.toExternalForm())
+        .startsWith(codeSourceUrl.toExternalForm());
   }
 }
