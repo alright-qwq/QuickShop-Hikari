@@ -11,6 +11,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.lang.management.ManagementFactory;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
@@ -65,6 +66,38 @@ class OrderBookPerformanceTest {
     });
 
     assertThat(guardedPriceLevels).hasValue(200);
+  }
+
+  @Test
+  @Tag("performance")
+  void nonCrossingSubmissionAllocationDoesNotScaleWithSamePriceDepth() {
+    allocationForNonCrossingSubmission(1_024);
+
+    long shallowAllocation = allocationForNonCrossingSubmission(1);
+    long deepAllocation = allocationForNonCrossingSubmission(100_000);
+
+    assertThat(deepAllocation).isLessThan(shallowAllocation + 64 * 1_024);
+  }
+
+  private static long allocationForNonCrossingSubmission(int depth) {
+    OrderBook book = new OrderBook();
+    for (int i = 0; i < depth; i++) {
+      book.add(order(new UUID(6, i + 1L), new UUID(7, i + 1L), new UUID(8, i + 1L),
+          OrderSide.SELL, "100.00", i + 1L));
+    }
+    MatchingEngine engine = new MatchingEngine(book, TestFixtures.rules(), new FeeCalculator(2),
+        () -> 1, () -> Instant.EPOCH, UUID::randomUUID, price -> true);
+    Order incoming = order(new UUID(9, depth), new UUID(10, depth), new UUID(11, depth),
+        OrderSide.BUY, "99.00", depth + 1L);
+    com.sun.management.ThreadMXBean threadMetrics =
+        (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
+    if (!threadMetrics.isThreadAllocatedMemoryEnabled()) {
+      threadMetrics.setThreadAllocatedMemoryEnabled(true);
+    }
+
+    long before = threadMetrics.getCurrentThreadAllocatedBytes();
+    engine.submit(incoming);
+    return threadMetrics.getCurrentThreadAllocatedBytes() - before;
   }
 
   private static Order order(UUID orderId, UUID requestId, UUID accountId, OrderSide side,

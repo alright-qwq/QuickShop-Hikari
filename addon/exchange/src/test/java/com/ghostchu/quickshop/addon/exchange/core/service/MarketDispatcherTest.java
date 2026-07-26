@@ -13,7 +13,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -243,6 +245,59 @@ class MarketDispatcherTest {
     } finally {
       releaseFirst.countDown();
       assertThat(firstFinished.await(1, TimeUnit.SECONDS)).isTrue();
+    }
+  }
+
+  @Test
+  void closeTimeoutFailsFutureBeforeInterruptingProcessor() throws InterruptedException {
+    CountDownLatch processorStarted = new CountDownLatch(1);
+    CountDownLatch releaseProcessor = new CountDownLatch(1);
+    CountDownLatch interruptionObserved = new CountDownLatch(1);
+    AtomicReference<CompletableFuture<CommandResult>> submittedFuture = new AtomicReference<>();
+    AtomicBoolean futureFailedBeforeInterruption = new AtomicBoolean();
+    MarketDispatcher dispatcher = new MarketDispatcher(resultStore(), submitted -> {
+      processorStarted.countDown();
+      try {
+        releaseProcessor.await();
+      } catch (InterruptedException interrupted) {
+        futureFailedBeforeInterruption.set(submittedFuture.get().isCompletedExceptionally());
+        interruptionObserved.countDown();
+        awaitIgnoringInterrupts(releaseProcessor);
+      }
+      return new CommandResult(submitted.requestId(), submitted.operation());
+    }, Duration.ofMillis(100));
+
+    CompletableFuture<CommandResult> result = dispatcher.submit(command("diamond-usd", "blocking"));
+    submittedFuture.set(result);
+    assertThat(processorStarted.await(1, TimeUnit.SECONDS)).isTrue();
+
+    try {
+      assertThatThrownBy(dispatcher::close).isInstanceOf(IllegalStateException.class);
+      assertThat(interruptionObserved.await(1, TimeUnit.SECONDS)).isTrue();
+      assertThat(futureFailedBeforeInterruption).isTrue();
+    } finally {
+      releaseProcessor.countDown();
+    }
+  }
+
+  @Test
+  void repeatedClosePreservesTimeoutFailureWhileProcessorRemainsActive() throws InterruptedException {
+    CountDownLatch processorStarted = new CountDownLatch(1);
+    CountDownLatch releaseProcessor = new CountDownLatch(1);
+    MarketDispatcher dispatcher = new MarketDispatcher(resultStore(), submitted -> {
+      processorStarted.countDown();
+      awaitIgnoringInterrupts(releaseProcessor);
+      return new CommandResult(submitted.requestId(), submitted.operation());
+    }, Duration.ofMillis(100));
+
+    dispatcher.submit(command("diamond-usd", "blocking"));
+    assertThat(processorStarted.await(1, TimeUnit.SECONDS)).isTrue();
+
+    try {
+      assertThatThrownBy(dispatcher::close).isInstanceOf(IllegalStateException.class);
+      assertThatThrownBy(dispatcher::close).isInstanceOf(IllegalStateException.class);
+    } finally {
+      releaseProcessor.countDown();
     }
   }
 

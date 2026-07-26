@@ -27,6 +27,7 @@ public final class MarketDispatcher implements AutoCloseable {
   private final Map<RequestKey, CompletableFuture<CommandResult>> inFlight = new ConcurrentHashMap<>();
   private final Set<DispatchTask> activeTasks = ConcurrentHashMap.newKeySet();
   private boolean closed;
+  private IllegalStateException closeFailure;
 
   public MarketDispatcher(RequestResultStore requestResults, MarketCommandProcessor processor) {
     this(requestResults, processor, DEFAULT_CLOSE_TIMEOUT);
@@ -78,6 +79,9 @@ public final class MarketDispatcher implements AutoCloseable {
     List<ExecutorService> acceptedExecutors;
     synchronized (lifecycleLock) {
       if (closed) {
+        if (closeFailure != null) {
+          throw closeFailure;
+        }
         return;
       }
       closed = true;
@@ -87,18 +91,33 @@ public final class MarketDispatcher implements AutoCloseable {
 
     long deadline = System.nanoTime() + closeTimeoutNanos;
     InterruptedException interruption = null;
+    boolean timedOut = false;
     for (ExecutorService executor : acceptedExecutors) {
       long remainingNanos = deadline - System.nanoTime();
       if (remainingNanos <= 0) {
+        timedOut = true;
         break;
       }
       try {
         if (!executor.awaitTermination(remainingNanos, TimeUnit.NANOSECONDS)) {
+          timedOut = true;
           break;
         }
       } catch (InterruptedException exception) {
         interruption = exception;
         break;
+      }
+    }
+
+    if (timedOut || interruption != null) {
+      CancellationException cancellation = new CancellationException(
+          "Market dispatcher processor did not terminate before the close deadline");
+      synchronized (lifecycleLock) {
+        List<DispatchTask> timedOutTasks = List.copyOf(activeTasks);
+        closeFailure = new IllegalStateException(
+            "Market dispatcher closed with " + timedOutTasks.size() + " processor task(s) still active",
+            interruption);
+        timedOutTasks.forEach(task -> task.cancelAfterTimeout(cancellation));
       }
     }
 
@@ -108,24 +127,11 @@ public final class MarketDispatcher implements AutoCloseable {
       }
     }
 
-    int nonTerminatedExecutors = 0;
-    for (ExecutorService executor : acceptedExecutors) {
-      if (!executor.isTerminated()) {
-        nonTerminatedExecutors++;
-      }
-    }
-    if (interruption != null || nonTerminatedExecutors > 0) {
-      CancellationException cancellation = new CancellationException(
-          "Market dispatcher processor did not terminate before the close deadline");
-      List<DispatchTask> nonTerminatedTasks = List.copyOf(activeTasks);
-      nonTerminatedTasks.forEach(task -> task.cancelAfterTimeout(cancellation));
-      IllegalStateException shutdownFailure = new IllegalStateException(
-          "Market dispatcher closed with " + nonTerminatedTasks.size() + " processor task(s) still active",
-          interruption);
+    if (closeFailure != null) {
       if (interruption != null) {
         Thread.currentThread().interrupt();
       }
-      throw shutdownFailure;
+      throw closeFailure;
     }
   }
 

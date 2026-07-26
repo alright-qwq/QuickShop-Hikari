@@ -9,10 +9,12 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
@@ -70,10 +72,30 @@ public final class OrderBook {
       throw new IllegalArgumentException("executable price predicate is required");
     }
     NavigableMap<BigDecimal, LinkedHashMap<UUID, Order>> selectedLevels = levels(side);
-    return () -> selectedLevels.entrySet().stream()
-        .filter(level -> executablePrice.test(level.getKey()))
-        .flatMap(level -> level.getValue().values().stream())
-        .iterator();
+    return () -> new Iterator<>() {
+      private final Iterator<Map.Entry<BigDecimal, LinkedHashMap<UUID, Order>>> levelIterator =
+          selectedLevels.entrySet().iterator();
+      private Iterator<Order> orderIterator = List.<Order>of().iterator();
+
+      @Override
+      public boolean hasNext() {
+        while (!orderIterator.hasNext() && levelIterator.hasNext()) {
+          Map.Entry<BigDecimal, LinkedHashMap<UUID, Order>> level = levelIterator.next();
+          if (executablePrice.test(level.getKey())) {
+            orderIterator = level.getValue().values().iterator();
+          }
+        }
+        return orderIterator.hasNext();
+      }
+
+      @Override
+      public Order next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        return orderIterator.next();
+      }
+    };
   }
 
   public Optional<Order> cancel(UUID orderId) {
