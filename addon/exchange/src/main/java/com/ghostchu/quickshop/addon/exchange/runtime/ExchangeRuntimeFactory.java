@@ -65,16 +65,18 @@ public final class ExchangeRuntimeFactory {
 
   public ExchangeRuntime create() throws Exception {
     Database database = database();
-    TableNames tables = new TableNames(quickShop.getDbPrefix());
-    new MigrationRunner(database.connections(), database.dialect(), tables).migrate();
-    JdbcExchangeRepository repository = new JdbcExchangeRepository(
-        database.connections(), database.dialect(), tables);
+    database.writer().acquire();
+    try {
+      TableNames tables = new TableNames(quickShop.getDbPrefix());
+      new MigrationRunner(database.connections(), database.dialect(), tables).migrate();
+      JdbcExchangeRepository repository = new JdbcExchangeRepository(
+          database.connections(), database.dialect(), tables);
 
-    File marketsFile = new File(addon.getDataFolder(), "markets.yml");
-    File configFile = new File(addon.getDataFolder(), "config.yml");
-    MarketRegistry configured = MarketRegistry.load(configFile, marketsFile);
-    registerMarkets(database.connections(), tables, configured);
-    MarketRegistry registry = MarketRegistry.load(configFile, marketsFile, repository);
+      File marketsFile = new File(addon.getDataFolder(), "markets.yml");
+      File configFile = new File(addon.getDataFolder(), "config.yml");
+      MarketRegistry configured = MarketRegistry.load(configFile, marketsFile);
+      registerMarkets(database.connections(), tables, configured);
+      MarketRegistry registry = MarketRegistry.load(configFile, marketsFile, repository);
 
     MarketDataService marketData = new MarketDataService(new CandleAggregator(), repository);
     Map<String, PersistentOrderService> markets = new java.util.LinkedHashMap<>();
@@ -106,14 +108,18 @@ public final class ExchangeRuntimeFactory {
     Runnable resumeHalted = () -> resumeExpiredHalts(repository, registry.marketIds(), database.writer());
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
 
-    return new ExchangeRuntime(database.writer(),
-        () -> recoverMarkets(markets), transfers::recoverAllMoneyTransfers, dispatcher,
-        () -> markAllRecovering(repository, registry.marketIds()),
-        () -> {
-          maintenance.shutdownNow();
-          marketData.flush(Instant.now());
-          playerOperations.close();
-        });
+      return new ExchangeRuntime(database.writer(),
+          () -> recoverMarkets(markets), transfers::recoverAllMoneyTransfers, dispatcher,
+          () -> markAllRecovering(repository, registry.marketIds()),
+          () -> {
+            maintenance.shutdownNow();
+            marketData.flush(Instant.now());
+            playerOperations.close();
+          });
+    } catch (Exception failure) {
+      database.writer().close();
+      throw failure;
+    }
   }
 
   static Path requireLocalSqlitePath(Path dataFolder, String jdbcUrl) {
@@ -263,11 +269,17 @@ public final class ExchangeRuntimeFactory {
     }
     try {
       repository.inTransaction(tx -> {
+        if (!writer.held()) {
+          return null;
+        }
         Instant now = Instant.now();
         for (String marketId : marketIds) {
           MarketState state = tx.marketState(marketId);
           if (state.status() == MarketStatus.HALTED && state.haltedUntil() != null
               && !now.isBefore(state.haltedUntil())) {
+            if (!writer.held()) {
+              return null;
+            }
             tx.updateMarketState(new MarketState(marketId, MarketStatus.OPEN,
                 state.prioritySequence(), state.matchSequence(), state.referencePrice(),
                 state.lastPrice(), null, state.discoveryQuantity(), state.circuitBreakerLevel(),

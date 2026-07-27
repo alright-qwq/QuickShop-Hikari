@@ -45,7 +45,9 @@ public final class ExchangeRuntime implements AutoCloseable {
   }
 
   public void start() throws Exception {
-    writer.acquire();
+    if (!writer.held()) {
+      writer.acquire();
+    }
     try {
       recoverBooks.run();
       recoverTransfers.run();

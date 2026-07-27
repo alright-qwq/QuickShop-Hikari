@@ -39,6 +39,20 @@ class ExchangeRuntimeTest {
   }
 
   @Test
+  void completesRecoveryWhenFactoryAlreadyOwnsTheWriterLock() throws Exception {
+    TrackingGuard writer = new TrackingGuard(new AtomicBoolean());
+    AtomicBoolean recovered = new AtomicBoolean();
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> recovered.set(true), () -> {}, () -> {});
+    writer.acquire();
+
+    runtime.start();
+
+    assertThat(recovered).isTrue();
+    assertThat(runtime.acceptingWrites()).isTrue();
+    runtime.close();
+  }
+
+  @Test
   void flushesOperationalDataAfterDispatcherDrainAndBeforeWriterRelease() throws Exception {
     AtomicBoolean dispatcherClosed = new AtomicBoolean();
     AtomicBoolean flushedAfterDispatcher = new AtomicBoolean();
@@ -66,6 +80,9 @@ class ExchangeRuntimeTest {
 
     @Override
     public void acquire() {
+      if (held) {
+        throw new IllegalStateException("exchange writer lock is already held");
+      }
       held = true;
     }
 
