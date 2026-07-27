@@ -23,6 +23,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,7 +58,7 @@ class PersistentOrderServiceTest {
           UUID.randomUUID(), seller, "diamond-usd", OrderSide.SELL, "LIMIT",
           new BigDecimal("100.00"), null, 1)))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining(status);
+          .hasMessageContaining("MARKET_NOT_OPEN");
 
       assertThat(fixture.orderCount()).isZero();
       assertThat(fixture.availableItems(seller)).isEqualTo(2);
@@ -65,6 +66,80 @@ class PersistentOrderServiceTest {
       assertThat(fixture.marketPrioritySequence()).isZero();
       assertThat(fixture.marketStatus()).isEqualTo(status);
     }
+  }
+
+  @Test
+  void rejectsLimitOrderOutsideCageBeforeItEntersTransaction() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    fixture.service().recoverFromDatabase();
+    AtomicInteger transactionEntries = new AtomicInteger();
+    PersistentOrderService guarded = fixture.serviceWithTransactionEntry(transactionEntries::incrementAndGet);
+
+    assertThatThrownBy(() -> guarded.place(new OrderRequest(
+        UUID.randomUUID(), seller, "diamond-usd", OrderSide.SELL, "LIMIT",
+        new BigDecimal("120.01"), null, 1)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("PRICE_OUTSIDE_CAGE");
+
+    assertThat(fixture.orderCount()).isZero();
+    assertThat(transactionEntries).hasValue(0);
+  }
+
+  @Test
+  void returnsStoredReceiptWhenDuplicateRetryWouldOtherwiseExceedRateLimit() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    PersistentOrderService limited = fixture.serviceWithAccountLimits(
+        new AccountOrderLimits(100_000, new BigDecimal("10000000.00"), 100, 1, 60));
+    UUID seller = fixture.accountWithItems(1);
+    OrderRequest request = new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1);
+
+    OrderReceipt first = limited.place(request);
+    OrderReceipt retry = limited.place(request);
+
+    assertThat(retry).isEqualTo(first);
+    assertThat(fixture.orderCount()).isEqualTo(1);
+  }
+
+  @Test
+  void rechecksLimitPriceAgainstLatestTransactionReference() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    PersistentOrderService service = fixture.serviceWithTransactionEntry(
+        () -> {
+          try {
+            fixture.setMarketReferencePrice("200.00");
+          } catch (SQLException failure) {
+            throw new IllegalStateException(failure);
+          }
+        });
+
+    assertThatThrownBy(() -> service.place(new OrderRequest(
+        UUID.randomUUID(), seller, "diamond-usd", OrderSide.SELL, "LIMIT",
+        new BigDecimal("120.00"), null, 1)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("PRICE_OUTSIDE_CAGE");
+
+    assertThat(fixture.orderCount()).isZero();
+  }
+
+  @Test
+  void rejectsSelfTradeWithExplicitReasonBeforeReservations() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID account = fixture.accountWithItems(1);
+    fixture.creditCurrency(account, "1000.00");
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), account, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    assertThatThrownBy(() -> fixture.service().place(new OrderRequest(
+        UUID.randomUUID(), account, "diamond-usd", OrderSide.BUY, "LIMIT",
+        new BigDecimal("100.00"), null, 1)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("SELF_TRADE");
+
+    assertThat(fixture.orderCount()).isEqualTo(1);
+    assertThat(fixture.frozenCurrency(account)).isZero();
   }
 
   @Test

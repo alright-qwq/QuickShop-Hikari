@@ -447,6 +447,16 @@ final class ExchangeServiceFixture {
     }
   }
 
+  void setMarketReferencePrice(String referencePrice) throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement update = connection.prepareStatement(
+             "UPDATE " + tables.marketState() + " SET reference_price=? WHERE market_id=?")) {
+      update.setString(1, referencePrice);
+      update.setString(2, rules.marketId());
+      update.executeUpdate();
+    }
+  }
+
   long marketPrioritySequence() throws SQLException {
     return Long.parseLong(marketValue("priority_sequence"));
   }

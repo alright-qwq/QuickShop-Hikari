@@ -171,6 +171,10 @@ public final class PersistentOrderService {
 
   public OrderReceipt place(OrderRequest request) throws SQLException {
     validate(request);
+    OrderReceipt stored = preflightRisk(request);
+    if (stored != null) {
+      return stored;
+    }
     synchronized (runtimeState) {
       AtomicReference<TransactionOutcome> attemptedOutcome = new AtomicReference<>();
       try {
@@ -240,6 +244,20 @@ public final class PersistentOrderService {
     }
   }
 
+  private OrderReceipt storedReceipt(OrderRequest request) throws SQLException {
+    return repository.inTransaction(tx -> {
+      StoredRequestResult stored = tx.requestResult(request.accountId(), request.requestId())
+          .orElse(null);
+      if (stored == null) {
+        return null;
+      }
+      if (!PLACE_OPERATION.equals(stored.operation())) {
+        throw new IllegalStateException("request id belongs to another operation");
+      }
+      return decodeReceipt(stored.payload());
+    });
+  }
+
   private TransactionOutcome settle(ExchangeTransaction tx, OrderRequest request)
       throws SQLException {
     MarketState lockedState = tx.marketState(request.marketId());
@@ -253,15 +271,9 @@ public final class PersistentOrderService {
     }
 
     if (lockedState.status() != MarketStatus.OPEN) {
-      throw new IllegalStateException(
-          "market " + request.marketId() + " is " + lockedState.status());
+      reject(OrderRiskService.RejectReason.MARKET_NOT_OPEN);
     }
     Instant evaluatedAt = now.get();
-    OrderRiskService.RejectReason rateLimitRejection =
-        orderRisks.checkRateLimit(request.accountId(), evaluatedAt);
-    if (rateLimitRejection != null) {
-      throw new IllegalStateException(rateLimitRejection.name());
-    }
     RuntimeRiskSnapshot runtimeRisk = runtimeRisk(tx, lockedState, evaluatedAt);
     MarketState beforeState = runtimeRisk.state();
     if (parseType(request.type()) == OrderType.MARKET) {
@@ -288,6 +300,14 @@ public final class PersistentOrderService {
     for (PersistedOrder persisted : persistedOrders) {
       transactionBook.add(persisted.order());
       persistedById.put(persisted.order().orderId(), persisted);
+    }
+
+    if (incoming.type() == OrderType.LIMIT
+        && !riskLimits.insideCage(incoming.limitPrice(), beforeState.referencePrice())) {
+      reject(OrderRiskService.RejectReason.PRICE_OUTSIDE_CAGE);
+    }
+    if (wouldSelfTrade(request, transactionBook, beforeState.referencePrice())) {
+      reject(OrderRiskService.RejectReason.SELF_TRADE);
     }
 
     Reservation reservation = incoming.type() == OrderType.MARKET
@@ -468,6 +488,55 @@ public final class PersistentOrderService {
         throw new IllegalArgumentException("market order cannot have a limit price");
       }
     }
+  }
+
+  private OrderReceipt preflightRisk(OrderRequest request) throws SQLException {
+    OrderRiskService.RejectReason rateLimitRejection =
+        orderRisks.checkRateLimit(request.accountId(), now.get());
+    if (rateLimitRejection != null) {
+      OrderReceipt stored = storedReceipt(request);
+      if (stored != null) {
+        return stored;
+      }
+      reject(rateLimitRejection);
+    }
+    synchronized (runtimeState) {
+      if (runtimeState.committedMarketVersion == Long.MIN_VALUE) {
+        return null;
+      }
+      BigDecimal reference = runtimeState.referencePrices.copy().referenceAt(now.get());
+      if (parseType(request.type()) == OrderType.LIMIT
+          && !riskLimits.insideCage(request.price(), reference)) {
+        reject(OrderRiskService.RejectReason.PRICE_OUTSIDE_CAGE);
+      }
+      if (wouldSelfTrade(request, runtimeState.committedBook, reference)) {
+        reject(OrderRiskService.RejectReason.SELF_TRADE);
+      }
+    }
+    return null;
+  }
+
+  private boolean wouldSelfTrade(OrderRequest request, OrderBook book, BigDecimal referencePrice) {
+    OrderType type = parseType(request.type());
+    BigDecimal boundary = type == OrderType.LIMIT ? request.price() : request.slippageBoundary();
+    OrderSide opposite = request.side() == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
+    for (Order maker : book.executableOrders(opposite,
+        price -> riskLimits.insideCage(price, referencePrice))) {
+      boolean crosses = request.side() == OrderSide.BUY
+          ? maker.limitPrice().compareTo(boundary) <= 0
+          : maker.limitPrice().compareTo(boundary) >= 0;
+      if (!crosses) {
+        break;
+      }
+      if (maker.accountId().equals(request.accountId())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static void reject(OrderRiskService.RejectReason reason) {
+    throw new IllegalStateException(reason.name());
   }
 
   private Order createOrder(
