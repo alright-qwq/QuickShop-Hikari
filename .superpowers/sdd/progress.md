@@ -18,3 +18,5 @@ Task 5: complete (commits c6d351c04..af7127d48; two independent review waves res
 Task 5 minor follow-up: strengthen fixture assertions from aggregate ledger balance/account-kind checks to per-journal role and asset conservation checks during Task 7 failure-injection coverage.
 Task 6: complete (commits 09774d42d..c6a9524ad, review clean after 4 Important fixes; full 132/132 pass including 5 real MySQL 8.4 tests)
 Task 6 minor follow-ups: add explicit out-of-range breaker and distinct-order duplicate-priority corruption cases; extract the pure snapshot assembler during a later focused cleanup.
+Task 7: complete (commit 6f2eb7ee8; independent review resolved 3 Important findings; full 142/142 pass including 5 real MySQL 8.4 tests)
+Task 7 follow-up carried into Task 8: exercise settlement concurrency and reconciliation against real MySQL, retaining exact per-trade journal completeness and conservation checks.
