@@ -6,11 +6,13 @@ import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.risk.CircuitBreaker;
 import com.ghostchu.quickshop.addon.exchange.core.risk.ReferencePriceTracker;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
+import com.ghostchu.quickshop.addon.exchange.config.MarketRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -181,13 +183,25 @@ class PersistentOrderServiceTest {
   }
 
   @Test
-  void restartedServiceUsesEachOrdersPersistedFeeVersion() throws Exception {
+  void reloadPersistsVersionsUsedByRestartedService() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketRegistry registry = fixture.marketRegistry();
+    fixture.setMarketStatus("PAUSED");
+    registry.reload(Map.of("diamond-usd",
+        fixture.marketDefinition("0.02", "0.001", "0.002")),
+        market -> new com.ghostchu.quickshop.addon.exchange.config.MarketStateReader.State(
+            MarketStatus.PAUSED, 0));
+    fixture.resumeMarket();
+
     UUID seller = fixture.accountWithItems(1);
     fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
         OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
-    fixture.replaceFeeSchedule(2, "0.010", "0.020");
-    fixture.setMarketStructuralVersion(7);
+    registry.reload(Map.of("diamond-usd",
+        fixture.marketDefinition("0.02", "0.010", "0.020")),
+        market -> new com.ghostchu.quickshop.addon.exchange.config.MarketStateReader.State(
+            MarketStatus.OPEN, 1));
+    MarketRegistry restartedRegistry = new MarketRegistry(Map.of("diamond-usd",
+        fixture.marketDefinition("0.02", "0.010", "0.020")), fixture.repository());
 
     PersistentOrderService restarted = fixture.restartedService();
     UUID buyer = fixture.accountWithCurrency("1000.00");
@@ -197,16 +211,22 @@ class PersistentOrderServiceTest {
     assertThat(fixture.lastTradeMakerFee()).isEqualByComparingTo("0.10");
     assertThat(fixture.lastTradeTakerFee()).isEqualByComparingTo("2.00");
     assertThat(fixture.latestOrderFeeVersion()).isEqualTo(2);
-    assertThat(fixture.latestOrderConfigVersion()).isEqualTo(7);
+    assertThat(fixture.latestOrderConfigVersion()).isEqualTo(2);
+    assertThat(restartedRegistry.versions("diamond-usd"))
+        .isEqualTo(new MarketRegistry.Versions(2, 2, 2));
   }
 
   @Test
   void refusesToArchiveFeeVersionReferencedByOpenOrder() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketRegistry registry = fixture.marketRegistry();
     UUID seller = fixture.accountWithItems(1);
     fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
         OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
-    fixture.replaceFeeSchedule(2, "0.010", "0.020");
+    registry.reload(Map.of("diamond-usd",
+        fixture.marketDefinition("0.01", "0.010", "0.020")),
+        market -> new com.ghostchu.quickshop.addon.exchange.config.MarketStateReader.State(
+            MarketStatus.OPEN, 1));
 
     assertThatThrownBy(() -> fixture.archiveFeeVersion(1))
         .isInstanceOf(IllegalStateException.class)

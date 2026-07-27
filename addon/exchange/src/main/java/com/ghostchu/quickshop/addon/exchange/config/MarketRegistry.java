@@ -4,6 +4,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.io.File;
 import java.math.BigDecimal;
 import org.bukkit.configuration.ConfigurationSection;
@@ -15,12 +16,25 @@ import java.util.Collections;
 /** Holds market configuration and only permits structural changes on a paused empty book. */
 public final class MarketRegistry {
   private final Map<String, Entry> markets = new LinkedHashMap<>();
+  private final MarketConfigurationPersistence persistence;
 
   public MarketRegistry(Map<String, MarketDefinition> definitions) {
+    this(definitions, MarketConfigurationPersistence.NONE);
+  }
+
+  public MarketRegistry(
+      Map<String, MarketDefinition> definitions, MarketConfigurationPersistence persistence) {
+    this.persistence = Objects.requireNonNull(persistence, "persistence");
     replaceInitial(definitions);
+    restorePersisted(persistence.load(Set.copyOf(markets.keySet())));
   }
 
   public static MarketRegistry load(File configurationFile, File marketsFile) {
+    return load(configurationFile, marketsFile, MarketConfigurationPersistence.NONE);
+  }
+
+  public static MarketRegistry load(
+      File configurationFile, File marketsFile, MarketConfigurationPersistence persistence) {
     YamlConfiguration configuration = YamlConfiguration.loadConfiguration(configurationFile);
     YamlConfiguration markets = YamlConfiguration.loadConfiguration(marketsFile);
     ConfigurationSection riskDefaults = requiredSection(configuration, "risk-defaults");
@@ -51,7 +65,7 @@ public final class MarketRegistry {
               market.getInt("max-open-orders"), riskDefaults.getInt("operations-per-second"),
               riskDefaults.getInt("operations-per-minute")), market.getBoolean("block-container-shops")));
     }
-    return new MarketRegistry(definitions);
+    return new MarketRegistry(definitions, persistence);
   }
 
   public synchronized MarketDefinition require(String marketId) {
@@ -86,9 +100,13 @@ public final class MarketRegistry {
     if (!markets.keySet().equals(replacements.keySet())) {
       throw new IllegalArgumentException("market set cannot change during reload");
     }
+    Map<String, Entry> candidates = new LinkedHashMap<>();
+    Map<String, MarketConfigurationPersistence.State> persisted = new LinkedHashMap<>();
     for (Map.Entry<String, MarketDefinition> replacement : replacements.entrySet()) {
       Entry current = markets.get(replacement.getKey());
+      Entry candidate = new Entry(current);
       MarketDefinition next = replacement.getValue();
+      boolean versionChanged = false;
       if (!current.definition.item().equals(next.item())
           || !current.definition.structural().equals(next.structural())) {
         MarketStateReader.State state = stateReader.read(replacement.getKey());
@@ -96,18 +114,29 @@ public final class MarketRegistry {
           throw new IllegalStateException(
               "structural change requires PAUSED market with no open orders");
         }
-        current.structuralVersion++;
+        candidate.structuralVersion++;
+        versionChanged = true;
       }
       if (!current.definition.risk().equals(next.risk())) {
-        current.riskVersion++;
+        candidate.riskVersion++;
+        versionChanged = true;
         if (current.definition.risk().makerFeeRate().compareTo(next.risk().makerFeeRate()) != 0
             || current.definition.risk().takerFeeRate().compareTo(next.risk().takerFeeRate()) != 0) {
-          current.feeVersion++;
-          current.feeSchedule.put(current.feeVersion, feeRates(next));
+          candidate.feeVersion++;
+          candidate.feeSchedule.put(candidate.feeVersion, feeRates(next));
         }
       }
-      current.definition = next;
+      candidate.definition = next;
+      candidates.put(replacement.getKey(), candidate);
+      if (versionChanged) {
+        persisted.put(replacement.getKey(), candidate.persistedState());
+      }
     }
+    if (!persisted.isEmpty()) {
+      persistence.persist(Map.copyOf(persisted));
+    }
+    markets.clear();
+    markets.putAll(candidates);
   }
 
   private void replaceInitial(Map<String, MarketDefinition> definitions) {
@@ -120,6 +149,14 @@ public final class MarketRegistry {
       }
       markets.put(marketId, new Entry(definition));
     });
+  }
+
+  private void restorePersisted(Map<String, MarketConfigurationPersistence.State> persisted) {
+    Objects.requireNonNull(persisted, "persisted");
+    if (!markets.keySet().containsAll(persisted.keySet())) {
+      throw new IllegalArgumentException("persisted configuration contains an unknown market");
+    }
+    persisted.forEach((marketId, state) -> markets.get(marketId).restore(state));
   }
 
   private static ConfigurationSection requiredSection(ConfigurationSection parent, String path) {
@@ -162,6 +199,35 @@ public final class MarketRegistry {
     private Entry(MarketDefinition definition) {
       this.definition = definition;
       this.feeSchedule.put(feeVersion, feeRates(definition));
+    }
+
+    private Entry(Entry source) {
+      this.definition = source.definition;
+      this.structuralVersion = source.structuralVersion;
+      this.riskVersion = source.riskVersion;
+      this.feeVersion = source.feeVersion;
+      this.feeSchedule.putAll(source.feeSchedule);
+    }
+
+    private MarketConfigurationPersistence.State persistedState() {
+      return new MarketConfigurationPersistence.State(
+          structuralVersion, riskVersion, feeVersion,
+          definition.structural().currencyScale(), feeSchedule);
+    }
+
+    private void restore(MarketConfigurationPersistence.State state) {
+      FeeRates active = state.feeVersions().get(state.activeFeeVersion());
+      FeeRates configured = feeRates(definition);
+      if (state.currencyScale() != definition.structural().currencyScale()
+          || active.makerRate().compareTo(configured.makerRate()) != 0
+          || active.takerRate().compareTo(configured.takerRate()) != 0) {
+        throw new IllegalStateException("persisted fee schedule does not match configuration");
+      }
+      structuralVersion = state.structuralVersion();
+      riskVersion = state.riskVersion();
+      feeVersion = state.activeFeeVersion();
+      feeSchedule.clear();
+      feeSchedule.putAll(state.feeVersions());
     }
   }
 }

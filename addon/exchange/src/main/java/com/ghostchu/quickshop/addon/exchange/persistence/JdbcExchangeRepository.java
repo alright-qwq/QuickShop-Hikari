@@ -1,6 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.persistence;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
+import com.ghostchu.quickshop.addon.exchange.config.MarketConfigurationPersistence;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.FeeRates;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
@@ -46,9 +47,11 @@ import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
-public final class JdbcExchangeRepository implements ExchangeRepository, TransferRepository {
+public final class JdbcExchangeRepository
+    implements ExchangeRepository, TransferRepository, MarketConfigurationPersistence {
   private final ConnectionProvider connections;
   private final SqlDialect dialect;
   private final TableNames tables;
@@ -78,6 +81,30 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
       ((JdbcTransaction) transaction).archiveFeeVersion(marketId, feeVersion);
       return null;
     });
+  }
+
+  @Override
+  public void persist(Map<String, MarketConfigurationPersistence.State> states) {
+    Objects.requireNonNull(states, "states");
+    try {
+      inTransaction(transaction -> {
+        ((JdbcTransaction) transaction).persistMarketConfigurations(states);
+        return null;
+      });
+    } catch (SQLException failure) {
+      throw new IllegalStateException("failed to persist market configuration reload", failure);
+    }
+  }
+
+  @Override
+  public Map<String, MarketConfigurationPersistence.State> load(Set<String> marketIds) {
+    Objects.requireNonNull(marketIds, "marketIds");
+    try {
+      return inTransaction(transaction ->
+          ((JdbcTransaction) transaction).loadMarketConfigurations(marketIds));
+    } catch (SQLException failure) {
+      throw new IllegalStateException("failed to load persisted market configuration", failure);
+    }
   }
 
   @Override
@@ -597,6 +624,64 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
         if (update.executeUpdate() != 1) {
           throw new SQLException("market fee schedule does not exist: " + marketId);
         }
+      }
+    }
+
+    private void persistMarketConfigurations(
+        Map<String, MarketConfigurationPersistence.State> states) throws SQLException {
+      for (Map.Entry<String, MarketConfigurationPersistence.State> entry : states.entrySet()) {
+        String marketId = entry.getKey();
+        MarketConfigurationPersistence.State replacement = entry.getValue();
+        long[] current = marketVersions(marketId);
+        requireNextVersion("structural", current[0], replacement.structuralVersion());
+        requireNextVersion("risk", current[1], replacement.riskVersion());
+        storeFeeSchedule(marketId, new MarketFeeSchedule(
+            replacement.activeFeeVersion(), replacement.currencyScale(),
+            replacement.feeVersions()));
+        try (PreparedStatement update = connection.prepareStatement(
+            "UPDATE " + tables.markets()
+                + " SET structural_version=?,risk_version=? WHERE market_id=?")) {
+          update.setLong(1, replacement.structuralVersion());
+          update.setLong(2, replacement.riskVersion());
+          update.setString(3, marketId);
+          if (update.executeUpdate() != 1) {
+            throw new SQLException("market configuration does not exist: " + marketId);
+          }
+        }
+      }
+    }
+
+    private Map<String, MarketConfigurationPersistence.State> loadMarketConfigurations(
+        Set<String> marketIds) throws SQLException {
+      Map<String, MarketConfigurationPersistence.State> persisted = new HashMap<>();
+      for (String marketId : marketIds) {
+        long[] versions = marketVersions(marketId);
+        MarketFeeSchedule fees = marketFeeSchedule(marketId);
+        persisted.put(marketId, new MarketConfigurationPersistence.State(
+            versions[0], versions[1], fees.activeVersion(), fees.currencyScale(),
+            fees.versions()));
+      }
+      return Map.copyOf(persisted);
+    }
+
+    private long[] marketVersions(String marketId) throws SQLException {
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT structural_version,risk_version FROM " + tables.markets()
+              + " WHERE market_id=?" + dialect.forUpdate())) {
+        select.setString(1, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          if (!result.next()) {
+            throw new SQLException("market configuration does not exist: " + marketId);
+          }
+          return new long[] {
+              result.getLong("structural_version"), result.getLong("risk_version")};
+        }
+      }
+    }
+
+    private static void requireNextVersion(String kind, long current, long replacement) {
+      if (replacement < current || replacement > current + 1) {
+        throw new IllegalArgumentException("invalid " + kind + " version replacement");
       }
     }
 

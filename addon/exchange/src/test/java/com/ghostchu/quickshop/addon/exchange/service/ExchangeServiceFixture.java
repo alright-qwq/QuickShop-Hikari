@@ -1,8 +1,9 @@
 package com.ghostchu.quickshop.addon.exchange.service;
 
 import com.ghostchu.quickshop.addon.exchange.core.TestFixtures;
+import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
+import com.ghostchu.quickshop.addon.exchange.config.MarketRegistry;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
-import com.ghostchu.quickshop.addon.exchange.core.model.FeeRates;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.persistence.ConnectionProvider;
 import com.ghostchu.quickshop.addon.exchange.persistence.JdbcExchangeRepository;
@@ -12,7 +13,7 @@ import com.ghostchu.quickshop.addon.exchange.persistence.SqliteConnectionProvide
 import com.ghostchu.quickshop.addon.exchange.persistence.TableNames;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
-import com.ghostchu.quickshop.addon.exchange.repository.MarketFeeSchedule;
+import com.ghostchu.quickshop.addon.exchange.platform.FingerprintMode;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -167,7 +168,7 @@ final class ExchangeServiceFixture {
         RecoveryHandler.NO_OP, observer);
   }
 
-  ExchangeRepository repository() {
+  JdbcExchangeRepository repository() {
     return repository;
   }
 
@@ -244,25 +245,27 @@ final class ExchangeServiceFixture {
     return rowCount(tables.trades());
   }
 
-  void replaceFeeSchedule(long activeVersion, String makerFee, String takerFee) throws SQLException {
-    repository.storeFeeSchedule(rules.marketId(), new MarketFeeSchedule(
-        activeVersion, rules.priceScale(), Map.of(
-            1L, new FeeRates(rules.makerFeeRate(), rules.takerFeeRate()),
-            activeVersion, new FeeRates(new BigDecimal(makerFee), new BigDecimal(takerFee)))));
+  MarketRegistry marketRegistry() {
+    return new MarketRegistry(Map.of(rules.marketId(), marketDefinition(
+        rules.tickSize().toPlainString(), rules.makerFeeRate().toPlainString(),
+        rules.takerFeeRate().toPlainString())), repository);
+  }
+
+  MarketDefinition marketDefinition(String tickSize, String makerFee, String takerFee) {
+    return new MarketDefinition(rules.marketId(), "Diamond / USD", true,
+        new MarketDefinition.ItemDefinition(
+            FingerprintMode.VANILLA_MATERIAL, "DIAMOND", null, null),
+        new MarketDefinition.StructuralRules(rules.currencyId(), rules.basePrice(),
+            rules.minPrice(), rules.maxPrice(), new BigDecimal(tickSize), rules.priceScale(),
+            rules.priceScale(), rules.minQuantity(), rules.maxQuantity(), 100),
+        new MarketDefinition.RiskRules(new BigDecimal(makerFee), new BigDecimal(takerFee),
+            new BigDecimal("0.20"), new BigDecimal("0.05"), new BigDecimal("0.20"),
+            new BigDecimal("0.10"), 120, new BigDecimal("0.20"), 600, 100000,
+            new BigDecimal("10000000.00"), 100, 5, 60), false);
   }
 
   void archiveFeeVersion(long feeVersion) throws SQLException {
     repository.archiveFeeVersion(rules.marketId(), feeVersion);
-  }
-
-  void setMarketStructuralVersion(long structuralVersion) throws SQLException {
-    try (Connection connection = connections.open();
-         PreparedStatement update = connection.prepareStatement(
-             "UPDATE " + tables.markets() + " SET structural_version=? WHERE market_id=?")) {
-      update.setLong(1, structuralVersion);
-      update.setString(2, rules.marketId());
-      update.executeUpdate();
-    }
   }
 
   BigDecimal lastTradeMakerFee() throws SQLException {
