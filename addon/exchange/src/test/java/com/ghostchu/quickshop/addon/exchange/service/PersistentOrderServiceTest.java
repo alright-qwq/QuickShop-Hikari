@@ -374,6 +374,27 @@ class PersistentOrderServiceTest {
   }
 
   @Test
+  void serviceInstancesShareExactRiskHistory() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID firstSeller = fixture.accountWithItems(50);
+    UUID firstBuyer = fixture.accountWithCurrency("10000.00");
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), firstSeller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("105.00"), null, 50));
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), firstBuyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("105.00"), null, 50));
+
+    PersistentOrderService secondService = fixture.restartedService();
+    UUID secondSeller = fixture.accountWithItems(1);
+    UUID secondBuyer = fixture.accountWithCurrency("1000.00");
+    secondService.place(new OrderRequest(UUID.randomUUID(), secondSeller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("105.00"), null, 1));
+    secondService.place(new OrderRequest(UUID.randomUUID(), secondBuyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("105.00"), null, 1));
+
+    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("102.55");
+  }
+
+  @Test
   void recoveryCanPublishRebuiltRuntimeRiskState() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     RiskLimits limits = RiskLimits.defaults();

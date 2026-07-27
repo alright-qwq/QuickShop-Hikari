@@ -247,41 +247,6 @@ class JdbcBalanceRepositoryTest {
   }
 
   @Test
-  void mysqlOpenOrdersUsesCurrentLockingRead() throws Exception {
-    AtomicReference<String> preparedSql = new AtomicReference<>();
-    ResultSet resultSet = (ResultSet) Proxy.newProxyInstance(
-        ResultSet.class.getClassLoader(), new Class<?>[] {ResultSet.class},
-        (proxy, method, arguments) -> switch (method.getName()) {
-          case "next" -> false;
-          case "close" -> null;
-          default -> throw new AssertionError("unexpected result call: " + method.getName());
-        });
-    PreparedStatement statement = (PreparedStatement) Proxy.newProxyInstance(
-        PreparedStatement.class.getClassLoader(), new Class<?>[] {PreparedStatement.class},
-        (proxy, method, arguments) -> switch (method.getName()) {
-          case "setString", "close" -> null;
-          case "executeQuery" -> resultSet;
-          default -> throw new AssertionError("unexpected statement call: " + method.getName());
-        });
-    Connection connection = (Connection) Proxy.newProxyInstance(
-        Connection.class.getClassLoader(), new Class<?>[] {Connection.class},
-        (proxy, method, arguments) -> switch (method.getName()) {
-          case "setAutoCommit", "commit", "close" -> null;
-          case "prepareStatement" -> {
-            preparedSql.set((String) arguments[0]);
-            yield statement;
-          }
-          default -> throw new AssertionError("unexpected connection call: " + method.getName());
-        });
-    ExchangeRepository mysqlRepository =
-        new JdbcExchangeRepository(() -> connection, SqlDialect.MYSQL, tables);
-
-    int orderCount = mysqlRepository.inTransaction(tx -> tx.openOrders("DIAMOND").size());
-    assertThat(orderCount).isZero();
-    assertThat(preparedSql.get()).endsWith(" ORDER BY priority_sequence FOR UPDATE");
-  }
-
-  @Test
   void rejectsStaleCurrencyAndItemVersionsAndRollsBack() throws Exception {
     AtomicReference<Connection> activeConnection = new AtomicReference<>();
     ConnectionProvider trackingConnections = () -> {

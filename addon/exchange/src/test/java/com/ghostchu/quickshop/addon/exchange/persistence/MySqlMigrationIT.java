@@ -1,16 +1,32 @@
 package com.ghostchu.quickshop.addon.exchange.persistence;
 
+import com.ghostchu.quickshop.addon.exchange.core.model.Order;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
+import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -79,12 +95,105 @@ class MySqlMigrationIT {
     }
   }
 
+  @Test
+  void lockingOpenOrderReadSeesCommitAfterRepeatableReadSnapshot() throws Exception {
+    ConnectionProvider connections = () -> DriverManager.getConnection(
+        mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword());
+    TableNames names = new TableNames("snapshot_");
+    new MigrationRunner(connections, SqlDialect.MYSQL, names).migrate();
+    seedMarket(connections, names);
+    ExchangeRepository repository =
+        new JdbcExchangeRepository(connections, SqlDialect.MYSQL, names);
+    Instant createdAt = Instant.ofEpochMilli(1_000);
+    Order committedOrder = new Order(
+        UUID.randomUUID(), UUID.randomUUID(), "diamond-usd", UUID.randomUUID(),
+        OrderSide.SELL, OrderType.LIMIT, TimeInForce.GTC, new BigDecimal("100.00"), null,
+        1, 1, OrderStatus.OPEN, 1, 1, 1, createdAt, createdAt);
+    CountDownLatch writerLockedMarket = new CountDownLatch(1);
+    CountDownLatch snapshotEstablished = new CountDownLatch(1);
+
+    try (Connection connection = connections.open()) {
+      assertThat(connection.getTransactionIsolation())
+          .isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
+    }
+    try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+      Future<Void> writer = executor.submit(() -> repository.inTransaction(tx -> {
+        tx.marketState("diamond-usd");
+        writerLockedMarket.countDown();
+        await(snapshotEstablished);
+        tx.insertOrder(committedOrder, BigDecimal.ZERO, 1);
+        return null;
+      }));
+      assertThat(writerLockedMarket.await(5, TimeUnit.SECONDS)).isTrue();
+      Future<List<PersistedOrder>> reader = executor.submit(() -> repository.inTransaction(tx -> {
+        assertThat(tx.requestResult(UUID.randomUUID(), UUID.randomUUID())).isEmpty();
+        snapshotEstablished.countDown();
+        tx.marketState("diamond-usd");
+        return tx.openOrders("diamond-usd");
+      }));
+      writer.get();
+
+      List<PersistedOrder> observed = reader.get();
+      assertThat(observed).hasSize(1);
+      assertThat(observed.getFirst().order().orderId()).isEqualTo(committedOrder.orderId());
+      assertThat(observed.getFirst().order().limitPrice())
+          .isEqualByComparingTo(committedOrder.limitPrice());
+    }
+  }
+
   private static int tableCount(Connection connection, String pattern) throws SQLException {
     int count = 0;
     try (ResultSet result = connection.getMetaData().getTables(null, null, pattern, null)) {
       while (result.next()) count++;
     }
     return count;
+  }
+
+  private static void seedMarket(ConnectionProvider connections, TableNames names)
+      throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement market = connection.prepareStatement(
+             "INSERT INTO " + names.markets()
+                 + " (market_id,currency_id,item_fingerprint,item_template,structural_payload,"
+                 + "fee_schedule_payload,risk_payload,structural_version,risk_version,created_at)"
+                 + " VALUES (?,?,?,?,?,?,?,?,?,?)");
+         PreparedStatement state = connection.prepareStatement(
+             "INSERT INTO " + names.marketState()
+                 + " (market_id,status,priority_sequence,match_sequence,reference_price,"
+                 + "last_price,halted_until,version) VALUES (?,?,?,?,?,?,?,?)")) {
+      market.setString(1, "diamond-usd");
+      market.setString(2, "USD");
+      market.setString(3, "diamond");
+      market.setString(4, "{}");
+      market.setString(5, "{}");
+      market.setString(6, "{}");
+      market.setString(7, "{}");
+      market.setLong(8, 1);
+      market.setLong(9, 1);
+      market.setLong(10, 0);
+      market.executeUpdate();
+
+      state.setString(1, "diamond-usd");
+      state.setString(2, "OPEN");
+      state.setLong(3, 0);
+      state.setLong(4, 0);
+      state.setBigDecimal(5, new BigDecimal("100.00"));
+      state.setNull(6, java.sql.Types.DECIMAL);
+      state.setNull(7, java.sql.Types.BIGINT);
+      state.setLong(8, 0);
+      state.executeUpdate();
+    }
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      if (!latch.await(5, TimeUnit.SECONDS)) {
+        throw new AssertionError("timed out waiting for MySQL transaction gate");
+      }
+    } catch (InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(failure);
+    }
   }
 
   private static int rowCount(Connection connection, String table) throws SQLException {

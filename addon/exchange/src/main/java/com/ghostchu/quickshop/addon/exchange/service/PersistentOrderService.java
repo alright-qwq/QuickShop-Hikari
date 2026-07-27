@@ -56,7 +56,8 @@ public final class PersistentOrderService {
   private static final String PLACE_OPERATION = "PLACE";
   private static final long REFERENCE_DISCOVERY_QUANTITY = 100;
   private static final Duration REFERENCE_WINDOW = Duration.ofMinutes(5);
-  private static final Map<String, Object> MARKET_SERIAL_EXECUTORS = new ConcurrentHashMap<>();
+  private static final Map<MarketCoordinationKey, MarketRuntimeState> MARKET_RUNTIMES =
+      new ConcurrentHashMap<>();
   private final ExchangeRepository repository;
   private final MarketRules rules;
   private final RiskLimits riskLimits;
@@ -65,10 +66,7 @@ public final class PersistentOrderService {
   private final TimeOrderedIdGenerator ids;
   private final Supplier<Instant> now;
   private final RecoveryHandler recovery;
-  private volatile OrderBook committedBook = new OrderBook();
-  private volatile ReferencePriceTracker referencePrices;
-  private volatile CircuitBreaker circuitBreaker;
-  private volatile long committedMarketVersion = Long.MIN_VALUE;
+  private final MarketRuntimeState runtimeState;
 
   /** Production wiring should prefer the constructor that supplies a recovery handler. */
   public PersistentOrderService(ExchangeRepository repository, MarketRules rules) {
@@ -92,16 +90,21 @@ public final class PersistentOrderService {
     this.now = Objects.requireNonNull(now, "now");
     this.fees = new FeeCalculator(rules.priceScale());
     this.reservations = new ReservationCalculator(fees);
-    this.referencePrices = new ReferencePriceTracker(
-        rules.basePrice(), REFERENCE_DISCOVERY_QUANTITY, REFERENCE_WINDOW, rules.priceScale());
-    this.circuitBreaker = new CircuitBreaker(riskLimits);
+    MarketCoordinationKey coordinationKey = new MarketCoordinationKey(
+        Objects.requireNonNull(repository.coordinationKey(), "repository coordination key"),
+        rules.marketId());
+    this.runtimeState = MARKET_RUNTIMES.computeIfAbsent(coordinationKey, ignored ->
+        new MarketRuntimeState(
+            new OrderBook(),
+            new ReferencePriceTracker(rules.basePrice(), REFERENCE_DISCOVERY_QUANTITY,
+                REFERENCE_WINDOW, rules.priceScale()),
+            new CircuitBreaker(riskLimits),
+            Long.MIN_VALUE));
   }
 
   public OrderReceipt place(OrderRequest request) throws SQLException {
     validate(request);
-    Object serialExecutor = MARKET_SERIAL_EXECUTORS.computeIfAbsent(
-        request.marketId(), ignored -> new Object());
-    synchronized (serialExecutor) {
+    synchronized (runtimeState) {
       AtomicReference<TransactionOutcome> attemptedOutcome = new AtomicReference<>();
       try {
         TransactionOutcome outcome = repository.inTransaction(tx -> {
@@ -130,10 +133,10 @@ public final class PersistentOrderService {
     if (outcome.duplicate()) {
       return;
     }
-    committedBook = outcome.book();
-    referencePrices = outcome.referencePrices();
-    circuitBreaker = outcome.circuitBreaker();
-    committedMarketVersion = outcome.marketVersion();
+    runtimeState.committedBook = outcome.book();
+    runtimeState.referencePrices = outcome.referencePrices();
+    runtimeState.circuitBreaker = outcome.circuitBreaker();
+    runtimeState.committedMarketVersion = outcome.marketVersion();
   }
 
   private OrderReceipt committedReceipt(OrderRequest request, SQLException originalFailure) {
@@ -255,19 +258,18 @@ public final class PersistentOrderService {
     Objects.requireNonNull(rebuiltBook, "rebuiltBook");
     Objects.requireNonNull(rebuiltReferencePrices, "rebuiltReferencePrices");
     Objects.requireNonNull(rebuiltCircuitBreaker, "rebuiltCircuitBreaker");
-    Object serialExecutor = MARKET_SERIAL_EXECUTORS.computeIfAbsent(
-        rules.marketId(), ignored -> new Object());
-    synchronized (serialExecutor) {
-      committedBook = rebuiltBook;
-      referencePrices = rebuiltReferencePrices.copy();
-      circuitBreaker = rebuiltCircuitBreaker.copy();
-      committedMarketVersion = marketVersion;
+    synchronized (runtimeState) {
+      runtimeState.committedBook = rebuiltBook;
+      runtimeState.referencePrices = rebuiltReferencePrices.copy();
+      runtimeState.circuitBreaker = rebuiltCircuitBreaker.copy();
+      runtimeState.committedMarketVersion = marketVersion;
     }
   }
 
   private RuntimeRiskSnapshot runtimeRisk(MarketState state) {
-    if (committedMarketVersion == state.version()) {
-      return new RuntimeRiskSnapshot(referencePrices.copy(), circuitBreaker.copy());
+    if (runtimeState.committedMarketVersion == state.version()) {
+      return new RuntimeRiskSnapshot(
+          runtimeState.referencePrices.copy(), runtimeState.circuitBreaker.copy());
     }
     return new RuntimeRiskSnapshot(
         ReferencePriceTracker.restored(state.referencePrice(), REFERENCE_DISCOVERY_QUANTITY,
@@ -581,6 +583,24 @@ public final class PersistentOrderService {
 
   private record RuntimeRiskSnapshot(
       ReferencePriceTracker referencePrices, CircuitBreaker circuitBreaker) {}
+
+  private record MarketCoordinationKey(Object repositoryKey, String marketId) {}
+
+  private static final class MarketRuntimeState {
+    private OrderBook committedBook;
+    private ReferencePriceTracker referencePrices;
+    private CircuitBreaker circuitBreaker;
+    private long committedMarketVersion;
+
+    private MarketRuntimeState(
+        OrderBook committedBook, ReferencePriceTracker referencePrices,
+        CircuitBreaker circuitBreaker, long committedMarketVersion) {
+      this.committedBook = committedBook;
+      this.referencePrices = referencePrices;
+      this.circuitBreaker = circuitBreaker;
+      this.committedMarketVersion = committedMarketVersion;
+    }
+  }
 
   private record TransactionOutcome(
       OrderReceipt receipt, SettlementPlan plan, OrderBook book,

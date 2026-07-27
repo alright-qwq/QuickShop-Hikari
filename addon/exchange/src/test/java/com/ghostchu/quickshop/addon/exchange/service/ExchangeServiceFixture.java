@@ -95,6 +95,11 @@ final class ExchangeServiceFixture {
         onEntry.run();
         return repository.inTransaction(work);
       }
+
+      @Override
+      public Object coordinationKey() {
+        return repository.coordinationKey();
+      }
     };
     return new PersistentOrderService(observed, rules,
         com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
@@ -111,6 +116,11 @@ final class ExchangeServiceFixture {
           throw new SQLException("reported failure after commit");
         }
         return result;
+      }
+
+      @Override
+      public Object coordinationKey() {
+        return repository.coordinationKey();
       }
     };
     return new PersistentOrderService(uncertainCommit, rules,
