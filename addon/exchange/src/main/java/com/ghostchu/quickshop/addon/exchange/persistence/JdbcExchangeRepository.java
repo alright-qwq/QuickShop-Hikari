@@ -18,6 +18,11 @@ import com.ghostchu.quickshop.addon.exchange.repository.ItemBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketSnapshot;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketTradeSample;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
+import com.ghostchu.quickshop.addon.exchange.transfer.IdempotencyConflictException;
+import com.ghostchu.quickshop.addon.exchange.transfer.TransferRepository;
+import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
+import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferStatus;
+import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferType;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -40,7 +45,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-public final class JdbcExchangeRepository implements ExchangeRepository {
+public final class JdbcExchangeRepository implements ExchangeRepository, TransferRepository {
   private final ConnectionProvider connections;
   private final SqlDialect dialect;
   private final TableNames tables;
@@ -50,6 +55,77 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
     this.connections = Objects.requireNonNull(connections, "connections");
     this.dialect = Objects.requireNonNull(dialect, "dialect");
     this.tables = Objects.requireNonNull(tables, "tables");
+  }
+
+  @Override
+  public TransferRecord create(TransferRecord prepared) throws SQLException {
+    Objects.requireNonNull(prepared, "prepared");
+    if (prepared.status() != TransferStatus.PREPARED || prepared.version() != 0) {
+      throw new IllegalArgumentException("transfer must be newly prepared");
+    }
+    return inTransaction(transaction ->
+        ((JdbcTransaction) transaction).createTransfer(prepared));
+  }
+
+  @Override
+  public Optional<TransferRecord> find(UUID transferId) throws SQLException {
+    Objects.requireNonNull(transferId, "transferId");
+    try (Connection connection = connections.open()) {
+      return new JdbcTransaction(connection, dialect, tables).findTransfer(transferId);
+    }
+  }
+
+  @Override
+  public Optional<TransferRecord> findByRequest(UUID accountId, UUID requestId)
+      throws SQLException {
+    Objects.requireNonNull(accountId, "accountId");
+    Objects.requireNonNull(requestId, "requestId");
+    try (Connection connection = connections.open()) {
+      return new JdbcTransaction(connection, dialect, tables)
+          .findTransferByRequest(accountId, requestId);
+    }
+  }
+
+  @Override
+  public List<TransferRecord> findUnfinished(UUID accountId) throws SQLException {
+    Objects.requireNonNull(accountId, "accountId");
+    try (Connection connection = connections.open()) {
+      return new JdbcTransaction(connection, dialect, tables).findUnfinished(accountId);
+    }
+  }
+
+  @Override
+  public List<TransferRecord> findAllUnfinished() throws SQLException {
+    try (Connection connection = connections.open()) {
+      return new JdbcTransaction(connection, dialect, tables).findUnfinished(null);
+    }
+  }
+
+  @Override
+  public TransferRecord transition(
+      UUID transferId, long expectedVersion, TransferStatus expectedStatus,
+      TransferStatus targetStatus, String reason) throws SQLException {
+    Objects.requireNonNull(transferId, "transferId");
+    requireLegalTransition(expectedStatus, targetStatus);
+    return inTransaction(transaction -> ((JdbcTransaction) transaction).transitionTransfer(
+        transferId, expectedVersion, expectedStatus, targetStatus, reason));
+  }
+
+  private static void requireLegalTransition(
+      TransferStatus expectedStatus, TransferStatus targetStatus) {
+    Objects.requireNonNull(expectedStatus, "expectedStatus");
+    Objects.requireNonNull(targetStatus, "targetStatus");
+    boolean legal = expectedStatus == TransferStatus.PREPARED
+        && (targetStatus == TransferStatus.PROCESSING
+            || targetStatus == TransferStatus.FAILED
+            || targetStatus == TransferStatus.REVIEW_REQUIRED)
+        || expectedStatus == TransferStatus.PROCESSING
+        && (targetStatus == TransferStatus.COMPLETED
+            || targetStatus == TransferStatus.FAILED
+            || targetStatus == TransferStatus.REVIEW_REQUIRED);
+    if (!legal) {
+      throw new IllegalArgumentException("illegal transfer transition");
+    }
   }
 
   @Override
@@ -107,6 +183,142 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
       this.connection = connection;
       this.dialect = dialect;
       this.tables = tables;
+    }
+
+    private TransferRecord createTransfer(TransferRecord prepared) throws SQLException {
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO " + tables.transfers()
+              + " (transfer_id,request_id,account_id,transfer_type,asset_id,amount,status,"
+              + "external_marker,failure_reason,created_at,updated_at,version)"
+              + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")) {
+        writeTransfer(insert, prepared);
+        insert.executeUpdate();
+        return prepared;
+      } catch (SQLException failure) {
+        Optional<TransferRecord> existing =
+            findTransferByRequest(prepared.accountId(), prepared.requestId());
+        if (existing.isEmpty()) {
+          throw failure;
+        }
+        TransferRecord original = existing.get();
+        if (original.type() != prepared.type()
+            || !original.assetId().equals(prepared.assetId())
+            || original.amount().compareTo(prepared.amount()) != 0) {
+          throw new IdempotencyConflictException();
+        }
+        return original;
+      }
+    }
+
+    private Optional<TransferRecord> findTransfer(UUID transferId) throws SQLException {
+      try (PreparedStatement query = connection.prepareStatement(
+          transferSelect() + " WHERE transfer_id=?")) {
+        query.setString(1, transferId.toString());
+        return readSingleTransfer(query);
+      }
+    }
+
+    private Optional<TransferRecord> findTransferByRequest(UUID accountId, UUID requestId)
+        throws SQLException {
+      try (PreparedStatement query = connection.prepareStatement(
+          transferSelect() + " WHERE account_id=? AND request_id=?")) {
+        query.setString(1, accountId.toString());
+        query.setString(2, requestId.toString());
+        return readSingleTransfer(query);
+      }
+    }
+
+    private List<TransferRecord> findUnfinished(UUID accountId) throws SQLException {
+      String accountFilter = accountId == null ? "" : " AND account_id=?";
+      try (PreparedStatement query = connection.prepareStatement(
+          transferSelect() + " WHERE status NOT IN ('COMPLETED','FAILED')" + accountFilter
+              + " ORDER BY created_at,transfer_id")) {
+        if (accountId != null) {
+          query.setString(1, accountId.toString());
+        }
+        try (ResultSet result = query.executeQuery()) {
+          ArrayList<TransferRecord> records = new ArrayList<>();
+          while (result.next()) {
+            records.add(readTransfer(result));
+          }
+          return List.copyOf(records);
+        }
+      }
+    }
+
+    private TransferRecord transitionTransfer(
+        UUID transferId, long expectedVersion, TransferStatus expectedStatus,
+        TransferStatus targetStatus, String reason) throws SQLException {
+      try (PreparedStatement update = connection.prepareStatement(
+          "UPDATE " + tables.transfers()
+              + " SET status=?,failure_reason=?,updated_at=?,version=version+1"
+              + " WHERE transfer_id=? AND status=? AND version=?")) {
+        update.setString(1, targetStatus.name());
+        if (reason == null) {
+          update.setNull(2, Types.VARCHAR);
+        } else {
+          update.setString(2, reason);
+        }
+        update.setLong(3, Instant.now().toEpochMilli());
+        update.setString(4, transferId.toString());
+        update.setString(5, expectedStatus.name());
+        update.setLong(6, expectedVersion);
+        if (update.executeUpdate() != 1) {
+          throw new ConcurrentModificationException("transfer state or version changed");
+        }
+      }
+      return findTransfer(transferId)
+          .orElseThrow(() -> new SQLException("updated transfer does not exist"));
+    }
+
+    private String transferSelect() {
+      return "SELECT transfer_id,request_id,account_id,transfer_type,asset_id,amount,status,"
+          + "external_marker,failure_reason,created_at,updated_at,version FROM "
+          + tables.transfers();
+    }
+
+    private Optional<TransferRecord> readSingleTransfer(PreparedStatement query)
+        throws SQLException {
+      try (ResultSet result = query.executeQuery()) {
+        return result.next() ? Optional.of(readTransfer(result)) : Optional.empty();
+      }
+    }
+
+    private TransferRecord readTransfer(ResultSet result) throws SQLException {
+      return new TransferRecord(
+          UUID.fromString(result.getString("transfer_id")),
+          UUID.fromString(result.getString("request_id")),
+          UUID.fromString(result.getString("account_id")),
+          TransferType.valueOf(result.getString("transfer_type")),
+          result.getString("asset_id"), new BigDecimal(result.getString("amount")),
+          TransferStatus.valueOf(result.getString("status")),
+          result.getString("external_marker"), result.getString("failure_reason"),
+          Instant.ofEpochMilli(result.getLong("created_at")),
+          Instant.ofEpochMilli(result.getLong("updated_at")), result.getLong("version"));
+    }
+
+    private void writeTransfer(PreparedStatement insert, TransferRecord transfer)
+        throws SQLException {
+      insert.setString(1, transfer.transferId().toString());
+      insert.setString(2, transfer.requestId().toString());
+      insert.setString(3, transfer.accountId().toString());
+      insert.setString(4, transfer.type().name());
+      insert.setString(5, transfer.assetId());
+      writeDecimal(insert, 6, transfer.amount());
+      insert.setString(7, transfer.status().name());
+      if (transfer.externalMarker() == null) {
+        insert.setNull(8, Types.VARCHAR);
+      } else {
+        insert.setString(8, transfer.externalMarker());
+      }
+      if (transfer.failureReason() == null) {
+        insert.setNull(9, Types.VARCHAR);
+      } else {
+        insert.setString(9, transfer.failureReason());
+      }
+      insert.setLong(10, transfer.createdAt().toEpochMilli());
+      insert.setLong(11, transfer.updatedAt().toEpochMilli());
+      insert.setLong(12, transfer.version());
     }
 
     @Override
