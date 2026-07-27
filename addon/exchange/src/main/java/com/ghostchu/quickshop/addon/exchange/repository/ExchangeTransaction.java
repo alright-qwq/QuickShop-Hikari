@@ -27,6 +27,8 @@ public interface ExchangeTransaction {
   Optional<StoredRequestResult> requestResult(UUID accountId, UUID requestId) throws SQLException;
   void putRequestResult(StoredRequestResult result) throws SQLException;
   MarketState marketState(String marketId) throws SQLException;
+  MarketSnapshot marketSnapshot(MarketState state, Instant cutoff) throws SQLException;
+  void visitTradeHistory(String marketId, TradeVisitor visitor) throws SQLException;
   List<PersistedOrder> openOrders(String marketId) throws SQLException;
   void updateMarketState(MarketState state, long expectedVersion) throws SQLException;
   void insertHighAlert(UUID alertId, String marketId, String alertType,
@@ -45,4 +47,9 @@ public interface ExchangeTransaction {
                      long matchSequence, BigDecimal referencePrice, BigDecimal lastPrice,
                      Instant haltedUntil, Long discoveryQuantity,
                      Integer circuitBreakerLevel, long version) {}
+
+  @FunctionalInterface
+  interface TradeVisitor {
+    void accept(MarketTradeSample sample) throws SQLException;
+  }
 }

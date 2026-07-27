@@ -14,6 +14,8 @@ import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.InsufficientAssetsException;
 import com.ghostchu.quickshop.addon.exchange.repository.ItemBalance;
+import com.ghostchu.quickshop.addon.exchange.repository.MarketSnapshot;
+import com.ghostchu.quickshop.addon.exchange.repository.MarketTradeSample;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -305,6 +307,67 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
                 result.getLong("reserved_quantity"), result.getLong("version")));
           }
           return List.copyOf(orders);
+        }
+      }
+    }
+
+    @Override
+    public MarketSnapshot marketSnapshot(MarketState state, Instant cutoff) throws SQLException {
+      List<PersistedOrder> orders = openOrders(state.marketId());
+      List<MarketTradeSample> trades = recentTrades(state.marketId(), cutoff);
+      return new MarketSnapshot(state, orders, trades,
+          maximumSequence(tables.orders(), "priority_sequence", state.marketId()),
+          maximumSequence(tables.trades(), "match_sequence", state.marketId()));
+    }
+
+    @Override
+    public void visitTradeHistory(String marketId, TradeVisitor visitor) throws SQLException {
+      Objects.requireNonNull(visitor, "visitor");
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT price,quantity,match_sequence,executed_at FROM " + tables.trades()
+              + " WHERE market_id=? ORDER BY match_sequence" + dialect.forUpdate())) {
+        select.setString(1, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          while (result.next()) {
+            visitor.accept(readTradeSample(result));
+          }
+        }
+      }
+    }
+
+    private List<MarketTradeSample> recentTrades(String marketId, Instant cutoff)
+        throws SQLException {
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT price,quantity,match_sequence,executed_at FROM " + tables.trades()
+              + " WHERE market_id=? AND executed_at>=? ORDER BY match_sequence"
+              + dialect.forUpdate())) {
+        select.setString(1, marketId);
+        select.setLong(2, cutoff.toEpochMilli());
+        try (ResultSet result = select.executeQuery()) {
+          ArrayList<MarketTradeSample> trades = new ArrayList<>();
+          while (result.next()) {
+            trades.add(readTradeSample(result));
+          }
+          return List.copyOf(trades);
+        }
+      }
+    }
+
+    private MarketTradeSample readTradeSample(ResultSet result) throws SQLException {
+      return new MarketTradeSample(readDecimal(result, "price"),
+          result.getLong("quantity"), result.getLong("match_sequence"),
+          Instant.ofEpochMilli(result.getLong("executed_at")));
+    }
+
+    private long maximumSequence(String table, String column, String marketId)
+        throws SQLException {
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT " + column + " FROM " + table
+              + " WHERE market_id=? ORDER BY " + column + " DESC LIMIT 1"
+              + dialect.forUpdate())) {
+        select.setString(1, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          return result.next() ? result.getLong(1) : 0;
         }
       }
     }

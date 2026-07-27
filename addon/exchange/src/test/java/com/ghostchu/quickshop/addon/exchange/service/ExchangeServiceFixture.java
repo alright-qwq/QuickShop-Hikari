@@ -88,6 +88,11 @@ final class ExchangeServiceFixture {
         RecoveryHandler.NO_OP);
   }
 
+  OrderBookRecoveryService recovery() {
+    return new OrderBookRecoveryService(repository, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults());
+  }
+
   PersistentOrderService serviceWithTransactionEntry(Runnable onEntry) {
     ExchangeRepository observed = new ExchangeRepository() {
       @Override
@@ -300,6 +305,27 @@ final class ExchangeServiceFixture {
 
   String marketCircuitBreakerLevel() throws SQLException {
     return marketValue("circuit_breaker_level");
+  }
+
+  void clearMarketRiskMetadata() throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement update = connection.prepareStatement(
+             "UPDATE " + tables.marketState()
+                 + " SET discovery_quantity=NULL,circuit_breaker_level=NULL WHERE market_id=?")) {
+      update.setString(1, rules.marketId());
+      update.executeUpdate();
+    }
+  }
+
+  void setMarketPrioritySequence(long sequence) throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement update = connection.prepareStatement(
+             "UPDATE " + tables.marketState()
+                 + " SET priority_sequence=? WHERE market_id=?")) {
+      update.setLong(1, sequence);
+      update.setString(2, rules.marketId());
+      update.executeUpdate();
+    }
   }
 
   Set<String> journalAccountKinds() throws SQLException {
