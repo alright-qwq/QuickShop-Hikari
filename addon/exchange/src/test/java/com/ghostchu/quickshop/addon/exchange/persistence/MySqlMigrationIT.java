@@ -6,7 +6,8 @@ import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
-import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
+import com.ghostchu.quickshop.addon.exchange.repository.MarketSnapshot;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -20,7 +21,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -111,6 +111,11 @@ class MySqlMigrationIT {
         UUID.randomUUID(), UUID.randomUUID(), "diamond-usd", UUID.randomUUID(),
         OrderSide.SELL, OrderType.LIMIT, TimeInForce.GTC, new BigDecimal("100.00"), null,
         1, 1, OrderStatus.OPEN, 1, 1, 1, createdAt, createdAt);
+    com.ghostchu.quickshop.addon.exchange.core.model.Trade committedTrade =
+        new com.ghostchu.quickshop.addon.exchange.core.model.Trade(
+            UUID.randomUUID(), "diamond-usd", committedOrder.orderId(), UUID.randomUUID(),
+            UUID.randomUUID(), UUID.randomUUID(), new BigDecimal("100.00"), 1,
+            BigDecimal.ZERO, BigDecimal.ZERO, 1, createdAt);
     CountDownLatch writerLockedMarket = new CountDownLatch(1);
     CountDownLatch snapshotEstablished = new CountDownLatch(1);
 
@@ -120,26 +125,39 @@ class MySqlMigrationIT {
     }
     try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
       Future<Void> writer = executor.submit(() -> repository.inTransaction(tx -> {
-        tx.marketState("diamond-usd");
+        MarketState before = tx.marketState("diamond-usd");
         writerLockedMarket.countDown();
         await(snapshotEstablished);
         tx.insertOrder(committedOrder, BigDecimal.ZERO, 1);
+        tx.insertTrade(committedTrade);
+        tx.updateMarketState(new MarketState(
+            "diamond-usd", com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus.OPEN,
+            1, 1, new BigDecimal("100.00"), new BigDecimal("100.00"), null,
+            1L, 0, before.version() + 1), before.version());
         return null;
       }));
       assertThat(writerLockedMarket.await(5, TimeUnit.SECONDS)).isTrue();
-      Future<List<PersistedOrder>> reader = executor.submit(() -> repository.inTransaction(tx -> {
+      Future<MarketSnapshot> reader = executor.submit(() -> repository.inTransaction(tx -> {
         assertThat(tx.requestResult(UUID.randomUUID(), UUID.randomUUID())).isEmpty();
         snapshotEstablished.countDown();
-        tx.marketState("diamond-usd");
-        return tx.openOrders("diamond-usd");
+        MarketState state = tx.marketState("diamond-usd");
+        return tx.marketSnapshot(state, Instant.EPOCH);
       }));
       writer.get();
 
-      List<PersistedOrder> observed = reader.get();
-      assertThat(observed).hasSize(1);
-      assertThat(observed.getFirst().order().orderId()).isEqualTo(committedOrder.orderId());
-      assertThat(observed.getFirst().order().limitPrice())
+      MarketSnapshot observed = reader.get();
+      assertThat(observed.openOrders()).hasSize(1);
+      assertThat(observed.openOrders().getFirst().order().orderId())
+          .isEqualTo(committedOrder.orderId());
+      assertThat(observed.openOrders().getFirst().order().limitPrice())
           .isEqualByComparingTo(committedOrder.limitPrice());
+      assertThat(observed.recentTrades()).hasSize(1);
+      assertThat(observed.recentTrades().getFirst().matchSequence()).isEqualTo(1);
+      assertThat(observed.maximumPrioritySequence()).isEqualTo(1);
+      assertThat(observed.maximumMatchSequence()).isEqualTo(1);
+      assertThat(observed.state().discoveryQuantity()).isEqualTo(1);
+      assertThat(observed.state().circuitBreakerLevel()).isZero();
+      assertThat(observed.state().version()).isEqualTo(1);
     }
   }
 
