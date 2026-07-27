@@ -397,6 +397,53 @@ class PersistentOrderServiceTest {
   }
 
   @Test
+  void independentRuntimeRecoversExactReferenceHistory() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID firstSeller = fixture.accountWithItems(50);
+    UUID firstBuyer = fixture.accountWithCurrency("10000.00");
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), firstSeller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("105.00"), null, 50));
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), firstBuyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("105.00"), null, 50));
+
+    PersistentOrderService restarted = fixture.isolatedRestartedService();
+    UUID secondSeller = fixture.accountWithItems(1);
+    UUID secondBuyer = fixture.accountWithCurrency("1000.00");
+    restarted.place(new OrderRequest(UUID.randomUUID(), secondSeller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("105.00"), null, 1));
+    restarted.place(new OrderRequest(UUID.randomUUID(), secondBuyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("105.00"), null, 1));
+
+    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("102.55");
+  }
+
+  @Test
+  void independentRuntimeRetainsBreakerLevelAfterBenignTrade() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    trade(fixture, fixture.service(), "110.00", 1);
+    fixture.resumeMarket();
+    trade(fixture, fixture.service(), "100.00", 1);
+
+    PersistentOrderService restarted = fixture.isolatedRestartedService();
+    trade(fixture, restarted, "120.12", 1);
+
+    assertThat(fixture.marketStatus()).isEqualTo("HALTED");
+    assertThat(fixture.marketCircuitBreakerLevel()).isEqualTo("2");
+    assertThat(fixture.highAlertCount()).isEqualTo(1);
+  }
+
+  private static void trade(
+      ExchangeServiceFixture fixture, PersistentOrderService service,
+      String price, long quantity) throws Exception {
+    UUID seller = fixture.accountWithItems(quantity);
+    UUID buyer = fixture.accountWithCurrency("10000.00");
+    service.place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal(price), null, quantity));
+    service.place(new OrderRequest(UUID.randomUUID(), buyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal(price), null, quantity));
+  }
+
+  @Test
   void recoveryCanPublishRebuiltRuntimeRiskState() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     RiskLimits limits = RiskLimits.defaults();

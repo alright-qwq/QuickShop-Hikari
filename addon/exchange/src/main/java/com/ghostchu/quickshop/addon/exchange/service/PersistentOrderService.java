@@ -66,6 +66,7 @@ public final class PersistentOrderService {
   private final TimeOrderedIdGenerator ids;
   private final Supplier<Instant> now;
   private final RecoveryHandler recovery;
+  private final OrderBookRecoveryService marketRecovery;
   private final MarketRuntimeState runtimeState;
 
   /** Production wiring should prefer the constructor that supplies a recovery handler. */
@@ -90,6 +91,7 @@ public final class PersistentOrderService {
     this.now = Objects.requireNonNull(now, "now");
     this.fees = new FeeCalculator(rules.priceScale());
     this.reservations = new ReservationCalculator(fees);
+    this.marketRecovery = new OrderBookRecoveryService(repository, rules, riskLimits);
     MarketCoordinationKey coordinationKey = new MarketCoordinationKey(
         Objects.requireNonNull(repository.coordinationKey(), "repository coordination key"),
         rules.marketId());
@@ -158,7 +160,7 @@ public final class PersistentOrderService {
 
   private TransactionOutcome settle(ExchangeTransaction tx, OrderRequest request)
       throws SQLException {
-    MarketState beforeState = tx.marketState(request.marketId());
+    MarketState lockedState = tx.marketState(request.marketId());
     StoredRequestResult stored = tx.requestResult(request.accountId(), request.requestId())
         .orElse(null);
     if (stored != null) {
@@ -168,11 +170,12 @@ public final class PersistentOrderService {
       return TransactionOutcome.duplicate(decodeReceipt(stored.payload()));
     }
 
-    if (beforeState.status() != MarketStatus.OPEN) {
+    if (lockedState.status() != MarketStatus.OPEN) {
       throw new IllegalStateException(
-          "market " + request.marketId() + " is " + beforeState.status());
+          "market " + request.marketId() + " is " + lockedState.status());
     }
-    RuntimeRiskSnapshot runtimeRisk = runtimeRisk(beforeState);
+    RuntimeRiskSnapshot runtimeRisk = runtimeRisk(tx, lockedState, now.get());
+    MarketState beforeState = runtimeRisk.state();
     List<PersistedOrder> persistedOrders = tx.openOrders(request.marketId());
 
     Instant createdAt = now.get();
@@ -266,16 +269,29 @@ public final class PersistentOrderService {
     }
   }
 
-  private RuntimeRiskSnapshot runtimeRisk(MarketState state) {
+  public void recoverFromDatabase() throws SQLException {
+    synchronized (runtimeState) {
+      RecoveredMarket recovered = marketRecovery.recover(rules.marketId(), now.get());
+      runtimeState.committedBook = recovered.book();
+      runtimeState.referencePrices = recovered.referencePrices().copy();
+      runtimeState.circuitBreaker = recovered.circuitBreaker().copy();
+      runtimeState.committedMarketVersion = recovered.marketVersion();
+    }
+  }
+
+  private RuntimeRiskSnapshot runtimeRisk(
+      ExchangeTransaction tx, MarketState state, Instant recoveredAt) throws SQLException {
     if (runtimeState.committedMarketVersion == state.version()) {
       return new RuntimeRiskSnapshot(
-          runtimeState.referencePrices.copy(), runtimeState.circuitBreaker.copy());
+          state, runtimeState.referencePrices.copy(), runtimeState.circuitBreaker.copy());
     }
-    return new RuntimeRiskSnapshot(
-        ReferencePriceTracker.restored(state.referencePrice(), REFERENCE_DISCOVERY_QUANTITY,
-            REFERENCE_WINDOW, rules.priceScale()),
-        CircuitBreaker.restored(riskLimits, state.status(), state.referencePrice(),
-            state.lastPrice(), state.haltedUntil()));
+    try {
+      RecoveredMarket recovered = marketRecovery.recover(tx, state, recoveredAt);
+      return new RuntimeRiskSnapshot(
+          recovered.state(), recovered.referencePrices(), recovered.circuitBreaker());
+    } catch (RuntimeException failure) {
+      throw new SQLException("market runtime recovery failed", failure);
+    }
   }
 
   private void validate(OrderRequest request) {
@@ -584,7 +600,8 @@ public final class PersistentOrderService {
   private record LockKey(UUID accountId, String assetId, boolean currency) {}
 
   private record RuntimeRiskSnapshot(
-      ReferencePriceTracker referencePrices, CircuitBreaker circuitBreaker) {}
+      MarketState state, ReferencePriceTracker referencePrices,
+      CircuitBreaker circuitBreaker) {}
 
   private record MarketCoordinationKey(Object repositoryKey, String marketId) {}
 

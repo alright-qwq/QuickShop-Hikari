@@ -88,6 +88,24 @@ final class ExchangeServiceFixture {
         RecoveryHandler.NO_OP);
   }
 
+  PersistentOrderService isolatedRestartedService() {
+    Object isolatedKey = new Object();
+    ExchangeRepository isolated = new ExchangeRepository() {
+      @Override
+      public <T> T inTransaction(TransactionWork<T> work) throws SQLException {
+        return repository.inTransaction(work);
+      }
+
+      @Override
+      public Object coordinationKey() {
+        return isolatedKey;
+      }
+    };
+    return new PersistentOrderService(isolated, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP);
+  }
+
   OrderBookRecoveryService recovery() {
     return new OrderBookRecoveryService(repository, rules,
         com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults());
