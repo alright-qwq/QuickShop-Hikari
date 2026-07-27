@@ -1,5 +1,6 @@
 package com.ghostchu.quickshop.addon.exchange.core.risk;
 
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -37,5 +38,29 @@ public final class CircuitBreaker {
       throw new IllegalStateException("halt has not expired");
     }
     haltedUntil = null;
+  }
+
+  public CircuitBreaker copy() {
+    CircuitBreaker copy = new CircuitBreaker(limits);
+    copy.lastLevel = lastLevel;
+    copy.haltedUntil = haltedUntil;
+    return copy;
+  }
+
+  public static CircuitBreaker restored(
+      RiskLimits limits, MarketStatus status, BigDecimal referencePrice,
+      BigDecimal lastPrice, Instant haltedUntil) {
+    CircuitBreaker restored = new CircuitBreaker(limits);
+    if (lastPrice != null) {
+      BigDecimal move = lastPrice.subtract(referencePrice).abs()
+          .divide(referencePrice, 12, RoundingMode.HALF_UP);
+      if (move.compareTo(limits.levelOneMove()) >= 0) {
+        restored.lastLevel = 1;
+      }
+    }
+    if (status == MarketStatus.HALTED) {
+      restored.haltedUntil = haltedUntil;
+    }
+    return restored;
   }
 }

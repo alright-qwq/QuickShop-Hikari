@@ -1,6 +1,11 @@
 package com.ghostchu.quickshop.addon.exchange.persistence;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
+import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
@@ -18,7 +23,9 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.ConcurrentModificationException;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -244,6 +251,106 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
     }
 
     @Override
+    public MarketState marketState(String marketId) throws SQLException {
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT status,priority_sequence,match_sequence,reference_price,last_price,"
+              + "halted_until,version FROM " + tables.marketState()
+              + " WHERE market_id=?" + dialect.forUpdate())) {
+        select.setString(1, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          if (!result.next()) {
+            throw new SQLException("market state does not exist: " + marketId);
+          }
+          Long haltedUntil = nullableLong(result, "halted_until");
+          return new MarketState(marketId, MarketStatus.valueOf(result.getString("status")),
+              result.getLong("priority_sequence"), result.getLong("match_sequence"),
+              readDecimal(result, "reference_price"), readNullableDecimal(result, "last_price"),
+              haltedUntil == null ? null : Instant.ofEpochMilli(haltedUntil),
+              result.getLong("version"));
+        }
+      }
+    }
+
+    @Override
+    public List<PersistedOrder> openOrders(String marketId) throws SQLException {
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT order_id,request_id,market_id,account_id,side,order_type,time_in_force,"
+              + "limit_price,slippage_boundary,original_quantity,remaining_quantity,status,"
+              + "priority_sequence,config_version,fee_version,reserved_currency,"
+              + "reserved_quantity,created_at,updated_at,version FROM " + tables.orders()
+              + " WHERE market_id=? AND status IN ('OPEN','PARTIALLY_FILLED')"
+              + " ORDER BY priority_sequence")) {
+        select.setString(1, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          ArrayList<PersistedOrder> orders = new ArrayList<>();
+          while (result.next()) {
+            Order order = new Order(UUID.fromString(result.getString("order_id")),
+                UUID.fromString(result.getString("request_id")), result.getString("market_id"),
+                UUID.fromString(result.getString("account_id")),
+                OrderSide.valueOf(result.getString("side")),
+                OrderType.valueOf(result.getString("order_type")),
+                TimeInForce.valueOf(result.getString("time_in_force")),
+                readNullableDecimal(result, "limit_price"),
+                readNullableDecimal(result, "slippage_boundary"),
+                result.getLong("original_quantity"), result.getLong("remaining_quantity"),
+                OrderStatus.valueOf(result.getString("status")),
+                result.getLong("priority_sequence"), result.getLong("config_version"),
+                result.getLong("fee_version"),
+                Instant.ofEpochMilli(result.getLong("created_at")),
+                Instant.ofEpochMilli(result.getLong("updated_at")));
+            orders.add(new PersistedOrder(order, readDecimal(result, "reserved_currency"),
+                result.getLong("reserved_quantity"), result.getLong("version")));
+          }
+          return List.copyOf(orders);
+        }
+      }
+    }
+
+    @Override
+    public void updateMarketState(MarketState state, long expectedVersion) throws SQLException {
+      try (PreparedStatement update = connection.prepareStatement(
+          "UPDATE " + tables.marketState()
+              + " SET status=?,priority_sequence=?,match_sequence=?,reference_price=?,"
+              + "last_price=?,halted_until=?,version=version+1"
+              + " WHERE market_id=? AND version=?")) {
+        update.setString(1, state.status().name());
+        update.setLong(2, state.prioritySequence());
+        update.setLong(3, state.matchSequence());
+        writeDecimal(update, 4, state.referencePrice());
+        writeNullableDecimal(update, 5, state.lastPrice());
+        if (state.haltedUntil() == null) {
+          update.setNull(6, Types.BIGINT);
+        } else {
+          update.setLong(6, state.haltedUntil().toEpochMilli());
+        }
+        update.setString(7, state.marketId());
+        update.setLong(8, expectedVersion);
+        if (update.executeUpdate() != 1) {
+          throw new ConcurrentModificationException("market state version changed");
+        }
+      }
+    }
+
+    @Override
+    public void insertHighAlert(UUID alertId, String marketId, String alertType,
+                                String payload, Instant createdAt) throws SQLException {
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO " + tables.auditAlerts()
+              + " (alert_id,market_id,account_id,alert_type,severity,payload,created_at,"
+              + "acknowledged_at) VALUES (?,?,?,?,?,?,?,?)")) {
+        insert.setString(1, alertId.toString());
+        insert.setString(2, marketId);
+        insert.setNull(3, Types.VARCHAR);
+        insert.setString(4, alertType);
+        insert.setString(5, "HIGH");
+        insert.setString(6, payload);
+        insert.setLong(7, createdAt.toEpochMilli());
+        insert.setNull(8, Types.BIGINT);
+        insert.executeUpdate();
+      }
+    }
+
+    @Override
     public void insertOrder(Order order, BigDecimal reservedCurrency, long reservedQuantity)
         throws SQLException {
       try (PreparedStatement insert = connection.prepareStatement(
@@ -418,6 +525,16 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
       return dialect == SqlDialect.SQLITE
           ? new BigDecimal(result.getString(column))
           : result.getBigDecimal(column);
+    }
+
+    private BigDecimal readNullableDecimal(ResultSet result, String column) throws SQLException {
+      String value = result.getString(column);
+      return value == null ? null : new BigDecimal(value);
+    }
+
+    private static Long nullableLong(ResultSet result, String column) throws SQLException {
+      long value = result.getLong(column);
+      return result.wasNull() ? null : value;
     }
 
     private void writeOrder(

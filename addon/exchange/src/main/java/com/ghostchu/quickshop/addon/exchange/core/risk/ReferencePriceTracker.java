@@ -50,4 +50,17 @@ public final class ReferencePriceTracker {
     return basePrice.multiply(BigDecimal.ONE.subtract(ratio)).add(vwap.multiply(ratio))
         .setScale(scale, RoundingMode.HALF_UP);
   }
+
+  public ReferencePriceTracker copy() {
+    ReferencePriceTracker copy = new ReferencePriceTracker(
+        basePrice, discoveryQuantity, window, scale);
+    copy.samples.addAll(samples);
+    copy.cumulativeDiscoveryQuantity = cumulativeDiscoveryQuantity;
+    return copy;
+  }
+
+  public static ReferencePriceTracker restored(
+      BigDecimal referencePrice, long discoveryQuantity, Duration window, int scale) {
+    return new ReferencePriceTracker(referencePrice, discoveryQuantity, window, scale);
+  }
 }
