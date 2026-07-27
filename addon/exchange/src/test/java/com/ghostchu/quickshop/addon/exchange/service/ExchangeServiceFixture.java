@@ -111,6 +111,14 @@ final class ExchangeServiceFixture {
         com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults());
   }
 
+  ExchangeRepository repository() {
+    return repository;
+  }
+
+  MarketRules rules() {
+    return rules;
+  }
+
   PersistentOrderService serviceWithTransactionEntry(Runnable onEntry) {
     ExchangeRepository observed = new ExchangeRepository() {
       @Override
@@ -260,6 +268,10 @@ final class ExchangeServiceFixture {
     return Long.parseLong(marketValue("priority_sequence"));
   }
 
+  long marketMatchSequence() throws SQLException {
+    return Long.parseLong(marketValue("match_sequence"));
+  }
+
   long marketVersion() throws SQLException {
     return Long.parseLong(marketValue("version"));
   }
@@ -342,6 +354,18 @@ final class ExchangeServiceFixture {
                  + " SET priority_sequence=? WHERE market_id=?")) {
       update.setLong(1, sequence);
       update.setString(2, rules.marketId());
+      update.executeUpdate();
+    }
+  }
+
+  void setMarketSequences(long prioritySequence, long matchSequence) throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement update = connection.prepareStatement(
+             "UPDATE " + tables.marketState()
+                 + " SET priority_sequence=?,match_sequence=? WHERE market_id=?")) {
+      update.setLong(1, prioritySequence);
+      update.setLong(2, matchSequence);
+      update.setString(3, rules.marketId());
       update.executeUpdate();
     }
   }

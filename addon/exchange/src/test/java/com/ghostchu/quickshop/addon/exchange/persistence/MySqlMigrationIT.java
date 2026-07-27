@@ -27,6 +27,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -72,7 +74,8 @@ class MySqlMigrationIT {
     TableNames names = new TableNames("recover_");
     MigrationRunner runner = new MigrationRunner(connections, SqlDialect.MYSQL, names);
 
-    try (Connection connection = connections.open(); Statement statement = connection.createStatement()) {
+    try (Connection connection = connections.open();
+         Statement statement = connection.createStatement()) {
       statement.execute("CREATE TABLE " + names.markets() + " (market_id VARCHAR(128))");
     }
 
@@ -95,6 +98,65 @@ class MySqlMigrationIT {
           .isTrue();
       assertImmutableLedgerTriggers(connection, names);
     }
+  }
+
+  @Test
+  void resumesPartiallyAppliedV2DdlBeforeRecordingVersion() throws Exception {
+    ConnectionProvider connections = () -> DriverManager.getConnection(
+        mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword());
+    TableNames names = new TableNames("v2_partial_");
+    MigrationRunner runner = new MigrationRunner(connections, SqlDialect.MYSQL, names);
+    runner.migrate();
+
+    try (Connection connection = connections.open(); Statement statement = connection.createStatement()) {
+      statement.execute("DELETE FROM " + names.schemaVersion() + " WHERE version=2");
+      statement.execute("ALTER TABLE " + names.marketState()
+          + " DROP COLUMN circuit_breaker_level");
+    }
+
+    runner.migrate();
+    runner.migrate();
+
+    try (Connection connection = connections.open()) {
+      assertThat(columnExists(connection, names.marketState(), "discovery_quantity")).isTrue();
+      assertThat(columnExists(connection, names.marketState(), "circuit_breaker_level")).isTrue();
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(2);
+      assertThat(versionRowCount(connection, names.schemaVersion(), 2)).isEqualTo(1);
+    }
+  }
+
+  @Test
+  void streamsLargeV1TradeHistoryWithoutBufferingTheWholeResult() throws Exception {
+    ConnectionProvider setupConnections = () -> DriverManager.getConnection(
+        mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword());
+    TableNames names = new TableNames("streaming_");
+    new MigrationRunner(setupConnections, SqlDialect.MYSQL, names).migrate();
+    seedMarket(setupConnections, names);
+    seedTrades(setupConnections, names, 512);
+
+    AtomicReference<Connection> activeConnection = new AtomicReference<>();
+    ConnectionProvider observedConnections = () -> {
+      Connection connection = setupConnections.open();
+      activeConnection.set(connection);
+      return connection;
+    };
+    ExchangeRepository repository =
+        new JdbcExchangeRepository(observedConnections, SqlDialect.MYSQL, names);
+    AtomicBoolean observedStreamingResult = new AtomicBoolean();
+
+    repository.inTransaction(tx -> {
+      tx.visitTradeHistory("diamond-usd", sample -> {
+        if (observedStreamingResult.compareAndSet(false, true)) {
+          assertThatThrownBy(() -> activeConnection.get().createStatement()
+              .executeQuery("SELECT 1"))
+              .isInstanceOf(SQLException.class)
+              .hasMessageContaining("Streaming result set");
+        }
+      });
+      return null;
+    });
+
+    assertThat(observedStreamingResult).isTrue();
   }
 
   @Test
@@ -222,6 +284,44 @@ class MySqlMigrationIT {
   private static int rowCount(Connection connection, String table) throws SQLException {
     try (ResultSet result = connection.createStatement().executeQuery("SELECT COUNT(*) FROM " + table)) {
       return result.next() ? result.getInt(1) : 0;
+    }
+  }
+
+  private static long versionRowCount(Connection connection, String table, int version)
+      throws SQLException {
+    try (PreparedStatement query = connection.prepareStatement(
+        "SELECT COUNT(*) FROM " + table + " WHERE version=?")) {
+      query.setInt(1, version);
+      try (ResultSet result = query.executeQuery()) {
+        return result.next() ? result.getLong(1) : 0;
+      }
+    }
+  }
+
+  private static void seedTrades(
+      ConnectionProvider connections, TableNames names, int count) throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement insert = connection.prepareStatement(
+             "INSERT INTO " + names.trades()
+                 + " (trade_id,market_id,maker_order_id,taker_order_id,buyer_account_id,"
+                 + "seller_account_id,price,quantity,maker_fee,taker_fee,match_sequence,executed_at)"
+                 + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")) {
+      for (int sequence = 1; sequence <= count; sequence++) {
+        insert.setString(1, UUID.randomUUID().toString());
+        insert.setString(2, "diamond-usd");
+        insert.setString(3, UUID.randomUUID().toString());
+        insert.setString(4, UUID.randomUUID().toString());
+        insert.setString(5, UUID.randomUUID().toString());
+        insert.setString(6, UUID.randomUUID().toString());
+        insert.setBigDecimal(7, new BigDecimal("100.00"));
+        insert.setLong(8, 1);
+        insert.setBigDecimal(9, BigDecimal.ZERO);
+        insert.setBigDecimal(10, BigDecimal.ZERO);
+        insert.setLong(11, sequence);
+        insert.setLong(12, sequence);
+        insert.addBatch();
+      }
+      insert.executeBatch();
     }
   }
 

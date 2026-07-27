@@ -326,6 +326,10 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
       try (PreparedStatement select = connection.prepareStatement(
           "SELECT price,quantity,match_sequence,executed_at FROM " + tables.trades()
               + " WHERE market_id=? ORDER BY match_sequence" + dialect.forUpdate())) {
+        if (dialect == SqlDialect.MYSQL) {
+          // Connector/J streaming mode without requiring a JDBC URL option.
+          select.setFetchSize(Integer.MIN_VALUE);
+        }
         select.setString(1, marketId);
         try (ResultSet result = select.executeQuery()) {
           while (result.next()) {
