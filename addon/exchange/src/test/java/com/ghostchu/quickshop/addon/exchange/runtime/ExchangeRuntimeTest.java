@@ -38,6 +38,22 @@ class ExchangeRuntimeTest {
     assertThat(marketsRecovering).isTrue();
   }
 
+  @Test
+  void flushesOperationalDataAfterDispatcherDrainAndBeforeWriterRelease() throws Exception {
+    AtomicBoolean dispatcherClosed = new AtomicBoolean();
+    AtomicBoolean flushedAfterDispatcher = new AtomicBoolean();
+    TrackingGuard writer = new TrackingGuard(dispatcherClosed);
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {},
+        () -> dispatcherClosed.set(true), () -> {},
+        () -> flushedAfterDispatcher.set(dispatcherClosed.get()));
+
+    runtime.start();
+    runtime.close();
+
+    assertThat(flushedAfterDispatcher).isTrue();
+    assertThat(writer.closedAfterDispatcher()).isTrue();
+  }
+
   private static final class TrackingGuard implements SingleWriterGuard {
     private final AtomicBoolean dispatcherClosed;
     private boolean held;

@@ -76,6 +76,10 @@ public final class MarketRegistry {
     return entry.definition;
   }
 
+  public synchronized Set<String> marketIds() {
+    return Set.copyOf(markets.keySet());
+  }
+
   public synchronized Versions versions(String marketId) {
     Entry entry = markets.get(marketId);
     if (entry == null) {

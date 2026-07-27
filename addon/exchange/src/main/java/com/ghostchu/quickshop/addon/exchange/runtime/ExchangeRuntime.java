@@ -12,6 +12,7 @@ public final class ExchangeRuntime implements AutoCloseable {
   private final CheckedRunnable recoverTransfers;
   private final AutoCloseable dispatcher;
   private final CheckedRunnable onLockLost;
+  private final CheckedRunnable afterDispatcherClosed;
   private final AtomicBoolean acceptingWrites = new AtomicBoolean();
 
   public ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
@@ -27,11 +28,19 @@ public final class ExchangeRuntime implements AutoCloseable {
   ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
                   CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
                   CheckedRunnable onLockLost) {
+    this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, () -> {});
+  }
+
+  ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
+                  CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
+                  CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed) {
     this.writer = Objects.requireNonNull(writer, "writer");
     this.recoverBooks = Objects.requireNonNull(recoverBooks, "recoverBooks");
     this.recoverTransfers = Objects.requireNonNull(recoverTransfers, "recoverTransfers");
     this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher");
     this.onLockLost = Objects.requireNonNull(onLockLost, "onLockLost");
+    this.afterDispatcherClosed = Objects.requireNonNull(afterDispatcherClosed,
+        "afterDispatcherClosed");
     writer.onLockLost(this::fenceAfterLockLoss);
   }
 
@@ -66,7 +75,11 @@ public final class ExchangeRuntime implements AutoCloseable {
     try {
       dispatcher.close();
     } finally {
-      writer.close();
+      try {
+        afterDispatcherClosed.run();
+      } finally {
+        writer.close();
+      }
     }
   }
 
