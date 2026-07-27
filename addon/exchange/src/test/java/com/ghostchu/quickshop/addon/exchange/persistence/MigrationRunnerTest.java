@@ -28,6 +28,14 @@ class MigrationRunnerTest {
           .isTrue();
       assertThat(indexExists(connection, names.trades(), names.prefix() + "exchange_trades_time_idx"))
           .isTrue();
+      assertThat(triggerExists(connection, names.prefix() + "exchange_ledger_journals_no_update"))
+          .isTrue();
+      assertThat(triggerExists(connection, names.prefix() + "exchange_ledger_journals_no_delete"))
+          .isTrue();
+      assertThat(triggerExists(connection, names.prefix() + "exchange_ledger_entries_no_update"))
+          .isTrue();
+      assertThat(triggerExists(connection, names.prefix() + "exchange_ledger_entries_no_delete"))
+          .isTrue();
       assertThatThrownBy(() -> connection.createStatement().executeUpdate(
           "INSERT INTO " + names.accounts()
               + " (account_id,currency_id,available,frozen,version) VALUES "
@@ -116,6 +124,16 @@ class MigrationRunnerTest {
         }
       }
       return false;
+    }
+  }
+
+  private static boolean triggerExists(Connection connection, String trigger) throws SQLException {
+    try (var query = connection.prepareStatement(
+        "SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?")) {
+      query.setString(1, trigger);
+      try (ResultSet result = query.executeQuery()) {
+        return result.next();
+      }
     }
   }
 }

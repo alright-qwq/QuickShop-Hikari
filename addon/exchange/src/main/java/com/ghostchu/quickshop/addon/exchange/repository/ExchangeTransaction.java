@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.repository;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.util.Optional;
@@ -27,4 +28,5 @@ public interface ExchangeTransaction {
   void updateOrder(Order order, BigDecimal reservedCurrency, long reservedQuantity,
                    long expectedVersion) throws SQLException;
   void insertTrade(Trade trade) throws SQLException;
+  void appendJournal(LedgerJournal journal) throws SQLException;
 }

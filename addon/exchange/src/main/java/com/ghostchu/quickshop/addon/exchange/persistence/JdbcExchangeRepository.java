@@ -2,6 +2,8 @@ package com.ghostchu.quickshop.addon.exchange.persistence;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
+import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import com.ghostchu.quickshop.addon.exchange.repository.CurrencyBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
@@ -292,6 +294,40 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
         insert.setLong(11, trade.matchSequence());
         insert.setLong(12, trade.executedAt().toEpochMilli());
         insert.executeUpdate();
+      }
+    }
+
+    @Override
+    public void appendJournal(LedgerJournal journal) throws SQLException {
+      try (PreparedStatement insertJournal = connection.prepareStatement(
+          "INSERT INTO " + tables.journals()
+              + " (journal_id,journal_type,reference_id,created_at,reversal_of)"
+              + " VALUES (?,?,?,?,?)")) {
+        insertJournal.setString(1, journal.journalId().toString());
+        insertJournal.setString(2, journal.journalType());
+        insertJournal.setString(3, journal.referenceId().toString());
+        insertJournal.setLong(4, journal.createdAt().toEpochMilli());
+        if (journal.reversalOf() == null) {
+          insertJournal.setNull(5, Types.VARCHAR);
+        } else {
+          insertJournal.setString(5, journal.reversalOf().toString());
+        }
+        insertJournal.executeUpdate();
+      }
+      try (PreparedStatement insertEntry = connection.prepareStatement(
+          "INSERT INTO " + tables.entries()
+              + " (entry_id,journal_id,account_code,asset_id,amount,created_at)"
+              + " VALUES (?,?,?,?,?,?)")) {
+        for (LedgerEntry entry : journal.entries()) {
+          insertEntry.setString(1, entry.entryId().toString());
+          insertEntry.setString(2, journal.journalId().toString());
+          insertEntry.setString(3, entry.accountCode());
+          insertEntry.setString(4, entry.assetId());
+          writeDecimal(insertEntry, 5, entry.amount());
+          insertEntry.setLong(6, entry.createdAt().toEpochMilli());
+          insertEntry.addBatch();
+        }
+        insertEntry.executeBatch();
       }
     }
 

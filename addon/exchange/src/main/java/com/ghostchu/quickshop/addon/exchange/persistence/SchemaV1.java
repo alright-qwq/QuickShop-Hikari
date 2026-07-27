@@ -105,5 +105,29 @@ public final class SchemaV1 {
             "market_id,executed_at"));
   }
 
+  public static List<TriggerDefinition> triggers(SqlDialect dialect, TableNames tables) {
+    return List.of(
+        immutableTrigger(dialect, tables.prefix() + "exchange_ledger_journals_no_update",
+            "UPDATE", tables.journals()),
+        immutableTrigger(dialect, tables.prefix() + "exchange_ledger_journals_no_delete",
+            "DELETE", tables.journals()),
+        immutableTrigger(dialect, tables.prefix() + "exchange_ledger_entries_no_update",
+            "UPDATE", tables.entries()),
+        immutableTrigger(dialect, tables.prefix() + "exchange_ledger_entries_no_delete",
+            "DELETE", tables.entries()));
+  }
+
+  private static TriggerDefinition immutableTrigger(
+      SqlDialect dialect, String name, String operation, String table) {
+    String sql = dialect == SqlDialect.SQLITE
+        ? "CREATE TRIGGER " + name + " BEFORE " + operation + " ON " + table
+            + " BEGIN SELECT RAISE(ABORT,'immutable ledger'); END"
+        : "CREATE TRIGGER " + name + " BEFORE " + operation + " ON " + table
+            + " FOR EACH ROW SIGNAL SQLSTATE '45000'"
+            + " SET MESSAGE_TEXT='immutable ledger'";
+    return new TriggerDefinition(name, sql);
+  }
+
   public record IndexDefinition(String name, String table, String columns) {}
+  public record TriggerDefinition(String name, String sql) {}
 }

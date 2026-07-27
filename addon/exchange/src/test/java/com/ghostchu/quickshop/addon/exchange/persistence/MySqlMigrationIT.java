@@ -17,7 +17,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers(disabledWithoutDocker = true)
 class MySqlMigrationIT {
   @Container
-  private static final MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.4");
+  private static final MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.4")
+      .withCommand("--log-bin-trust-function-creators=1");
 
   @Test
   void migratesMysqlSchemaIdempotentlyAndRejectsNegativeBalance() throws Exception {
@@ -35,6 +36,7 @@ class MySqlMigrationIT {
           .isTrue();
       assertThat(indexExists(connection, names.trades(), names.prefix() + "exchange_trades_time_idx"))
           .isTrue();
+      assertImmutableLedgerTriggers(connection, names);
       assertThatThrownBy(() -> connection.createStatement().executeUpdate(
           "INSERT INTO " + names.accounts()
               + " (account_id,currency_id,available,frozen,version) VALUES "
@@ -71,6 +73,7 @@ class MySqlMigrationIT {
           .isTrue();
       assertThat(indexExists(connection, names.trades(), names.prefix() + "exchange_trades_time_idx"))
           .isTrue();
+      assertImmutableLedgerTriggers(connection, names);
     }
   }
 
@@ -97,6 +100,29 @@ class MySqlMigrationIT {
         }
       }
       return false;
+    }
+  }
+
+  private static void assertImmutableLedgerTriggers(Connection connection, TableNames names)
+      throws SQLException {
+    assertThat(triggerExists(connection, names.prefix() + "exchange_ledger_journals_no_update"))
+        .isTrue();
+    assertThat(triggerExists(connection, names.prefix() + "exchange_ledger_journals_no_delete"))
+        .isTrue();
+    assertThat(triggerExists(connection, names.prefix() + "exchange_ledger_entries_no_update"))
+        .isTrue();
+    assertThat(triggerExists(connection, names.prefix() + "exchange_ledger_entries_no_delete"))
+        .isTrue();
+  }
+
+  private static boolean triggerExists(Connection connection, String trigger) throws SQLException {
+    try (var query = connection.prepareStatement(
+        "SELECT 1 FROM INFORMATION_SCHEMA.TRIGGERS"
+            + " WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME=?")) {
+      query.setString(1, trigger);
+      try (ResultSet result = query.executeQuery()) {
+        return result.next();
+      }
     }
   }
 }

@@ -11,8 +11,11 @@ import java.time.Instant;
  * Applies the version-one schema and records the version only after every table and index exists.
  *
  * <p>SQLite executes the migration as one transaction. MySQL implicitly commits DDL, so recovery is
- * forward-only: every DDL statement and index check is idempotent, and a retry resumes a partially
- * applied migration before inserting the version row.</p>
+ * forward-only: every DDL statement plus index and trigger check is idempotent, and a retry resumes
+ * a partially applied migration before inserting the version row. MySQL installations with binary
+ * logging must allow trigger creation, for example with
+ * {@code log_bin_trust_function_creators=1}, or grant the migration user equivalent administrative
+ * privileges.</p>
  */
 public final class MigrationRunner {
   private final ConnectionProvider connections;
@@ -36,6 +39,9 @@ public final class MigrationRunner {
         }
         for (SchemaV1.IndexDefinition index : SchemaV1.indexes(tables)) {
           ensureIndex(connection, index);
+        }
+        for (SchemaV1.TriggerDefinition trigger : SchemaV1.triggers(dialect, tables)) {
+          ensureTrigger(connection, trigger);
         }
         try (PreparedStatement insert = connection.prepareStatement(
             "INSERT INTO " + tables.schemaVersion()
@@ -68,6 +74,26 @@ public final class MigrationRunner {
       try (Statement statement = connection.createStatement()) {
         statement.execute("CREATE INDEX " + index.name() + " ON "
             + index.table() + " (" + index.columns() + ")");
+      }
+    }
+  }
+
+  private void ensureTrigger(Connection connection, SchemaV1.TriggerDefinition trigger)
+      throws SQLException {
+    String existsSql = dialect == SqlDialect.SQLITE
+        ? "SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?"
+        : "SELECT 1 FROM INFORMATION_SCHEMA.TRIGGERS"
+            + " WHERE TRIGGER_SCHEMA=DATABASE() AND TRIGGER_NAME=?";
+    boolean exists;
+    try (PreparedStatement query = connection.prepareStatement(existsSql)) {
+      query.setString(1, trigger.name());
+      try (ResultSet result = query.executeQuery()) {
+        exists = result.next();
+      }
+    }
+    if (!exists) {
+      try (Statement statement = connection.createStatement()) {
+        statement.execute(trigger.sql());
       }
     }
   }
