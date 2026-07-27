@@ -28,6 +28,7 @@ import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote;
+import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
@@ -62,6 +63,7 @@ public final class PersistentOrderService {
       UUID.nameUUIDFromBytes("quickshop-exchange-fees".getBytes(StandardCharsets.UTF_8));
 
   private static final String PLACE_OPERATION = "PLACE";
+  private static final String FORCE_CANCEL_OPERATION = "FORCE_CANCEL";
   private static final long REFERENCE_DISCOVERY_QUANTITY = 100;
   private static final Duration REFERENCE_WINDOW = Duration.ofMinutes(5);
   private static final Map<MarketCoordinationKey, MarketRuntimeState> MARKET_RUNTIMES =
@@ -207,6 +209,42 @@ public final class PersistentOrderService {
     }
   }
 
+  /** Cancels an active order under the same market serialization as matching. */
+  public OrderReceipt forceCancel(UUID actorId, UUID requestId, UUID orderId, String reason)
+      throws SQLException {
+    Objects.requireNonNull(actorId, "actorId");
+    Objects.requireNonNull(requestId, "requestId");
+    Objects.requireNonNull(orderId, "orderId");
+    String normalizedReason = normalizeAdminReason(reason);
+    synchronized (runtimeState) {
+      AtomicReference<ForceCancelOutcome> attempted = new AtomicReference<>();
+      try {
+        ForceCancelOutcome outcome = repository.inTransaction(tx -> {
+          ForceCancelOutcome cancelled = cancelOpenOrder(
+              tx, actorId, requestId, orderId, normalizedReason);
+          attempted.set(cancelled);
+          return cancelled;
+        });
+        if (!outcome.duplicate()) {
+          runtimeState.committedBook = outcome.book();
+        }
+        return outcome.receipt();
+      } catch (SQLException failure) {
+        OrderReceipt committed = committedForceCancelReceipt(actorId, requestId, failure);
+        if (committed != null) {
+          ForceCancelOutcome attemptedOutcome = attempted.get();
+          if (attemptedOutcome != null && committed.equals(attemptedOutcome.receipt())) {
+            runtimeState.committedBook = attemptedOutcome.book();
+          } else {
+            recoverFromDatabase();
+          }
+          return committed;
+        }
+        throw failure;
+      }
+    }
+  }
+
   private void publish(TransactionOutcome outcome) {
     if (outcome.duplicate()) {
       return;
@@ -235,6 +273,23 @@ public final class PersistentOrderService {
         return null;
       }
       if (!PLACE_OPERATION.equals(stored.operation())) {
+        throw new IllegalStateException("request id belongs to another operation");
+      }
+      return decodeReceipt(stored.payload());
+    } catch (SQLException lookupFailure) {
+      originalFailure.addSuppressed(lookupFailure);
+      return null;
+    }
+  }
+
+  private OrderReceipt committedForceCancelReceipt(
+      UUID actorId, UUID requestId, SQLException originalFailure) {
+    try {
+      StoredRequestResult stored = repository.findRequestResult(actorId, requestId).orElse(null);
+      if (stored == null) {
+        return null;
+      }
+      if (!FORCE_CANCEL_OPERATION.equals(stored.operation())) {
         throw new IllegalStateException("request id belongs to another operation");
       }
       return decodeReceipt(stored.payload());
@@ -403,6 +458,61 @@ public final class PersistentOrderService {
     return TransactionOutcome.committed(
         receipt, plan, transactionBook, transactionPrices, transactionBreaker,
         afterState.version());
+  }
+
+  private ForceCancelOutcome cancelOpenOrder(
+      ExchangeTransaction tx, UUID actorId, UUID requestId, UUID orderId, String reason)
+      throws SQLException {
+    StoredRequestResult stored = tx.requestResult(actorId, requestId).orElse(null);
+    if (stored != null) {
+      if (!FORCE_CANCEL_OPERATION.equals(stored.operation())) {
+        throw new IllegalStateException("request id belongs to another operation");
+      }
+      return ForceCancelOutcome.duplicate(decodeReceipt(stored.payload()));
+    }
+    List<PersistedOrder> persistedOrders = tx.openOrders(rules.marketId());
+    PersistedOrder persisted = persistedOrders.stream()
+        .filter(candidate -> candidate.order().orderId().equals(orderId))
+        .findFirst()
+        .orElseThrow(() -> new IllegalArgumentException("order is not open: " + orderId));
+    Order before = persisted.order();
+    Order cancelled = before.withStatus(OrderStatus.CANCELLED, now.get());
+    if (before.side() == OrderSide.BUY && persisted.reservedCurrency().signum() > 0) {
+      tx.releaseCurrency(before.accountId(), rules.currencyId(), persisted.reservedCurrency());
+    } else if (before.side() == OrderSide.SELL && persisted.reservedQuantity() > 0) {
+      tx.releaseItems(before.accountId(), rules.marketId(), persisted.reservedQuantity());
+    }
+    tx.updateOrder(cancelled, BigDecimal.ZERO, 0L, persisted.version());
+    tx.appendAudit(new AuditRecord(ids.get(), actorId, "FORCE_CANCEL_ORDER", orderId.toString(),
+        reason, orderState(before, persisted), orderState(cancelled,
+            BigDecimal.ZERO, 0L), now.get()));
+    OrderReceipt receipt = new OrderReceipt(requestId, orderId, cancelled.status().name(), List.of());
+    tx.putRequestResult(new StoredRequestResult(
+        actorId, requestId, FORCE_CANCEL_OPERATION, encodeReceipt(receipt)));
+    OrderBook book = new OrderBook();
+    for (PersistedOrder active : persistedOrders) {
+      if (!active.order().orderId().equals(orderId)) {
+        book.add(active.order());
+      }
+    }
+    return ForceCancelOutcome.committed(receipt, book);
+  }
+
+  private static String normalizeAdminReason(String reason) {
+    if (reason == null || reason.trim().length() < 8) {
+      throw new IllegalArgumentException("administrator reason must contain at least 8 characters");
+    }
+    return reason.trim();
+  }
+
+  private static String orderState(Order order, PersistedOrder persisted) {
+    return orderState(order, persisted.reservedCurrency(), persisted.reservedQuantity());
+  }
+
+  private static String orderState(Order order, BigDecimal reservedCurrency, long reservedQuantity) {
+    return "status=" + order.status() + ",remainingQuantity=" + order.remainingQuantity()
+        + ",reservedCurrency=" + reservedCurrency.toPlainString()
+        + ",reservedQuantity=" + reservedQuantity;
   }
 
   public void publishRecoveredState(
@@ -890,6 +1000,16 @@ public final class PersistentOrderService {
         long marketVersion) {
       return new TransactionOutcome(
           receipt, plan, book, referencePrices, circuitBreaker, marketVersion, false);
+    }
+  }
+
+  private record ForceCancelOutcome(OrderReceipt receipt, OrderBook book, boolean duplicate) {
+    private static ForceCancelOutcome duplicate(OrderReceipt receipt) {
+      return new ForceCancelOutcome(receipt, null, true);
+    }
+
+    private static ForceCancelOutcome committed(OrderReceipt receipt, OrderBook book) {
+      return new ForceCancelOutcome(receipt, book, false);
     }
   }
 }

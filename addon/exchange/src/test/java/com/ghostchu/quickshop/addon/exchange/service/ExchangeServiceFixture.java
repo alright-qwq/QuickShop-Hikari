@@ -35,7 +35,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-final class ExchangeServiceFixture {
+public final class ExchangeServiceFixture {
   private final ConnectionProvider connections;
   private final TableNames tables;
   private final JdbcExchangeRepository repository;
@@ -52,7 +52,7 @@ final class ExchangeServiceFixture {
     this.rules = rules;
   }
 
-  static ExchangeServiceFixture sqlite() throws Exception {
+  public static ExchangeServiceFixture sqlite() throws Exception {
     return sqlite(RecoveryHandler.NO_OP);
   }
 
@@ -98,7 +98,7 @@ final class ExchangeServiceFixture {
     return new ExchangeServiceFixture(connections, tables, repository, service, rules);
   }
 
-  PersistentOrderService service() {
+  public PersistentOrderService service() {
     return service;
   }
 
@@ -181,11 +181,11 @@ final class ExchangeServiceFixture {
         RecoveryHandler.NO_OP, observer);
   }
 
-  JdbcExchangeRepository repository() {
+  public JdbcExchangeRepository repository() {
     return repository;
   }
 
-  MarketRules rules() {
+  public MarketRules rules() {
     return rules;
   }
 
@@ -241,7 +241,7 @@ final class ExchangeServiceFixture {
         RecoveryHandler.NO_OP, marketData);
   }
 
-  UUID accountWithItems(long quantity) throws SQLException {
+  public UUID accountWithItems(long quantity) throws SQLException {
     UUID account = UUID.randomUUID();
     repository.inTransaction(tx -> {
       tx.creditAvailableItems(account, rules.marketId(), quantity);
@@ -257,7 +257,7 @@ final class ExchangeServiceFixture {
     });
   }
 
-  UUID accountWithCurrency(String amount) throws SQLException {
+  public UUID accountWithCurrency(String amount) throws SQLException {
     UUID account = UUID.randomUUID();
     creditCurrency(account, amount);
     return account;
@@ -271,8 +271,22 @@ final class ExchangeServiceFixture {
     });
   }
 
-  long tradeCount() throws SQLException {
+  public long tradeCount() throws SQLException {
     return rowCount(tables.trades());
+  }
+
+  public String orderStatus(UUID orderId) throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement query = connection.prepareStatement(
+             "SELECT status FROM " + tables.orders() + " WHERE order_id=?")) {
+      query.setString(1, orderId.toString());
+      try (ResultSet result = query.executeQuery()) {
+        if (!result.next()) {
+          throw new SQLException("order missing: " + orderId);
+        }
+        return result.getString("status");
+      }
+    }
   }
 
   MarketRegistry marketRegistry() {
@@ -409,21 +423,21 @@ final class ExchangeServiceFixture {
         PersistentOrderService.FEE_ACCOUNT_ID, rules.currencyId()).available());
   }
 
-  BigDecimal availableCurrency(UUID account) throws SQLException {
+  public BigDecimal availableCurrency(UUID account) throws SQLException {
     return repository.inTransaction(
         tx -> tx.currency(account, rules.currencyId()).available());
   }
 
-  BigDecimal frozenCurrency(UUID account) throws SQLException {
+  public BigDecimal frozenCurrency(UUID account) throws SQLException {
     return repository.inTransaction(
         tx -> tx.currency(account, rules.currencyId()).frozen());
   }
 
-  long availableItems(UUID account) throws SQLException {
+  public long availableItems(UUID account) throws SQLException {
     return repository.inTransaction(tx -> tx.inventory(account, rules.marketId()).availableQuantity());
   }
 
-  long frozenItems(UUID account) throws SQLException {
+  public long frozenItems(UUID account) throws SQLException {
     return repository.inTransaction(tx -> tx.inventory(account, rules.marketId()).frozenQuantity());
   }
 
