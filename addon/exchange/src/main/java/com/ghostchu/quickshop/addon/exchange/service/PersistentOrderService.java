@@ -17,6 +17,8 @@ import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
 import com.ghostchu.quickshop.addon.exchange.core.model.TimeOrderedIdGenerator;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.core.risk.CircuitBreaker;
+import com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits;
+import com.ghostchu.quickshop.addon.exchange.core.risk.AccountRiskSnapshot;
 import com.ghostchu.quickshop.addon.exchange.core.risk.ReferencePriceTracker;
 import com.ghostchu.quickshop.addon.exchange.core.risk.OrderRateLimiter;
 import com.ghostchu.quickshop.addon.exchange.core.risk.OrderRiskService;
@@ -65,6 +67,7 @@ public final class PersistentOrderService {
   private final ExchangeRepository repository;
   private final MarketRules rules;
   private final RiskLimits riskLimits;
+  private final AccountOrderLimits accountLimits;
   private final OrderRiskService orderRisks;
   private final FeeCalculator fees;
   private final ReservationCalculator reservations;
@@ -89,23 +92,44 @@ public final class PersistentOrderService {
                                 RiskLimits riskLimits, RecoveryHandler recovery,
                                 SettlementObserver observer) {
     this(repository, rules, riskLimits, recovery, observer,
-        new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now);
+        new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
+        AccountOrderLimits.defaults());
+  }
+
+  PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                         RiskLimits riskLimits, RecoveryHandler recovery,
+                         AccountOrderLimits accountLimits) {
+    this(repository, rules, riskLimits, recovery, SettlementObserver.NONE,
+        new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
+        accountLimits);
   }
 
   PersistentOrderService(ExchangeRepository repository, MarketRules rules,
                          RiskLimits riskLimits, RecoveryHandler recovery,
                          TimeOrderedIdGenerator ids, Supplier<Instant> now) {
-    this(repository, rules, riskLimits, recovery, SettlementObserver.NONE, ids, now);
+    this(repository, rules, riskLimits, recovery, SettlementObserver.NONE, ids, now,
+        AccountOrderLimits.defaults());
   }
 
   PersistentOrderService(ExchangeRepository repository, MarketRules rules,
                          RiskLimits riskLimits, RecoveryHandler recovery,
                          SettlementObserver observer,
                          TimeOrderedIdGenerator ids, Supplier<Instant> now) {
+    this(repository, rules, riskLimits, recovery, observer, ids, now,
+        AccountOrderLimits.defaults());
+  }
+
+  PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                         RiskLimits riskLimits, RecoveryHandler recovery,
+                         SettlementObserver observer,
+                         TimeOrderedIdGenerator ids, Supplier<Instant> now,
+                         AccountOrderLimits accountLimits) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.rules = Objects.requireNonNull(rules, "rules");
     this.riskLimits = Objects.requireNonNull(riskLimits, "riskLimits");
-    this.orderRisks = new OrderRiskService(new OrderRateLimiter(5, 60));
+    this.accountLimits = Objects.requireNonNull(accountLimits, "accountLimits");
+    this.orderRisks = new OrderRiskService(new OrderRateLimiter(
+        accountLimits.operationsPerSecond(), accountLimits.operationsPerMinute()));
     this.recovery = Objects.requireNonNull(recovery, "recovery");
     this.observer = Objects.requireNonNull(observer, "observer");
     this.ids = Objects.requireNonNull(ids, "ids");
@@ -240,6 +264,23 @@ public final class PersistentOrderService {
         ? reservations.reserve(incoming, incomingRules, transactionBook,
             price -> riskLimits.insideCage(price, beforeState.referencePrice()))
         : reservations.reserve(incoming, incomingRules);
+
+    long holding = tx.existingInventory(request.accountId(), rules.marketId())
+        .map(balance -> balance.availableQuantity() + balance.frozenQuantity()).orElse(0L);
+    BigDecimal frozenCurrency = tx.existingCurrency(request.accountId(), rules.currencyId())
+        .map(balance -> balance.frozen()).orElse(BigDecimal.ZERO);
+    int openOrders = (int) persistedOrders.stream()
+        .filter(persisted -> persisted.order().accountId().equals(request.accountId()))
+        .count();
+    AccountRiskSnapshot accountRisk = new AccountRiskSnapshot(
+        holding, frozenCurrency, openOrders);
+    OrderRiskService.RejectReason exposureRejection = orderRisks.checkExposure(
+        incoming.side() == OrderSide.BUY ? incoming.originalQuantity() : 0,
+        incoming.side() == OrderSide.BUY ? reservation.frozenCurrency() : BigDecimal.ZERO,
+        accountRisk, accountLimits, incoming.type() == OrderType.LIMIT);
+    if (exposureRejection != null) {
+      throw new IllegalStateException(exposureRejection.name());
+    }
 
     AtomicLong matchSequence = new AtomicLong(beforeState.matchSequence());
     ReferencePriceTracker transactionPrices = runtimeRisk.referencePrices();

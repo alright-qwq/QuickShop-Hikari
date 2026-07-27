@@ -15,6 +15,9 @@ import java.util.UUID;
 public interface ExchangeTransaction {
   CurrencyBalance currency(UUID accountId, String currencyId) throws SQLException;
   ItemBalance inventory(UUID accountId, String marketId) throws SQLException;
+  Optional<CurrencyBalance> existingCurrency(UUID accountId, String currencyId)
+      throws SQLException;
+  Optional<ItemBalance> existingInventory(UUID accountId, String marketId) throws SQLException;
   void creditAvailableCurrency(UUID accountId, String currencyId, BigDecimal amount)
       throws SQLException;
   void freezeCurrency(UUID accountId, String currencyId, BigDecimal amount) throws SQLException;

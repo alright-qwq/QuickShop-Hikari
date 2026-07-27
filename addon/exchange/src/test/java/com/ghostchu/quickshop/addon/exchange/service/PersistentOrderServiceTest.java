@@ -6,6 +6,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.risk.CircuitBreaker;
 import com.ghostchu.quickshop.addon.exchange.core.risk.ReferencePriceTracker;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
+import com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits;
 import com.ghostchu.quickshop.addon.exchange.config.MarketRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -100,6 +101,42 @@ class PersistentOrderServiceTest {
 
     assertThat(fixture.orderCount()).isEqualTo(5);
     assertThat(fixture.frozenItems(seller)).isEqualTo(5);
+  }
+
+  @Test
+  void rejectsOrderWhenAccountAlreadyHasMaximumOpenOrders() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    PersistentOrderService limited = fixture.serviceWithAccountLimits(
+        new AccountOrderLimits(100_000, new BigDecimal("10000000.00"), 1, 5, 60));
+    UUID seller = fixture.accountWithItems(2);
+    limited.place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    assertThatThrownBy(() -> limited.place(new OrderRequest(
+        UUID.randomUUID(), seller, "diamond-usd", OrderSide.SELL, "LIMIT",
+        new BigDecimal("100.00"), null, 1)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("OPEN_ORDER_LIMIT");
+
+    assertThat(fixture.orderCount()).isEqualTo(1);
+    assertThat(fixture.frozenItems(seller)).isEqualTo(1);
+  }
+
+  @Test
+  void rejectsBuyOrderWhoseReservationExceedsFrozenCurrencyLimit() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    PersistentOrderService limited = fixture.serviceWithAccountLimits(
+        new AccountOrderLimits(100_000, BigDecimal.ONE, 100, 5, 60));
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+
+    assertThatThrownBy(() -> limited.place(new OrderRequest(
+        UUID.randomUUID(), buyer, "diamond-usd", OrderSide.BUY, "LIMIT",
+        new BigDecimal("100.00"), null, 1)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("FROZEN_LIMIT");
+
+    assertThat(fixture.orderCount()).isZero();
+    assertThat(fixture.frozenCurrency(buyer)).isZero();
   }
 
   @Test

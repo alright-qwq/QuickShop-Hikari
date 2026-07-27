@@ -43,6 +43,23 @@ public final class OrderRiskService {
     return limiter.allow(accountId, now) ? null : RejectReason.RATE_LIMITED;
   }
 
+  public RejectReason checkExposure(
+      long addedHolding, BigDecimal addedFrozen, AccountRiskSnapshot snapshot,
+      AccountOrderLimits limits, boolean opensOrder) {
+    Objects.requireNonNull(snapshot, "snapshot");
+    Objects.requireNonNull(limits, "limits");
+    if (!snapshot.canAddHolding(addedHolding, limits.maximumHolding())) {
+      return RejectReason.HOLDING_LIMIT;
+    }
+    if (!snapshot.canFreeze(addedFrozen, limits.maximumFrozenCurrency())) {
+      return RejectReason.FROZEN_LIMIT;
+    }
+    if (opensOrder && !snapshot.canOpenOrder(limits.maximumOpenOrders())) {
+      return RejectReason.OPEN_ORDER_LIMIT;
+    }
+    return null;
+  }
+
   /** Returns a rejection when a market order's protection price exceeds the configured bound. */
   public RejectReason checkMarketSlippage(
       BigDecimal protectionPrice, BigDecimal referencePrice, BigDecimal maximumSlippage) {

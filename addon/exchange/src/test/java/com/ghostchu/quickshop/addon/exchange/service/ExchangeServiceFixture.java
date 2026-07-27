@@ -102,6 +102,13 @@ final class ExchangeServiceFixture {
     return service;
   }
 
+  PersistentOrderService serviceWithAccountLimits(
+      com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits limits) {
+    return new PersistentOrderService(repository, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP, limits);
+  }
+
   PersistentOrderService independentMysqlService() {
     return new PersistentOrderService(
         new JdbcExchangeRepository(connections, SqlDialect.MYSQL, tables), rules,

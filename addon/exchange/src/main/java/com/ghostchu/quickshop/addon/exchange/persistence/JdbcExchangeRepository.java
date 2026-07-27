@@ -435,6 +435,25 @@ public final class JdbcExchangeRepository
     }
 
     @Override
+    public Optional<CurrencyBalance> existingCurrency(UUID accountId, String currencyId)
+        throws SQLException {
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT available,frozen,version FROM " + tables.accounts()
+              + " WHERE account_id=? AND currency_id=?" + dialect.forUpdate())) {
+        select.setString(1, accountId.toString());
+        select.setString(2, currencyId);
+        try (ResultSet result = select.executeQuery()) {
+          if (!result.next()) {
+            return Optional.empty();
+          }
+          return Optional.of(new CurrencyBalance(accountId, currencyId,
+              readDecimal(result, "available"), readDecimal(result, "frozen"),
+              result.getLong("version")));
+        }
+      }
+    }
+
+    @Override
     public ItemBalance inventory(UUID accountId, String marketId) throws SQLException {
       try (PreparedStatement insert = connection.prepareStatement(
           insertIgnorePrefix() + tables.inventory()
@@ -456,6 +475,25 @@ public final class JdbcExchangeRepository
           return new ItemBalance(accountId, marketId,
               result.getLong("available_quantity"), result.getLong("frozen_quantity"),
               result.getLong("version"));
+        }
+      }
+    }
+
+    @Override
+    public Optional<ItemBalance> existingInventory(UUID accountId, String marketId)
+        throws SQLException {
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT available_quantity,frozen_quantity,version FROM " + tables.inventory()
+              + " WHERE account_id=? AND market_id=?" + dialect.forUpdate())) {
+        select.setString(1, accountId.toString());
+        select.setString(2, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          if (!result.next()) {
+            return Optional.empty();
+          }
+          return Optional.of(new ItemBalance(accountId, marketId,
+              result.getLong("available_quantity"), result.getLong("frozen_quantity"),
+              result.getLong("version")));
         }
       }
     }
