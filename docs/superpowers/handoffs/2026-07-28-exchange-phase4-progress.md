@@ -10,10 +10,9 @@ remain in force.
 
 - Worktree: `/private/tmp/QuickShop-Hikari-exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current local head: `53fc3e641`
-- Remote push was attempted but did not complete; `git status --short --branch` reported the local
-  branch ahead of `origin/codex/exchange-order-book` by 19 commits. Re-check with `git ls-remote`
-  before retrying `git push -v origin codex/exchange-order-book`.
+- Current local head: `5ba3ab22d`
+- `codex/exchange-order-book` is pushed and synchronized with
+  `origin/codex/exchange-order-book` as of this handoff.
 
 The authoritative Phase 4 plan is:
 
@@ -37,6 +36,14 @@ The SDD ledger is:
 - `e8d968a72` guarded structural currency-scale reload and atomic publish coverage.
 - `a2c17dfde` committed-trade market-data publication, protected book quotes/depth, idle flush and
   rollover de-duplication.
+- `457e3acd0`, `809f6e753`, `bbe0f4494` runtime writer guards, lock-loss fencing, Factory/Main
+  assembly, fresh-install `markets.yml` provisioning, and lock acquisition before mutable database
+  bootstrap.
+- `8c89a42a5` explicit preflight and transaction-snapshot risk rejections for cage, market status,
+  and self trade.
+- `d8dc9060d` player-update coalescing, per-trade audit feed, scheduled candle flush, order
+  confirmation model, and UI refresh coordinator.
+- `5ba3ab22d` deployment and recovery operations guide.
 
 ## Verification
 
@@ -46,26 +53,28 @@ The latest complete verification after the exposure work was:
 /opt/homebrew/bin/mvn -o -q -pl addon/exchange -am -Dapi.version=1.44 verify
 ```
 
-Result: full Exchange verification exited 0 after `a2c17dfde`. Maven emits pre-existing effective-model and JDK native
-access warnings; use Surefire counts and exit status as the test authority.
+Result: full Exchange verification exited 0 after `bbe0f4494`; targeted UI and market-data tests
+also passed before `d8dc9060d`. Maven emits pre-existing effective-model and JDK native access
+warnings; use Surefire counts and exit status as the test authority.
 
 ## Remaining Work
 
 Do not call Phase 4 complete. The following are still incomplete:
 
 1. Task 1 is complete: its scoped re-review found no remaining issues after `e8d968a72`.
-2. Task 2 needs independent task review. It now has coverage for rate, slippage, open-order and
-   frozen-currency limits; add an end-to-end holding-limit case before accepting it.
-3. Task 3 lacks `ExchangeRuntimeFactory`, Main's enabled-mode runtime construction, validated local
-   SQLite file locking, MySQL lock-loss transition to `RECOVERING`, and complete recovery wiring.
+2. Task 2 remediation was committed in `8c89a42a5`, but still needs a scoped re-review. Confirm
+   the two-stage rate-limit semantics and explicit reject contracts remain sound.
+3. Task 3 remediation was committed in `bbe0f4494`, but still needs a scoped re-review. In
+   particular, scrutinize the remaining lock-loss race around scheduled HALTED recovery.
 4. Task 4 lacks `/qse` executor registration, QuickShop command-manager registration/unregistration,
    TNML menu integration, and the operational command set.
-5. Task 5 needs its runtime integration closed through Task 3: production factory must construct
-   `MarketDataService`, supply it to `PersistentOrderService`, schedule `flush(Instant.now())`
-   at minute cadence, and add the required 20-tick subscriber feed while audit consumers remain
-   per-trade. The calculation, storage and protected-book APIs are covered but opt-in only.
-6. Tasks 6-10 (UI pages, operations/admin tools, observability, rollout documentation,
-   performance/end-to-end acceptance) remain unimplemented.
+5. Task 5 now constructs market data in the production factory, passes it to persistent order
+   services, schedules minute flushes, and offers per-trade audit plus coalesced player update
+   APIs. It still needs a scoped re-review and actual UI/player callback registration.
+6. Tasks 6-7 have only pure `OrderConfirmation` and `GuiRefreshCoordinator` foundations; TNML
+   pages, views, player scheduling, and runtime registration remain unimplemented.
+7. Task 8 administration/audit/export/reconciliation and Task 9 metrics/alert persistence remain
+   unimplemented. Task 10 has the operations guide only; end-to-end and load acceptance are absent.
 
 Follow the plan task-by-task, using TDD and a fresh `gpt-5.6-sol` task reviewer where service access
 is available. Do not rely on the partial Task 3/4 implementations as production wiring.
