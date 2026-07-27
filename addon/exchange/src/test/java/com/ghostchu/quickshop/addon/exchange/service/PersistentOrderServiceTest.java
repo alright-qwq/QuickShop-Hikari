@@ -24,6 +24,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PersistentOrderServiceTest {
   @Test
+  void locksOnlyAssetsInvolvedInTheOrderOrItsTrades() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(2);
+
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    assertThat(fixture.hasCurrencyBalance(seller)).isFalse();
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), buyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("90.00"), null, 1));
+
+    assertThat(fixture.hasInventoryBalance(buyer)).isFalse();
+    assertThat(fixture.hasCurrencyBalance(seller)).isFalse();
+  }
+
+  @Test
   void rejectsEveryNonOpenMarketWithoutReservationOrStateMutation() throws Exception {
     for (String status : Set.of("HALTED", "PAUSED", "RECOVERING", "CLOSED")) {
       ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();

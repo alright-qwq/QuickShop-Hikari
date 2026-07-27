@@ -178,6 +178,28 @@ final class ExchangeServiceFixture {
     return repository.inTransaction(tx -> tx.inventory(account, rules.marketId()).frozenQuantity());
   }
 
+  boolean hasCurrencyBalance(UUID account) throws SQLException {
+    return hasBalanceRow(tables.accounts(), "currency_id", rules.currencyId(), account);
+  }
+
+  boolean hasInventoryBalance(UUID account) throws SQLException {
+    return hasBalanceRow(tables.inventory(), "market_id", rules.marketId(), account);
+  }
+
+  private boolean hasBalanceRow(String table, String assetColumn, String assetId, UUID account)
+      throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement query = connection.prepareStatement(
+             "SELECT COUNT(*) FROM " + table + " WHERE account_id=? AND " + assetColumn + "=?")) {
+      query.setString(1, account.toString());
+      query.setString(2, assetId);
+      try (ResultSet result = query.executeQuery()) {
+        result.next();
+        return result.getLong(1) == 1;
+      }
+    }
+  }
+
   void setMarketStatus(String status) throws SQLException {
     try (Connection connection = connections.open();
          PreparedStatement update = connection.prepareStatement(

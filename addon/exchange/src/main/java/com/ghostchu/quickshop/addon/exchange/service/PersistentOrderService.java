@@ -155,7 +155,6 @@ public final class PersistentOrderService {
     }
     RuntimeRiskSnapshot runtimeRisk = runtimeRisk(beforeState);
     List<PersistedOrder> persistedOrders = tx.openOrders(request.marketId());
-    lockAssets(tx, request, persistedOrders);
 
     Instant createdAt = now.get();
     long prioritySequence = Math.addExact(beforeState.prioritySequence(), 1);
@@ -171,7 +170,6 @@ public final class PersistentOrderService {
         ? reservations.reserve(incoming, rules, transactionBook,
             price -> riskLimits.insideCage(price, beforeState.referencePrice()))
         : reservations.reserve(incoming, rules);
-    freeze(tx, incoming, reservation);
 
     AtomicLong matchSequence = new AtomicLong(beforeState.matchSequence());
     ReferencePriceTracker transactionPrices = runtimeRisk.referencePrices();
@@ -182,6 +180,8 @@ public final class PersistentOrderService {
     MatchResult match = engine.submit(incoming);
     Order taker = match.selfTradeRejected()
         ? incoming.withStatus(OrderStatus.REJECTED, now.get()) : match.finalOrder();
+    lockAssets(tx, incoming, match);
+    freeze(tx, incoming, reservation);
 
     Map<UUID, BigDecimal> currencyReservations = new HashMap<>();
     Map<UUID, Long> itemReservations = new HashMap<>();
@@ -300,21 +300,25 @@ public final class PersistentOrderService {
     }
   }
 
-  private void lockAssets(ExchangeTransaction tx, OrderRequest request,
-                          List<PersistedOrder> persistedOrders) throws SQLException {
-    Set<UUID> accounts = new LinkedHashSet<>();
-    accounts.add(request.accountId());
-    for (PersistedOrder persisted : persistedOrders) {
-      accounts.add(persisted.order().accountId());
+  private void lockAssets(ExchangeTransaction tx, Order incoming, MatchResult match)
+      throws SQLException {
+    Set<LockKey> involved = new LinkedHashSet<>();
+    involved.add(incoming.side() == OrderSide.BUY
+        ? new LockKey(incoming.accountId(), rules.currencyId(), true)
+        : new LockKey(incoming.accountId(), rules.marketId(), false));
+    for (Trade trade : match.trades()) {
+      involved.add(new LockKey(trade.buyerAccountId(), rules.currencyId(), true));
+      involved.add(new LockKey(trade.buyerAccountId(), rules.marketId(), false));
+      involved.add(new LockKey(trade.sellerAccountId(), rules.currencyId(), true));
+      involved.add(new LockKey(trade.sellerAccountId(), rules.marketId(), false));
+      if (trade.makerFee().add(trade.takerFee()).signum() > 0) {
+        involved.add(new LockKey(FEE_ACCOUNT_ID, rules.currencyId(), true));
+      }
     }
-    ArrayList<LockKey> keys = new ArrayList<>();
-    for (UUID account : accounts) {
-      keys.add(new LockKey(account, rules.currencyId(), true));
-      keys.add(new LockKey(account, rules.marketId(), false));
-    }
-    keys.add(new LockKey(FEE_ACCOUNT_ID, rules.currencyId(), true));
+    ArrayList<LockKey> keys = new ArrayList<>(involved);
     keys.sort(Comparator.comparing((LockKey key) -> key.accountId().toString())
-        .thenComparing(LockKey::assetId));
+        .thenComparing(LockKey::assetId)
+        .thenComparing(LockKey::currency));
     for (LockKey key : keys) {
       if (key.currency()) {
         tx.currency(key.accountId(), key.assetId());
