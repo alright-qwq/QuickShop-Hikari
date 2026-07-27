@@ -1,0 +1,43 @@
+package com.ghostchu.quickshop.addon.exchange.core.risk;
+
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Objects;
+import java.util.UUID;
+
+/** Combines market, rate, price and account exposure checks at the order-entry boundary. */
+public final class OrderRiskService {
+  private final OrderRateLimiter limiter;
+
+  public OrderRiskService(OrderRateLimiter limiter) {
+    this.limiter = Objects.requireNonNull(limiter, "limiter");
+  }
+
+  public RejectReason check(
+      UUID accountId, Instant now, MarketStatus marketStatus, MarketRules rules,
+      RiskLimits riskLimits, BigDecimal price, BigDecimal referencePrice,
+      long addedHolding, BigDecimal addedFrozen, AccountRiskSnapshot snapshot,
+      long maximumHolding, BigDecimal maximumFrozen, int maximumOpenOrders,
+      boolean selfTrade) {
+    if (marketStatus != MarketStatus.OPEN) return RejectReason.MARKET_NOT_OPEN;
+    if (!limiter.allow(accountId, now)) return RejectReason.RATE_LIMITED;
+    if (selfTrade) return RejectReason.SELF_TRADE;
+    try {
+      rules.validatePrice(price);
+    } catch (IllegalArgumentException ignored) {
+      return RejectReason.PRICE_OUTSIDE_CAGE;
+    }
+    if (!riskLimits.insideCage(price, referencePrice)) return RejectReason.PRICE_OUTSIDE_CAGE;
+    if (!snapshot.canAddHolding(addedHolding, maximumHolding)) return RejectReason.HOLDING_LIMIT;
+    if (!snapshot.canFreeze(addedFrozen, maximumFrozen)) return RejectReason.FROZEN_LIMIT;
+    if (!snapshot.canOpenOrder(maximumOpenOrders)) return RejectReason.OPEN_ORDER_LIMIT;
+    return null;
+  }
+
+  public enum RejectReason {
+    MARKET_NOT_OPEN, RATE_LIMITED, PRICE_OUTSIDE_CAGE, SLIPPAGE_TOO_HIGH,
+    HOLDING_LIMIT, FROZEN_LIMIT, OPEN_ORDER_LIMIT, SELF_TRADE
+  }
+}
