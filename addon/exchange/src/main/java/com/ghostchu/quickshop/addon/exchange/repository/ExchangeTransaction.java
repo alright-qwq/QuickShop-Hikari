@@ -42,6 +42,8 @@ public interface ExchangeTransaction {
   void appendJournal(LedgerJournal journal) throws SQLException;
   TransferRecord createTransfer(TransferRecord prepared) throws SQLException;
   TransferRecord completeTransfer(UUID transferId, long expectedVersion) throws SQLException;
+  TransferRecord failTransfer(UUID transferId, long expectedVersion, String reason)
+      throws SQLException;
 
   record PersistedOrder(Order order, BigDecimal reservedCurrency,
                         long reservedQuantity, long version) {}

@@ -218,6 +218,13 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
           TransferStatus.COMPLETED, null);
     }
 
+    @Override
+    public TransferRecord failTransfer(UUID transferId, long expectedVersion, String reason)
+        throws SQLException {
+      return transitionTransfer(transferId, expectedVersion, TransferStatus.PROCESSING,
+          TransferStatus.FAILED, reason);
+    }
+
     private Optional<TransferRecord> findTransfer(UUID transferId) throws SQLException {
       try (PreparedStatement query = connection.prepareStatement(
           transferSelect() + " WHERE transfer_id=?")) {
