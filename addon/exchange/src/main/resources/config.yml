@@ -1,1 +1,27 @@
 # Default configuration for the Exchange addon.
+config-version: 1
+enabled: false
+database:
+  mode: quickshop
+economy:
+  world: world
+  default-currency: default
+market-data:
+  gui-refresh-ticks: 20
+  candle-retention-days: 365
+risk-defaults:
+  price-cage-ratio: '0.20'
+  default-market-slippage: '0.05'
+  maximum-market-slippage: '0.20'
+  level-one-move: '0.10'
+  level-one-halt-seconds: 120
+  level-two-move: '0.20'
+  level-two-halt-seconds: 600
+  operations-per-second: 5
+  operations-per-minute: 60
+operations:
+  reconciliation-interval-minutes: 1440
+  audit-export-directory: audit
+rollout:
+  whitelist-enabled: true
+  allowed-players: []
