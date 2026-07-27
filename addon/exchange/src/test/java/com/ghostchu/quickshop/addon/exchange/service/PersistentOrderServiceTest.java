@@ -310,6 +310,23 @@ class PersistentOrderServiceTest {
   }
 
   @Test
+  void reloadPersistsCurrencyScaleWithAnEmptyPausedBook() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketRegistry registry = fixture.marketRegistry();
+
+    registry.reload(Map.of("diamond-usd",
+        fixture.marketDefinition("0.01", "0.001", "0.002", 3)),
+        market -> new com.ghostchu.quickshop.addon.exchange.config.MarketStateReader.State(
+            MarketStatus.PAUSED, 0));
+
+    MarketRegistry restarted = new MarketRegistry(Map.of("diamond-usd",
+        fixture.marketDefinition("0.01", "0.001", "0.002", 3)), fixture.repository());
+    assertThat(restarted.require("diamond-usd").structural().currencyScale()).isEqualTo(3);
+    assertThat(restarted.versions("diamond-usd"))
+        .isEqualTo(new MarketRegistry.Versions(2, 1, 1));
+  }
+
+  @Test
   void refusesToArchiveFeeVersionReferencedByOpenOrder() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     MarketRegistry registry = fixture.marketRegistry();

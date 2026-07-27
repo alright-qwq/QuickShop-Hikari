@@ -70,7 +70,7 @@ public final class JdbcExchangeRepository
     Objects.requireNonNull(marketId, "marketId");
     Objects.requireNonNull(replacement, "replacement");
     inTransaction(transaction -> {
-      ((JdbcTransaction) transaction).storeFeeSchedule(marketId, replacement);
+      ((JdbcTransaction) transaction).storeFeeSchedule(marketId, replacement, false);
       return null;
     });
   }
@@ -674,10 +674,11 @@ public final class JdbcExchangeRepository
       }
     }
 
-    private void storeFeeSchedule(String marketId, MarketFeeSchedule replacement)
+    private void storeFeeSchedule(
+        String marketId, MarketFeeSchedule replacement, boolean allowCurrencyScaleChange)
         throws SQLException {
       MarketFeeSchedule current = marketFeeSchedule(marketId);
-      if (replacement.currencyScale() != current.currencyScale()
+      if ((!allowCurrencyScaleChange && replacement.currencyScale() != current.currencyScale())
           || replacement.activeVersion() < current.activeVersion()
           || replacement.activeVersion() > current.activeVersion() + 1) {
         throw new IllegalArgumentException("invalid fee schedule replacement");
@@ -707,9 +708,18 @@ public final class JdbcExchangeRepository
         long[] current = marketVersions(marketId);
         requireNextVersion("structural", current[0], replacement.structuralVersion());
         requireNextVersion("risk", current[1], replacement.riskVersion());
+        MarketFeeSchedule feeSchedule = marketFeeSchedule(marketId);
+        boolean scaleChanged = feeSchedule.currencyScale() != replacement.currencyScale();
+        if (scaleChanged) {
+          if (replacement.structuralVersion() != current[0] + 1) {
+            throw new IllegalArgumentException(
+                "currency scale change requires a structural version increment");
+          }
+          requireNoOpenOrders(marketId);
+        }
         storeFeeSchedule(marketId, new MarketFeeSchedule(
             replacement.activeFeeVersion(), replacement.currencyScale(),
-            replacement.feeVersions()));
+            replacement.feeVersions()), scaleChanged);
         try (PreparedStatement update = connection.prepareStatement(
             "UPDATE " + tables.markets()
                 + " SET structural_version=?,risk_version=? WHERE market_id=?")) {
@@ -718,6 +728,21 @@ public final class JdbcExchangeRepository
           update.setString(3, marketId);
           if (update.executeUpdate() != 1) {
             throw new SQLException("market configuration does not exist: " + marketId);
+          }
+        }
+      }
+    }
+
+    private void requireNoOpenOrders(String marketId) throws SQLException {
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT order_id FROM " + tables.orders()
+              + " WHERE market_id=? AND status IN ('OPEN','PARTIALLY_FILLED') LIMIT 1"
+              + dialect.forUpdate())) {
+        query.setString(1, marketId);
+        try (ResultSet result = query.executeQuery()) {
+          if (result.next()) {
+            throw new IllegalStateException(
+                "currency scale change requires no open orders");
           }
         }
       }

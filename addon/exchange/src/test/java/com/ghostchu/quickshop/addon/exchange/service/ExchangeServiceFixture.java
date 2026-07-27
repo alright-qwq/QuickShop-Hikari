@@ -263,12 +263,17 @@ final class ExchangeServiceFixture {
   }
 
   MarketDefinition marketDefinition(String tickSize, String makerFee, String takerFee) {
+    return marketDefinition(tickSize, makerFee, takerFee, rules.priceScale());
+  }
+
+  MarketDefinition marketDefinition(
+      String tickSize, String makerFee, String takerFee, int currencyScale) {
     return new MarketDefinition(rules.marketId(), "Diamond / USD", true,
         new MarketDefinition.ItemDefinition(
             FingerprintMode.VANILLA_MATERIAL, "DIAMOND", null, null),
         new MarketDefinition.StructuralRules(rules.currencyId(), rules.basePrice(),
             rules.minPrice(), rules.maxPrice(), new BigDecimal(tickSize), rules.priceScale(),
-            rules.priceScale(), rules.minQuantity(), rules.maxQuantity(), 100),
+            currencyScale, rules.minQuantity(), rules.maxQuantity(), 100),
         new MarketDefinition.RiskRules(new BigDecimal(makerFee), new BigDecimal(takerFee),
             new BigDecimal("0.20"), new BigDecimal("0.05"), new BigDecimal("0.20"),
             new BigDecimal("0.10"), 120, new BigDecimal("0.20"), 600, 100000,

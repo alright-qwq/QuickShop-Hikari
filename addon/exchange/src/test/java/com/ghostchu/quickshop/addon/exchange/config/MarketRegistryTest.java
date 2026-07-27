@@ -70,16 +70,43 @@ class MarketRegistryTest {
         .hasMessageContaining("priceScale");
   }
 
+  @Test
+  void doesNotPublishAnyCandidateWhenAtomicPersistenceFails() {
+    MarketRegistry registry = new MarketRegistry(Map.of(
+        "diamond", definition("diamond", "0.01", "0.001", "0.002", 2),
+        "emerald", definition("emerald", "0.01", "0.001", "0.002", 2)),
+        states -> { throw new IllegalStateException("database unavailable"); });
+
+    assertThatThrownBy(() -> registry.reload(Map.of(
+        "diamond", definition("diamond", "0.02", "0.001", "0.002", 2),
+        "emerald", definition("emerald", "0.02", "0.001", "0.002", 2)),
+        market -> new MarketStateReader.State(MarketStatus.PAUSED, 0)))
+        .hasMessageContaining("database unavailable");
+
+    assertThat(registry.require("diamond").structural().tickSize())
+        .isEqualByComparingTo("0.01");
+    assertThat(registry.require("emerald").structural().tickSize())
+        .isEqualByComparingTo("0.01");
+    assertThat(registry.versions("diamond")).isEqualTo(new MarketRegistry.Versions(1, 1, 1));
+    assertThat(registry.versions("emerald")).isEqualTo(new MarketRegistry.Versions(1, 1, 1));
+  }
+
   private static MarketDefinition definition(String tickSize) {
     return definition(tickSize, "0.001", "0.002");
   }
 
   private static MarketDefinition definition(
       String tickSize, String makerFeeRate, String takerFeeRate) {
-    return new MarketDefinition("minecraft_diamond/default", "Diamond", false,
+    return definition("minecraft_diamond/default", tickSize, makerFeeRate, takerFeeRate, 2);
+  }
+
+  private static MarketDefinition definition(
+      String marketId, String tickSize, String makerFeeRate, String takerFeeRate,
+      int currencyScale) {
+    return new MarketDefinition(marketId, "Diamond", false,
         new MarketDefinition.ItemDefinition(FingerprintMode.VANILLA_MATERIAL, "DIAMOND", null, null),
         new MarketDefinition.StructuralRules("default", new BigDecimal("100.00"),
-            BigDecimal.ONE, new BigDecimal("10000.00"), new BigDecimal(tickSize), 2, 2,
+            BigDecimal.ONE, new BigDecimal("10000.00"), new BigDecimal(tickSize), 2, currencyScale,
             1, 2304, 100),
         new MarketDefinition.RiskRules(new BigDecimal(makerFeeRate), new BigDecimal(takerFeeRate),
             new BigDecimal("0.20"), new BigDecimal("0.05"), new BigDecimal("0.20"),
