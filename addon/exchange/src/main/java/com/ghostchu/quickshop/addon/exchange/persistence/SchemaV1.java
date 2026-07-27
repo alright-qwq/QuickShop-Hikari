@@ -9,6 +9,10 @@ public final class SchemaV1 {
     String id = d.uuidType();
     String amount = d.decimalType();
     String number = d.longType();
+    String availableNonNegative = d == SqlDialect.SQLITE
+        ? "CAST(available AS NUMERIC) >= 0" : "available >= 0";
+    String frozenNonNegative = d == SqlDialect.SQLITE
+        ? "CAST(frozen AS NUMERIC) >= 0" : "frozen >= 0";
     return List.of(
         "CREATE TABLE IF NOT EXISTS " + t.schemaVersion()
             + " (version INTEGER PRIMARY KEY, applied_at " + number + " NOT NULL)",
@@ -27,8 +31,8 @@ public final class SchemaV1 {
             + " FOREIGN KEY (market_id) REFERENCES " + t.markets() + "(market_id))",
         "CREATE TABLE IF NOT EXISTS " + t.accounts()
             + " (account_id " + id + " NOT NULL, currency_id VARCHAR(64) NOT NULL,"
-            + " available " + amount + " NOT NULL CHECK (CAST(available AS NUMERIC) >= 0),"
-            + " frozen " + amount + " NOT NULL CHECK (CAST(frozen AS NUMERIC) >= 0),"
+            + " available " + amount + " NOT NULL CHECK (" + availableNonNegative + "),"
+            + " frozen " + amount + " NOT NULL CHECK (" + frozenNonNegative + "),"
             + " version " + number + " NOT NULL, PRIMARY KEY (account_id,currency_id))",
         "CREATE TABLE IF NOT EXISTS " + t.inventory()
             + " (account_id " + id + " NOT NULL, market_id VARCHAR(128) NOT NULL,"
@@ -44,7 +48,8 @@ public final class SchemaV1 {
             + " remaining_quantity " + number + " NOT NULL,"
             + " status VARCHAR(24) NOT NULL, priority_sequence " + number + " NOT NULL,"
             + " config_version " + number + " NOT NULL, fee_version " + number + " NOT NULL,"
-            + " reserved_currency " + amount + " NOT NULL, reserved_quantity " + number + " NOT NULL,"
+            + " reserved_currency " + amount + " NOT NULL, reserved_quantity " + number
+            + " NOT NULL CHECK (reserved_quantity >= 0),"
             + " created_at " + number + " NOT NULL, updated_at " + number + " NOT NULL,"
             + " version " + number + " NOT NULL,"
             + " CHECK (remaining_quantity >= 0 AND remaining_quantity <= original_quantity),"
@@ -53,7 +58,8 @@ public final class SchemaV1 {
             + " (trade_id " + id + " PRIMARY KEY, market_id VARCHAR(128) NOT NULL,"
             + " maker_order_id " + id + " NOT NULL, taker_order_id " + id + " NOT NULL,"
             + " buyer_account_id " + id + " NOT NULL, seller_account_id " + id + " NOT NULL,"
-            + " price " + amount + " NOT NULL, quantity " + number + " NOT NULL,"
+            + " price " + amount + " NOT NULL, quantity " + number
+            + " NOT NULL CHECK (quantity >= 0),"
             + " maker_fee " + amount + " NOT NULL, taker_fee " + amount + " NOT NULL,"
             + " match_sequence " + number + " NOT NULL, executed_at " + number + " NOT NULL,"
             + " UNIQUE (market_id,match_sequence))",
@@ -82,7 +88,7 @@ public final class SchemaV1 {
             + " (market_id VARCHAR(128) NOT NULL, bucket_start " + number + " NOT NULL,"
             + " open_price " + amount + " NOT NULL, high_price " + amount + " NOT NULL,"
             + " low_price " + amount + " NOT NULL, close_price " + amount + " NOT NULL,"
-            + " volume " + number + " NOT NULL, notional " + amount + " NOT NULL,"
+            + " volume " + number + " NOT NULL CHECK (volume >= 0), notional " + amount + " NOT NULL,"
             + " PRIMARY KEY (market_id,bucket_start))",
         "CREATE TABLE IF NOT EXISTS " + t.auditAlerts()
             + " (alert_id " + id + " PRIMARY KEY, market_id VARCHAR(128),"
