@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.service;
 
 import com.ghostchu.quickshop.addon.exchange.core.TestFixtures;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
+import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.persistence.ConnectionProvider;
 import com.ghostchu.quickshop.addon.exchange.persistence.JdbcExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.persistence.MigrationRunner;
@@ -17,11 +18,15 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -111,6 +116,36 @@ final class ExchangeServiceFixture {
         com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults());
   }
 
+  PersistentOrderService service(
+      SettlementObserver observer, RecoveryHandler recovery) {
+    return new PersistentOrderService(repository, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        recovery, observer);
+  }
+
+  PersistentOrderService serviceWithRollbackSuppression(
+      SettlementObserver observer, SQLException rollbackFailure) {
+    ExchangeRepository rollbackReporting = new ExchangeRepository() {
+      @Override
+      public <T> T inTransaction(TransactionWork<T> work) throws SQLException {
+        try {
+          return repository.inTransaction(work);
+        } catch (RuntimeException failure) {
+          failure.addSuppressed(rollbackFailure);
+          throw failure;
+        }
+      }
+
+      @Override
+      public Object coordinationKey() {
+        return repository.coordinationKey();
+      }
+    };
+    return new PersistentOrderService(rollbackReporting, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP, observer);
+  }
+
   ExchangeRepository repository() {
     return repository;
   }
@@ -183,6 +218,17 @@ final class ExchangeServiceFixture {
 
   long orderCount() throws SQLException {
     return rowCount(tables.orders());
+  }
+
+  void insertUnjournaledTrade() throws SQLException {
+    long sequence = marketMatchSequence() + 1;
+    repository.inTransaction(tx -> {
+      tx.insertTrade(new Trade(
+          UUID.randomUUID(), rules.marketId(), UUID.randomUUID(), UUID.randomUUID(),
+          UUID.randomUUID(), UUID.randomUUID(), rules.basePrice(), 1,
+          BigDecimal.ZERO, BigDecimal.ZERO, sequence, Instant.now()));
+      return null;
+    });
   }
 
   private long rowCount(String table) throws SQLException {
@@ -394,6 +440,91 @@ final class ExchangeServiceFixture {
     return Set.copyOf(kinds);
   }
 
+  DatabaseState databaseState() throws SQLException {
+    LinkedHashMap<String, List<List<String>>> tablesState = new LinkedHashMap<>();
+    for (String table : List.of(
+        tables.accounts(), tables.inventory(), tables.orders(), tables.trades(),
+        tables.journals(), tables.entries(), tables.requestResults(), tables.auditAlerts())) {
+      tablesState.put(table, tableRows(table));
+    }
+    return new DatabaseState(Map.copyOf(tablesState), List.of(
+        marketValue("priority_sequence"), marketValue("match_sequence"),
+        marketValue("reference_price"), snapshotValue(marketValue("last_price")),
+        snapshotValue(marketValue("halted_until")), marketValue("discovery_quantity"),
+        marketValue("circuit_breaker_level")));
+  }
+
+  List<String> journalInvariantViolations() throws SQLException {
+    ArrayList<String> violations = new ArrayList<>();
+    LinkedHashMap<String, TradeAudit> trades = new LinkedHashMap<>();
+    LinkedHashMap<String, JournalAudit> journals = new LinkedHashMap<>();
+    try (Connection connection = connections.open()) {
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT trade_id,buyer_account_id,seller_account_id FROM " + tables.trades());
+           ResultSet result = query.executeQuery()) {
+        while (result.next()) {
+          trades.put(result.getString("trade_id"), new TradeAudit(
+              result.getString("buyer_account_id"), result.getString("seller_account_id")));
+        }
+      }
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT journal_id,journal_type,reference_id FROM " + tables.journals());
+           ResultSet result = query.executeQuery()) {
+        while (result.next()) {
+          String journalId = result.getString("journal_id");
+          String type = result.getString("journal_type");
+          if (!type.startsWith("TRADE_")) {
+            continue;
+          }
+          String tradeId = result.getString("reference_id");
+          TradeAudit trade = trades.get(tradeId);
+          if (trade == null) {
+            violations.add(journalId + ": orphan trade journal");
+            continue;
+          }
+          trade.addJournal(type, journalId, tradeId, violations);
+          journals.put(journalId, new JournalAudit(type, trade.buyer, trade.seller));
+        }
+      }
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT journal_id,account_code,asset_id,amount FROM " + tables.entries());
+           ResultSet result = query.executeQuery()) {
+        while (result.next()) {
+          JournalAudit journal = journals.get(result.getString("journal_id"));
+          if (journal != null) {
+            journal.add(result.getString("account_code"), result.getString("asset_id"),
+                new BigDecimal(result.getString("amount")));
+          }
+        }
+      }
+    }
+    trades.forEach((id, trade) -> trade.validate(id, violations));
+    journals.forEach((id, journal) -> journal.validate(id, rules, violations));
+    return List.copyOf(violations);
+  }
+
+  private List<List<String>> tableRows(String table) throws SQLException {
+    ArrayList<List<String>> rows = new ArrayList<>();
+    try (Connection connection = connections.open();
+         Statement query = connection.createStatement();
+         ResultSet result = query.executeQuery("SELECT * FROM " + table)) {
+      ResultSetMetaData metadata = result.getMetaData();
+      while (result.next()) {
+        ArrayList<String> row = new ArrayList<>(metadata.getColumnCount());
+        for (int column = 1; column <= metadata.getColumnCount(); column++) {
+          row.add(snapshotValue(result.getString(column)));
+        }
+        rows.add(List.copyOf(row));
+      }
+    }
+    rows.sort(java.util.Comparator.comparing(Object::toString));
+    return List.copyOf(rows);
+  }
+
+  private static String snapshotValue(String value) {
+    return value == null ? "<SQL NULL>" : value;
+  }
+
   private String marketValue(String column) throws SQLException {
     try (Connection connection = connections.open();
          PreparedStatement query = connection.prepareStatement(
@@ -407,6 +538,79 @@ final class ExchangeServiceFixture {
       }
     }
   }
+
+  record DatabaseState(Map<String, List<List<String>>> tables, List<String> marketValues) {}
+
+  private static final class TradeAudit {
+    private static final Set<String> REQUIRED_JOURNALS =
+        Set.of("TRADE_CURRENCY", "TRADE_ITEM");
+
+    private final String buyer;
+    private final String seller;
+    private final Map<String, String> journals = new LinkedHashMap<>();
+
+    private TradeAudit(String buyer, String seller) {
+      this.buyer = buyer;
+      this.seller = seller;
+    }
+
+    private void addJournal(
+        String type, String journalId, String tradeId, List<String> violations) {
+      String duplicate = journals.putIfAbsent(type, journalId);
+      if (duplicate != null) {
+        violations.add(tradeId + ": duplicate " + type + " journals");
+      }
+    }
+
+    private void validate(String tradeId, List<String> violations) {
+      if (!journals.keySet().equals(REQUIRED_JOURNALS)) {
+        violations.add(tradeId + ": missing trade journals");
+      }
+    }
+  }
+
+  private static final class JournalAudit {
+    private final String type;
+    private final String buyer;
+    private final String seller;
+    private final List<JournalEntryAudit> entries = new ArrayList<>();
+
+    private JournalAudit(String type, String buyer, String seller) {
+      this.type = type;
+      this.buyer = buyer;
+      this.seller = seller;
+    }
+
+    private void add(String account, String asset, BigDecimal amount) {
+      entries.add(new JournalEntryAudit(account, asset, amount));
+    }
+
+    private void validate(String journalId, MarketRules rules, List<String> violations) {
+      boolean currency = type.equals("TRADE_CURRENCY");
+      if (!currency && !type.equals("TRADE_ITEM")) {
+        violations.add(journalId + ": unsupported journal type " + type);
+        return;
+      }
+      String asset = currency ? rules.currencyId() : rules.marketId();
+      Set<String> expectedAccounts = currency
+          ? Set.of("liability:currency:" + buyer, "liability:currency:" + seller,
+              "liability:fee:" + PersistentOrderService.FEE_ACCOUNT_ID,
+              "custody:currency:" + rules.currencyId())
+          : Set.of("liability:item:" + seller, "liability:item:" + buyer,
+              "custody:item:" + rules.marketId());
+      Set<String> actualAccounts = entries.stream().map(JournalEntryAudit::account)
+          .collect(java.util.stream.Collectors.toSet());
+      boolean assetsMatch = entries.stream().allMatch(entry -> entry.asset().equals(asset));
+      BigDecimal total = entries.stream().map(JournalEntryAudit::amount)
+          .reduce(BigDecimal.ZERO, BigDecimal::add);
+      if (entries.size() != expectedAccounts.size() || !expectedAccounts.equals(actualAccounts)
+          || !assetsMatch || total.signum() != 0) {
+        violations.add(journalId + ": roles/assets/conservation mismatch");
+      }
+    }
+  }
+
+  private record JournalEntryAudit(String account, String asset, BigDecimal amount) {}
 
   private static void seedMarket(ConnectionProvider connections, TableNames tables,
                                  MarketRules rules) throws SQLException {

@@ -66,6 +66,7 @@ public final class PersistentOrderService {
   private final TimeOrderedIdGenerator ids;
   private final Supplier<Instant> now;
   private final RecoveryHandler recovery;
+  private final SettlementObserver observer;
   private final OrderBookRecoveryService marketRecovery;
   private final MarketRuntimeState runtimeState;
 
@@ -76,17 +77,31 @@ public final class PersistentOrderService {
 
   public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
                                 RiskLimits riskLimits, RecoveryHandler recovery) {
-    this(repository, rules, riskLimits, recovery,
+    this(repository, rules, riskLimits, recovery, SettlementObserver.NONE);
+  }
+
+  public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                                RiskLimits riskLimits, RecoveryHandler recovery,
+                                SettlementObserver observer) {
+    this(repository, rules, riskLimits, recovery, observer,
         new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now);
   }
 
   PersistentOrderService(ExchangeRepository repository, MarketRules rules,
                          RiskLimits riskLimits, RecoveryHandler recovery,
                          TimeOrderedIdGenerator ids, Supplier<Instant> now) {
+    this(repository, rules, riskLimits, recovery, SettlementObserver.NONE, ids, now);
+  }
+
+  PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                         RiskLimits riskLimits, RecoveryHandler recovery,
+                         SettlementObserver observer,
+                         TimeOrderedIdGenerator ids, Supplier<Instant> now) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.rules = Objects.requireNonNull(rules, "rules");
     this.riskLimits = Objects.requireNonNull(riskLimits, "riskLimits");
     this.recovery = Objects.requireNonNull(recovery, "recovery");
+    this.observer = Objects.requireNonNull(observer, "observer");
     this.ids = Objects.requireNonNull(ids, "ids");
     this.now = Objects.requireNonNull(now, "now");
     this.fees = new FeeCalculator(rules.priceScale());
@@ -116,6 +131,13 @@ public final class PersistentOrderService {
         });
         publish(outcome);
         return outcome.receipt();
+      } catch (SettlementObservationFailure failure) {
+        RuntimeException injected = failure.original();
+        for (Throwable suppressed : failure.getSuppressed()) {
+          injected.addSuppressed(suppressed);
+        }
+        enterRecovery(request.marketId(), injected);
+        throw injected;
       } catch (SQLException failure) {
         OrderReceipt committed = committedReceipt(request, failure);
         if (committed != null) {
@@ -204,6 +226,7 @@ public final class PersistentOrderService {
         ? incoming.withStatus(OrderStatus.REJECTED, now.get()) : match.finalOrder();
     lockAssets(tx, incoming, match);
     freeze(tx, incoming, reservation);
+    reached(SettlementStage.AFTER_RESERVATION);
 
     Map<UUID, BigDecimal> currencyReservations = new HashMap<>();
     Map<UUID, Long> itemReservations = new HashMap<>();
@@ -221,9 +244,6 @@ public final class PersistentOrderService {
     for (Order maker : match.changedMakers()) {
       releaseOpenBuyExcess(tx, maker, currencyReservations);
       releaseTerminalReservation(tx, maker, currencyReservations, itemReservations);
-      PersistedOrder persisted = persistedById.get(maker.orderId());
-      tx.updateOrder(maker, currencyReservations.get(maker.orderId()),
-          itemReservations.get(maker.orderId()), persisted.version());
     }
     long reservedTakerItemsBeforeRelease = itemReservations.get(taker.orderId());
     BigDecimal takerCurrencyRelease = releaseOpenBuyExcess(
@@ -231,13 +251,26 @@ public final class PersistentOrderService {
             tx, taker, currencyReservations, itemReservations));
     long takerItemRelease = taker.side() == OrderSide.SELL && isTerminal(taker)
         ? reservedTakerItemsBeforeRelease : 0;
+    reached(SettlementStage.AFTER_BALANCE_UPDATE);
+
+    for (Order maker : match.changedMakers()) {
+      PersistedOrder persisted = persistedById.get(maker.orderId());
+      tx.updateOrder(maker, currencyReservations.get(maker.orderId()),
+          itemReservations.get(maker.orderId()), persisted.version());
+    }
+    reached(SettlementStage.AFTER_MAKER_UPDATE);
     tx.insertOrder(taker, currencyReservations.get(taker.orderId()),
         itemReservations.get(taker.orderId()));
+    reached(SettlementStage.AFTER_ORDER_INSERT);
 
     for (Trade trade : match.trades()) {
       tx.insertTrade(trade);
+    }
+    reached(SettlementStage.AFTER_TRADE_INSERT);
+    for (Trade trade : match.trades()) {
       appendTradeJournals(tx, incoming, trade);
     }
+    reached(SettlementStage.AFTER_LEDGER_INSERT);
 
     MarketState afterState = updateRiskState(
         tx, beforeState, prioritySequence, matchSequence.get(), match.trades(),
@@ -250,6 +283,7 @@ public final class PersistentOrderService {
         request.requestId(), taker.orderId(), taker.status().name(), plan.trades());
     tx.putRequestResult(new StoredRequestResult(
         request.accountId(), request.requestId(), PLACE_OPERATION, encodeReceipt(receipt)));
+    reached(SettlementStage.AFTER_REQUEST_RESULT);
     return TransactionOutcome.committed(
         receipt, plan, transactionBook, transactionPrices, transactionBreaker,
         afterState.version());
@@ -506,7 +540,15 @@ public final class PersistentOrderService {
         before.version() + 1);
   }
 
-  private void enterRecovery(String marketId, SQLException failure) {
+  private void reached(SettlementStage stage) {
+    try {
+      observer.reached(stage);
+    } catch (RuntimeException failure) {
+      throw new SettlementObservationFailure(failure);
+    }
+  }
+
+  private void enterRecovery(String marketId, Throwable failure) {
     try {
       repository.inTransaction(tx -> {
         MarketState state = tx.marketState(marketId);
@@ -604,6 +646,19 @@ public final class PersistentOrderService {
       CircuitBreaker circuitBreaker) {}
 
   private record MarketCoordinationKey(Object repositoryKey, String marketId) {}
+
+  private static final class SettlementObservationFailure extends RuntimeException {
+    private final RuntimeException original;
+
+    private SettlementObservationFailure(RuntimeException original) {
+      super(original);
+      this.original = original;
+    }
+
+    private RuntimeException original() {
+      return original;
+    }
+  }
 
   private static final class MarketRuntimeState {
     private OrderBook committedBook;
