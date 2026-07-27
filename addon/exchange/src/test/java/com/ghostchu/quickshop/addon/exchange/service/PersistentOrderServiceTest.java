@@ -8,6 +8,8 @@ import com.ghostchu.quickshop.addon.exchange.core.risk.ReferencePriceTracker;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
 import com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits;
 import com.ghostchu.quickshop.addon.exchange.config.MarketRegistry;
+import com.ghostchu.quickshop.addon.exchange.marketdata.CandleAggregator;
+import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -176,6 +178,39 @@ class PersistentOrderServiceTest {
     assertThat(fixture.tradeCount()).isEqualTo(1);
     assertThat(fixture.ledgerIsBalanced()).isTrue();
     assertThat(fixture.feeAccountBalance()).isPositive();
+  }
+
+  @Test
+  void publishesCommittedTradesToMarketDataWithoutDuplicatingRequests() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketDataService marketData = new MarketDataService(new CandleAggregator());
+    PersistentOrderService service = fixture.serviceWithMarketData(marketData);
+    UUID seller = fixture.accountWithItems(1);
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    service.place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+    UUID requestId = UUID.randomUUID();
+    OrderRequest buy = new OrderRequest(requestId, buyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("100.00"), null, 1);
+
+    service.place(buy);
+    service.place(buy);
+
+    assertThat(marketData.quote("diamond-usd", new BigDecimal("100.00"),
+        (BigDecimal) null, (BigDecimal) null, MarketStatus.OPEN,
+        java.time.Instant.now()).volume24h()).isEqualTo(1L);
+  }
+
+  @Test
+  void exposesOnlyCageExecutableBestQuoteFromTheCommittedOrderBook() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketDataService marketData = new MarketDataService(new CandleAggregator());
+    PersistentOrderService service = fixture.serviceWithMarketData(marketData);
+    UUID seller = fixture.accountWithItems(1);
+    service.place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    assertThat(service.marketQuote(marketData).bestAsk()).isEqualByComparingTo("100.00");
   }
 
   @Test

@@ -26,6 +26,8 @@ import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
 import com.ghostchu.quickshop.addon.exchange.core.risk.TradePermission;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
+import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
+import com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
@@ -75,6 +77,7 @@ public final class PersistentOrderService {
   private final Supplier<Instant> now;
   private final RecoveryHandler recovery;
   private final SettlementObserver observer;
+  private final MarketDataService marketData;
   private final OrderBookRecoveryService marketRecovery;
   private final MarketRuntimeState runtimeState;
 
@@ -94,6 +97,14 @@ public final class PersistentOrderService {
     this(repository, rules, riskLimits, recovery, observer,
         new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
         AccountOrderLimits.defaults());
+  }
+
+  public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                                RiskLimits riskLimits, RecoveryHandler recovery,
+                                MarketDataService marketData) {
+    this(repository, rules, riskLimits, recovery, SettlementObserver.NONE,
+        new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
+        AccountOrderLimits.defaults(), marketData);
   }
 
   PersistentOrderService(ExchangeRepository repository, MarketRules rules,
@@ -124,6 +135,14 @@ public final class PersistentOrderService {
                          SettlementObserver observer,
                          TimeOrderedIdGenerator ids, Supplier<Instant> now,
                          AccountOrderLimits accountLimits) {
+    this(repository, rules, riskLimits, recovery, observer, ids, now, accountLimits, null);
+  }
+
+  PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                         RiskLimits riskLimits, RecoveryHandler recovery,
+                         SettlementObserver observer,
+                         TimeOrderedIdGenerator ids, Supplier<Instant> now,
+                         AccountOrderLimits accountLimits, MarketDataService marketData) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.rules = Objects.requireNonNull(rules, "rules");
     this.riskLimits = Objects.requireNonNull(riskLimits, "riskLimits");
@@ -132,6 +151,7 @@ public final class PersistentOrderService {
         accountLimits.operationsPerSecond(), accountLimits.operationsPerMinute()));
     this.recovery = Objects.requireNonNull(recovery, "recovery");
     this.observer = Objects.requireNonNull(observer, "observer");
+    this.marketData = marketData;
     this.ids = Objects.requireNonNull(ids, "ids");
     this.now = Objects.requireNonNull(now, "now");
     this.fees = new FeeCalculator(rules.priceScale());
@@ -191,6 +211,16 @@ public final class PersistentOrderService {
     runtimeState.referencePrices = outcome.referencePrices();
     runtimeState.circuitBreaker = outcome.circuitBreaker();
     runtimeState.committedMarketVersion = outcome.marketVersion();
+    if (marketData != null) {
+      for (Trade trade : outcome.plan().trades()) {
+        try {
+          marketData.recordTrade(trade.marketId(), trade.price(), trade.quantity(),
+              trade.executedAt());
+        } catch (RuntimeException ignored) {
+          // Market data must never turn an already committed order into a failed request.
+        }
+      }
+    }
   }
 
   private OrderReceipt committedReceipt(OrderRequest request, SQLException originalFailure) {
@@ -379,6 +409,25 @@ public final class PersistentOrderService {
       runtimeState.circuitBreaker = recovered.circuitBreaker().copy();
       runtimeState.committedMarketVersion = recovered.marketVersion();
     }
+  }
+
+  /** Builds a protected quote from the most recently committed book and reference-price state. */
+  public MarketQuote marketQuote(MarketDataService data) throws SQLException {
+    Objects.requireNonNull(data, "data");
+    MarketStatus status = repository.inTransaction(
+        transaction -> transaction.marketState(rules.marketId()).status());
+    Instant asOf = now.get();
+    BigDecimal reference;
+    BigDecimal bestBid;
+    BigDecimal bestAsk;
+    synchronized (runtimeState) {
+      reference = runtimeState.referencePrices.copy().referenceAt(asOf);
+      bestBid = runtimeState.committedBook.bestExecutable(OrderSide.BUY,
+          price -> riskLimits.insideCage(price, reference)).map(Order::limitPrice).orElse(null);
+      bestAsk = runtimeState.committedBook.bestExecutable(OrderSide.SELL,
+          price -> riskLimits.insideCage(price, reference)).map(Order::limitPrice).orElse(null);
+    }
+    return data.quote(rules.marketId(), reference, bestBid, bestAsk, status, asOf);
   }
 
   private RuntimeRiskSnapshot runtimeRisk(
