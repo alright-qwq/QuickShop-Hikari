@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.io.File;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.bukkit.Material;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -89,6 +90,18 @@ class MarketRegistryTest {
         .isEqualByComparingTo("0.01");
     assertThat(registry.versions("diamond")).isEqualTo(new MarketRegistry.Versions(1, 1, 1));
     assertThat(registry.versions("emerald")).isEqualTo(new MarketRegistry.Versions(1, 1, 1));
+  }
+
+  @Test
+  void blocksOnlyNewContainerShopsForConfiguredVanillaMaterials() {
+    MarketDefinition protectedDiamond = new MarketDefinition("diamond", "Diamond", false,
+        new MarketDefinition.ItemDefinition(FingerprintMode.VANILLA_MATERIAL, "DIAMOND", null, null),
+        definition("diamond", "0.01", "0.001", "0.002", 2).structural(),
+        definition("diamond", "0.01", "0.001", "0.002", 2).risk(), true);
+    MarketRegistry registry = new MarketRegistry(Map.of("diamond", protectedDiamond));
+
+    assertThat(registry.blocksContainerShop(Material.DIAMOND)).isTrue();
+    assertThat(registry.blocksContainerShop(Material.EMERALD)).isFalse();
   }
 
   private static MarketDefinition definition(String tickSize) {

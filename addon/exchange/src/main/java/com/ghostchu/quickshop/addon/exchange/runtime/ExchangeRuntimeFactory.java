@@ -18,6 +18,7 @@ import com.ghostchu.quickshop.addon.exchange.persistence.SqlDialect;
 import com.ghostchu.quickshop.addon.exchange.persistence.SqliteConnectionProvider;
 import com.ghostchu.quickshop.addon.exchange.persistence.TableNames;
 import com.ghostchu.quickshop.addon.exchange.platform.FoliaInventoryGateway;
+import com.ghostchu.quickshop.addon.exchange.platform.ContainerShopPolicyListener;
 import com.ghostchu.quickshop.addon.exchange.platform.QuickShopEconomyGateway;
 import com.ghostchu.quickshop.addon.exchange.platform.TransferLoginListener;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
@@ -101,6 +102,7 @@ public final class ExchangeRuntimeFactory {
     TransferRecoveryService transfers = new TransferRecoveryService(
         repository, repository, inventory, Runnable::run);
     Bukkit.getPluginManager().registerEvents(new TransferLoginListener(transfers), addon);
+    Bukkit.getPluginManager().registerEvents(new ContainerShopPolicyListener(registry), addon);
 
     MarketDispatcher dispatcher = new MarketDispatcher(requestResults(), command ->
         new CommandResult(command.requestId(), "accepted"));

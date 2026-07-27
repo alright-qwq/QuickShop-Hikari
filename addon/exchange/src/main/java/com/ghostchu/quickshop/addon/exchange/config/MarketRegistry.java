@@ -9,6 +9,7 @@ import java.io.File;
 import java.math.BigDecimal;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.Material;
 import com.ghostchu.quickshop.addon.exchange.platform.FingerprintMode;
 import com.ghostchu.quickshop.addon.exchange.core.model.FeeRates;
 import java.util.Collections;
@@ -78,6 +79,17 @@ public final class MarketRegistry {
 
   public synchronized Set<String> marketIds() {
     return Set.copyOf(markets.keySet());
+  }
+
+  /** Returns whether a configured exchange-only vanilla item may not create a new container shop. */
+  public synchronized boolean blocksContainerShop(Material material) {
+    if (material == null) {
+      return false;
+    }
+    return markets.values().stream().map(entry -> entry.definition)
+        .anyMatch(definition -> definition.blockContainerShops()
+            && definition.item().mode() == FingerprintMode.VANILLA_MATERIAL
+            && material.name().equalsIgnoreCase(definition.item().material()));
   }
 
   public synchronized Versions versions(String marketId) {
