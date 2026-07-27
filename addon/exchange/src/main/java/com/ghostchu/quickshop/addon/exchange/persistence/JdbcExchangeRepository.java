@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.persistence;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
+import com.ghostchu.quickshop.addon.exchange.core.model.FeeRates;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
@@ -16,6 +17,7 @@ import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.InsufficientAssetsException;
 import com.ghostchu.quickshop.addon.exchange.repository.ItemBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketSnapshot;
+import com.ghostchu.quickshop.addon.exchange.repository.MarketFeeSchedule;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketTradeSample;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
 import com.ghostchu.quickshop.addon.exchange.transfer.IdempotencyConflictException;
@@ -56,6 +58,26 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
     this.connections = Objects.requireNonNull(connections, "connections");
     this.dialect = Objects.requireNonNull(dialect, "dialect");
     this.tables = Objects.requireNonNull(tables, "tables");
+  }
+
+  /** Replaces the persisted schedule only when every existing version remains unchanged. */
+  public void storeFeeSchedule(String marketId, MarketFeeSchedule replacement)
+      throws SQLException {
+    Objects.requireNonNull(marketId, "marketId");
+    Objects.requireNonNull(replacement, "replacement");
+    inTransaction(transaction -> {
+      ((JdbcTransaction) transaction).storeFeeSchedule(marketId, replacement);
+      return null;
+    });
+  }
+
+  /** Removes a retired fee version only after no open order can still select it. */
+  public void archiveFeeVersion(String marketId, long feeVersion) throws SQLException {
+    Objects.requireNonNull(marketId, "marketId");
+    inTransaction(transaction -> {
+      ((JdbcTransaction) transaction).archiveFeeVersion(marketId, feeVersion);
+      return null;
+    });
   }
 
   @Override
@@ -539,6 +561,94 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
     }
 
     @Override
+    public MarketFeeSchedule marketFeeSchedule(String marketId) throws SQLException {
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT fee_schedule_payload FROM " + tables.markets()
+              + " WHERE market_id=?" + dialect.forUpdate())) {
+        select.setString(1, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          if (!result.next()) {
+            throw new SQLException("market fee schedule does not exist: " + marketId);
+          }
+          return FeeSchedule.from(result.getString("fee_schedule_payload"));
+        }
+      }
+    }
+
+    private void storeFeeSchedule(String marketId, MarketFeeSchedule replacement)
+        throws SQLException {
+      MarketFeeSchedule current = marketFeeSchedule(marketId);
+      if (replacement.currencyScale() != current.currencyScale()
+          || replacement.activeVersion() < current.activeVersion()
+          || replacement.activeVersion() > current.activeVersion() + 1) {
+        throw new IllegalArgumentException("invalid fee schedule replacement");
+      }
+      current.versions().forEach((version, rates) -> {
+        FeeRates retained = replacement.versions().get(version);
+        if (retained == null || retained.makerRate().compareTo(rates.makerRate()) != 0
+            || retained.takerRate().compareTo(rates.takerRate()) != 0) {
+          throw new IllegalArgumentException("existing fee versions are immutable");
+        }
+      });
+      try (PreparedStatement update = connection.prepareStatement(
+          "UPDATE " + tables.markets() + " SET fee_schedule_payload=? WHERE market_id=?")) {
+        update.setString(1, FeeSchedule.encode(replacement));
+        update.setString(2, marketId);
+        if (update.executeUpdate() != 1) {
+          throw new SQLException("market fee schedule does not exist: " + marketId);
+        }
+      }
+    }
+
+    private void archiveFeeVersion(String marketId, long feeVersion) throws SQLException {
+      MarketFeeSchedule current = marketFeeSchedule(marketId);
+      if (feeVersion == current.activeVersion()) {
+        throw new IllegalArgumentException("active fee version cannot be archived");
+      }
+      if (!current.versions().containsKey(feeVersion)) {
+        throw new IllegalArgumentException("fee schedule version does not exist: " + feeVersion);
+      }
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT order_id FROM " + tables.orders()
+              + " WHERE market_id=? AND fee_version=?"
+              + " AND status IN ('OPEN','PARTIALLY_FILLED') LIMIT 1" + dialect.forUpdate())) {
+        query.setString(1, marketId);
+        query.setLong(2, feeVersion);
+        try (ResultSet result = query.executeQuery()) {
+          if (result.next()) {
+            throw new IllegalStateException("fee version is referenced by an open order");
+          }
+        }
+      }
+      Map<Long, FeeRates> retained = new HashMap<>(current.versions());
+      retained.remove(feeVersion);
+      try (PreparedStatement update = connection.prepareStatement(
+          "UPDATE " + tables.markets() + " SET fee_schedule_payload=? WHERE market_id=?")) {
+        update.setString(1, FeeSchedule.encode(new MarketFeeSchedule(
+            current.activeVersion(), current.currencyScale(), retained)));
+        update.setString(2, marketId);
+        if (update.executeUpdate() != 1) {
+          throw new SQLException("market fee schedule does not exist: " + marketId);
+        }
+      }
+    }
+
+    @Override
+    public long marketStructuralVersion(String marketId) throws SQLException {
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT structural_version FROM " + tables.markets()
+              + " WHERE market_id=?" + dialect.forUpdate())) {
+        select.setString(1, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          if (!result.next()) {
+            throw new SQLException("market configuration does not exist: " + marketId);
+          }
+          return result.getLong("structural_version");
+        }
+      }
+    }
+
+    @Override
     public List<PersistedOrder> openOrders(String marketId) throws SQLException {
       try (PreparedStatement select = connection.prepareStatement(
           "SELECT order_id,request_id,market_id,account_id,side,order_type,time_in_force,"
@@ -832,7 +942,7 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
       int underReserved = 0;
       try (PreparedStatement query = connection.prepareStatement(
           "SELECT o.side,o.order_type,o.remaining_quantity,o.reserved_currency,"
-              + "o.reserved_quantity,o.limit_price,m.fee_schedule_payload FROM "
+              + "o.reserved_quantity,o.limit_price,o.fee_version,m.fee_schedule_payload FROM "
               + tables.orders() + " o JOIN " + tables.markets()
               + " m ON m.market_id=o.market_id WHERE o.status IN ('OPEN','PARTIALLY_FILLED')");
            ResultSet result = query.executeQuery()) {
@@ -844,7 +954,7 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
             }
           } else if (OrderType.LIMIT.name().equals(result.getString("order_type"))
               && requiredBuyReservation(result.getString("limit_price"), remaining,
-                  result.getString("fee_schedule_payload"))
+                  result.getString("fee_schedule_payload"), result.getLong("fee_version"))
                   .compareTo(readDecimal(result, "reserved_currency")) > 0) {
             underReserved++;
           }
@@ -853,12 +963,14 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
       return underReserved;
     }
 
-    private static BigDecimal requiredBuyReservation(
-        String limitPrice, long remainingQuantity, String feeSchedulePayload) throws SQLException {
-      FeeSchedule fees = FeeSchedule.from(feeSchedulePayload);
+      private static BigDecimal requiredBuyReservation(
+        String limitPrice, long remainingQuantity, String feeSchedulePayload, long feeVersion)
+        throws SQLException {
+      MarketFeeSchedule schedule = FeeSchedule.from(feeSchedulePayload);
+      FeeRates fees = schedule.rates(feeVersion);
       BigDecimal notional = new BigDecimal(limitPrice).multiply(BigDecimal.valueOf(remainingQuantity));
-      BigDecimal fee = notional.multiply(fees.maximumRate())
-          .setScale(fees.currencyScale(), RoundingMode.UP);
+      BigDecimal fee = notional.multiply(fees.makerRate().max(fees.takerRate()))
+          .setScale(schedule.currencyScale(), RoundingMode.UP);
       return notional.add(fee);
     }
 
@@ -1019,19 +1131,44 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
       statement.setLong(firstIndex + 17, order.updatedAt().toEpochMilli());
     }
 
-    private record FeeSchedule(BigDecimal makerRate, BigDecimal takerRate, int currencyScale) {
-      private static FeeSchedule from(String payload) throws SQLException {
+    private static final class FeeSchedule {
+      private static MarketFeeSchedule from(String payload) throws SQLException {
         try {
           JsonObject json = JsonParser.parseString(payload).getAsJsonObject();
-          return new FeeSchedule(decimal(json, "makerFeeRate"), decimal(json, "takerFeeRate"),
-              integer(json, "currencyScale"));
+          if (!json.has("versions")) {
+            return new MarketFeeSchedule(1, integer(json, "currencyScale"),
+                Map.of(1L, new FeeRates(decimal(json, "makerFeeRate"),
+                    decimal(json, "takerFeeRate"))));
+          }
+          JsonObject versions = json.getAsJsonObject("versions");
+          Map<Long, FeeRates> entries = new HashMap<>();
+          for (Map.Entry<String, JsonElement> entry : versions.entrySet()) {
+            JsonObject rates = entry.getValue().getAsJsonObject();
+            entries.put(Long.parseLong(entry.getKey()), new FeeRates(
+                decimal(rates, "makerFeeRate"), decimal(rates, "takerFeeRate")));
+          }
+          return new MarketFeeSchedule(json.get("activeVersion").getAsLong(),
+              integer(json, "currencyScale"), entries);
         } catch (RuntimeException failure) {
           throw new SQLException("invalid market fee schedule", failure);
         }
       }
 
-      private BigDecimal maximumRate() {
-        return makerRate.max(takerRate);
+      private static String encode(MarketFeeSchedule schedule) {
+        JsonObject json = new JsonObject();
+        json.addProperty("activeVersion", schedule.activeVersion());
+        json.addProperty("currencyScale", schedule.currencyScale());
+        JsonObject versions = new JsonObject();
+        schedule.versions().entrySet().stream()
+            .sorted(Map.Entry.comparingByKey())
+            .forEach(entry -> {
+              JsonObject rates = new JsonObject();
+              rates.addProperty("makerFeeRate", entry.getValue().makerRate().toPlainString());
+              rates.addProperty("takerFeeRate", entry.getValue().takerRate().toPlainString());
+              versions.add(Long.toString(entry.getKey()), rates);
+            });
+        json.add("versions", versions);
+        return json.toString();
       }
 
       private static BigDecimal decimal(JsonObject json, String field) {

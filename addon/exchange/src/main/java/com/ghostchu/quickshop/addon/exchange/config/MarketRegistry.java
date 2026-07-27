@@ -9,6 +9,8 @@ import java.math.BigDecimal;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import com.ghostchu.quickshop.addon.exchange.platform.FingerprintMode;
+import com.ghostchu.quickshop.addon.exchange.core.model.FeeRates;
+import java.util.Collections;
 
 /** Holds market configuration and only permits structural changes on a paused empty book. */
 public final class MarketRegistry {
@@ -68,6 +70,15 @@ public final class MarketRegistry {
     return new Versions(entry.structuralVersion, entry.riskVersion, entry.feeVersion);
   }
 
+  public synchronized FeeSchedule feeSchedule(String marketId) {
+    Entry entry = markets.get(marketId);
+    if (entry == null) {
+      throw new IllegalArgumentException("unknown market: " + marketId);
+    }
+    return new FeeSchedule(entry.feeVersion,
+        Collections.unmodifiableMap(new LinkedHashMap<>(entry.feeSchedule)));
+  }
+
   public synchronized void reload(
       Map<String, MarketDefinition> replacements, MarketStateReader stateReader) {
     Objects.requireNonNull(replacements, "replacements");
@@ -92,6 +103,7 @@ public final class MarketRegistry {
         if (current.definition.risk().makerFeeRate().compareTo(next.risk().makerFeeRate()) != 0
             || current.definition.risk().takerFeeRate().compareTo(next.risk().takerFeeRate()) != 0) {
           current.feeVersion++;
+          current.feeSchedule.put(current.feeVersion, feeRates(next));
         }
       }
       current.definition = next;
@@ -133,14 +145,23 @@ public final class MarketRegistry {
   public record Versions(long structuralVersion, long riskVersion, long feeVersion) {
   }
 
+  public record FeeSchedule(long activeVersion, Map<Long, FeeRates> versions) {
+  }
+
+  private static FeeRates feeRates(MarketDefinition definition) {
+    return new FeeRates(definition.risk().makerFeeRate(), definition.risk().takerFeeRate());
+  }
+
   private static final class Entry {
     private MarketDefinition definition;
-    private long structuralVersion;
-    private long riskVersion;
-    private long feeVersion;
+    private long structuralVersion = 1;
+    private long riskVersion = 1;
+    private long feeVersion = 1;
+    private final Map<Long, FeeRates> feeSchedule = new LinkedHashMap<>();
 
     private Entry(MarketDefinition definition) {
       this.definition = definition;
+      this.feeSchedule.put(feeVersion, feeRates(definition));
     }
   }
 }

@@ -7,6 +7,7 @@ import com.ghostchu.quickshop.addon.exchange.core.matching.MatchingEngine;
 import com.ghostchu.quickshop.addon.exchange.core.matching.Reservation;
 import com.ghostchu.quickshop.addon.exchange.core.matching.ReservationCalculator;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
+import com.ghostchu.quickshop.addon.exchange.core.model.FeeRates;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
@@ -25,6 +26,7 @@ import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder;
+import com.ghostchu.quickshop.addon.exchange.repository.MarketFeeSchedule;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -199,10 +201,17 @@ public final class PersistentOrderService {
     RuntimeRiskSnapshot runtimeRisk = runtimeRisk(tx, lockedState, now.get());
     MarketState beforeState = runtimeRisk.state();
     List<PersistedOrder> persistedOrders = tx.openOrders(request.marketId());
+    long structuralVersion = tx.marketStructuralVersion(request.marketId());
+    MarketFeeSchedule feeSchedule = tx.marketFeeSchedule(request.marketId());
+    if (feeSchedule.currencyScale() != rules.priceScale()) {
+      throw new IllegalStateException("fee schedule currency scale does not match market rules");
+    }
 
     Instant createdAt = now.get();
     long prioritySequence = Math.addExact(beforeState.prioritySequence(), 1);
-    Order incoming = createOrder(request, prioritySequence, createdAt);
+    Order incoming = createOrder(
+        request, prioritySequence, structuralVersion, feeSchedule.activeVersion(), createdAt);
+    MarketRules incomingRules = rulesWithFees(feeSchedule.activeRates());
     OrderBook transactionBook = new OrderBook();
     Map<UUID, PersistedOrder> persistedById = new HashMap<>();
     for (PersistedOrder persisted : persistedOrders) {
@@ -211,16 +220,17 @@ public final class PersistentOrderService {
     }
 
     Reservation reservation = incoming.type() == OrderType.MARKET
-        ? reservations.reserve(incoming, rules, transactionBook,
+        ? reservations.reserve(incoming, incomingRules, transactionBook,
             price -> riskLimits.insideCage(price, beforeState.referencePrice()))
-        : reservations.reserve(incoming, rules);
+        : reservations.reserve(incoming, incomingRules);
 
     AtomicLong matchSequence = new AtomicLong(beforeState.matchSequence());
     ReferencePriceTracker transactionPrices = runtimeRisk.referencePrices();
     CircuitBreaker transactionBreaker = runtimeRisk.circuitBreaker();
     MatchingEngine engine = new MatchingEngine(transactionBook, rules, fees,
         matchSequence::incrementAndGet, now, ids,
-        price -> riskLimits.insideCage(price, beforeState.referencePrice()));
+        price -> riskLimits.insideCage(price, beforeState.referencePrice()),
+        order -> feeSchedule.rates(order.feeVersion()));
     MatchResult match = engine.submit(incoming);
     Order taker = match.selfTradeRejected()
         ? incoming.withStatus(OrderStatus.REJECTED, now.get()) : match.finalOrder();
@@ -242,12 +252,12 @@ public final class PersistentOrderService {
     }
 
     for (Order maker : match.changedMakers()) {
-      releaseOpenBuyExcess(tx, maker, currencyReservations);
+      releaseOpenBuyExcess(tx, maker, currencyReservations, feeSchedule);
       releaseTerminalReservation(tx, maker, currencyReservations, itemReservations);
     }
     long reservedTakerItemsBeforeRelease = itemReservations.get(taker.orderId());
     BigDecimal takerCurrencyRelease = releaseOpenBuyExcess(
-        tx, taker, currencyReservations).add(releaseTerminalReservation(
+        tx, taker, currencyReservations, feeSchedule).add(releaseTerminalReservation(
             tx, taker, currencyReservations, itemReservations));
     long takerItemRelease = taker.side() == OrderSide.SELL && isTerminal(taker)
         ? reservedTakerItemsBeforeRelease : 0;
@@ -353,12 +363,14 @@ public final class PersistentOrderService {
     }
   }
 
-  private Order createOrder(OrderRequest request, long prioritySequence, Instant createdAt) {
+  private Order createOrder(
+      OrderRequest request, long prioritySequence, long structuralVersion,
+      long feeVersion, Instant createdAt) {
     OrderType type = parseType(request.type());
     return new Order(ids.get(), request.requestId(), request.marketId(), request.accountId(),
         request.side(), type, type == OrderType.LIMIT ? TimeInForce.GTC : TimeInForce.IOC,
         request.price(), request.slippageBoundary(), request.quantity(), request.quantity(),
-        OrderStatus.OPEN, prioritySequence, 1, 1, createdAt, createdAt);
+        OrderStatus.OPEN, prioritySequence, structuralVersion, feeVersion, createdAt, createdAt);
   }
 
   private static OrderType parseType(String type) {
@@ -458,13 +470,15 @@ public final class PersistentOrderService {
   }
 
   private BigDecimal releaseOpenBuyExcess(
-      ExchangeTransaction tx, Order order, Map<UUID, BigDecimal> currencyReservations)
+      ExchangeTransaction tx, Order order, Map<UUID, BigDecimal> currencyReservations,
+      MarketFeeSchedule feeSchedule)
       throws SQLException {
     if (order.side() != OrderSide.BUY || order.type() != OrderType.LIMIT || isTerminal(order)) {
       return BigDecimal.ZERO;
     }
     BigDecimal reserved = currencyReservations.get(order.orderId());
-    BigDecimal required = reservations.reserve(order, rules).frozenCurrency();
+    BigDecimal required = reservations.reserve(order, rulesWithFees(
+        feeSchedule.rates(order.feeVersion()))).frozenCurrency();
     BigDecimal release = reserved.subtract(required);
     if (release.signum() < 0) {
       throw new IllegalStateException("remaining buy reservation is underfunded");
@@ -474,6 +488,12 @@ public final class PersistentOrderService {
       currencyReservations.put(order.orderId(), required);
     }
     return release;
+  }
+
+  private MarketRules rulesWithFees(FeeRates rates) {
+    return new MarketRules(rules.marketId(), rules.currencyId(), rules.basePrice(),
+        rules.minPrice(), rules.maxPrice(), rules.tickSize(), rules.minQuantity(),
+        rules.maxQuantity(), rules.priceScale(), rates.makerRate(), rates.takerRate());
   }
 
   private static boolean isTerminal(Order order) {

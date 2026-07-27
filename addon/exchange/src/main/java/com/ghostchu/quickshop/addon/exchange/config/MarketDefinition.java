@@ -42,6 +42,10 @@ public record MarketDefinition(
           || minQuantity <= 0 || maxQuantity < minQuantity || discoveryQuantity < minQuantity * 10) {
         throw new IllegalArgumentException("invalid structural market rules");
       }
+      if (!fitsScale(tickSize, priceScale) || !fitsScale(minPrice, priceScale)
+          || !fitsScale(maxPrice, priceScale)) {
+        throw new IllegalArgumentException("tick and price bounds must fit priceScale");
+      }
     }
   }
 
@@ -90,5 +94,9 @@ public record MarketDefinition(
     if (value == null || value.signum() < 0) {
       throw new IllegalArgumentException(name + " must not be negative");
     }
+  }
+
+  private static boolean fitsScale(BigDecimal value, int scale) {
+    return value.stripTrailingZeros().scale() <= scale;
   }
 }

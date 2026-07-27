@@ -47,13 +47,41 @@ class MarketRegistryTest {
         .hasMessageContaining("structural change requires PAUSED market with no open orders");
   }
 
+  @Test
+  void feeReloadAppendsAnImmutableVersion() {
+    MarketRegistry registry = new MarketRegistry(Map.of(
+        "minecraft_diamond/default", definition("0.01", "0.001", "0.002")));
+
+    registry.reload(Map.of("minecraft_diamond/default",
+        definition("0.01", "0.010", "0.020")),
+        market -> new MarketStateReader.State(MarketStatus.OPEN, 3));
+
+    MarketRegistry.FeeSchedule schedule = registry.feeSchedule("minecraft_diamond/default");
+    assertThat(schedule.activeVersion()).isEqualTo(2);
+    assertThat(schedule.versions()).containsOnlyKeys(1L, 2L);
+    assertThat(schedule.versions().get(1L).makerRate()).isEqualByComparingTo("0.001");
+    assertThat(schedule.versions().get(2L).makerRate()).isEqualByComparingTo("0.010");
+  }
+
+  @Test
+  void rejectsTickSizeBeyondConfiguredPriceScale() {
+    assertThatThrownBy(() -> definition("0.001"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("priceScale");
+  }
+
   private static MarketDefinition definition(String tickSize) {
+    return definition(tickSize, "0.001", "0.002");
+  }
+
+  private static MarketDefinition definition(
+      String tickSize, String makerFeeRate, String takerFeeRate) {
     return new MarketDefinition("minecraft_diamond/default", "Diamond", false,
         new MarketDefinition.ItemDefinition(FingerprintMode.VANILLA_MATERIAL, "DIAMOND", null, null),
         new MarketDefinition.StructuralRules("default", new BigDecimal("100.00"),
             BigDecimal.ONE, new BigDecimal("10000.00"), new BigDecimal(tickSize), 2, 2,
             1, 2304, 100),
-        new MarketDefinition.RiskRules(new BigDecimal("0.001"), new BigDecimal("0.002"),
+        new MarketDefinition.RiskRules(new BigDecimal(makerFeeRate), new BigDecimal(takerFeeRate),
             new BigDecimal("0.20"), new BigDecimal("0.05"), new BigDecimal("0.20"),
             new BigDecimal("0.10"), 120, new BigDecimal("0.20"), 600, 100000,
             new BigDecimal("10000000.00"), 100, 5, 60), false);

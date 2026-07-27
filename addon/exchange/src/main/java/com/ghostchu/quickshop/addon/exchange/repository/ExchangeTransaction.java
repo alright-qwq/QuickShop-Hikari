@@ -28,6 +28,8 @@ public interface ExchangeTransaction {
   Optional<StoredRequestResult> requestResult(UUID accountId, UUID requestId) throws SQLException;
   void putRequestResult(StoredRequestResult result) throws SQLException;
   MarketState marketState(String marketId) throws SQLException;
+  long marketStructuralVersion(String marketId) throws SQLException;
+  MarketFeeSchedule marketFeeSchedule(String marketId) throws SQLException;
   MarketSnapshot marketSnapshot(MarketState state, Instant cutoff) throws SQLException;
   void visitTradeHistory(String marketId, TradeVisitor visitor) throws SQLException;
   List<PersistedOrder> openOrders(String marketId) throws SQLException;

@@ -8,6 +8,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
+import com.ghostchu.quickshop.addon.exchange.core.model.FeeRates;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.LongSupplier;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -26,6 +28,7 @@ public final class MatchingEngine {
   private final Supplier<Instant> now;
   private final Supplier<UUID> tradeIds;
   private final Predicate<BigDecimal> executablePrice;
+  private final Function<Order, FeeRates> feeRates;
 
   public MatchingEngine(OrderBook book, MarketRules rules, FeeCalculator fees, LongSupplier matchSequence,
                         Supplier<Instant> now, Supplier<UUID> tradeIds) {
@@ -35,8 +38,16 @@ public final class MatchingEngine {
   public MatchingEngine(OrderBook book, MarketRules rules, FeeCalculator fees, LongSupplier matchSequence,
                         Supplier<Instant> now, Supplier<UUID> tradeIds,
                         Predicate<BigDecimal> executablePrice) {
+    this(book, rules, fees, matchSequence, now, tradeIds, executablePrice,
+        ignored -> new FeeRates(rules.makerFeeRate(), rules.takerFeeRate()));
+  }
+
+  public MatchingEngine(OrderBook book, MarketRules rules, FeeCalculator fees, LongSupplier matchSequence,
+                        Supplier<Instant> now, Supplier<UUID> tradeIds,
+                        Predicate<BigDecimal> executablePrice,
+                        Function<Order, FeeRates> feeRates) {
     if (book == null || rules == null || fees == null || matchSequence == null || now == null
-        || tradeIds == null || executablePrice == null) {
+        || tradeIds == null || executablePrice == null || feeRates == null) {
       throw new IllegalArgumentException("matching dependencies are required");
     }
     this.book = book;
@@ -46,6 +57,7 @@ public final class MatchingEngine {
     this.now = now;
     this.tradeIds = tradeIds;
     this.executablePrice = executablePrice;
+    this.feeRates = feeRates;
   }
 
   public MatchResult submit(Order incoming) {
@@ -80,8 +92,8 @@ public final class MatchingEngine {
       UUID buyer = incoming.side() == OrderSide.BUY ? incoming.accountId() : maker.accountId();
       UUID seller = incoming.side() == OrderSide.SELL ? incoming.accountId() : maker.accountId();
       BigDecimal notional = maker.limitPrice().multiply(BigDecimal.valueOf(quantity));
-      BigDecimal makerFee = fees.fee(notional, rules.makerFeeRate());
-      BigDecimal takerFee = fees.fee(notional, rules.takerFeeRate());
+      BigDecimal makerFee = fees.fee(notional, feeRates.apply(maker).makerRate());
+      BigDecimal takerFee = fees.fee(notional, feeRates.apply(incoming).takerRate());
       Trade trade = new Trade(tradeIds.get(), incoming.marketId(), maker.orderId(), incoming.orderId(),
           buyer, seller, maker.limitPrice(), quantity,
           makerFee, takerFee, matchSequence.getAsLong(), executedAt);

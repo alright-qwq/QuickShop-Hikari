@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.service;
 
 import com.ghostchu.quickshop.addon.exchange.core.TestFixtures;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
+import com.ghostchu.quickshop.addon.exchange.core.model.FeeRates;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.persistence.ConnectionProvider;
 import com.ghostchu.quickshop.addon.exchange.persistence.JdbcExchangeRepository;
@@ -11,6 +12,7 @@ import com.ghostchu.quickshop.addon.exchange.persistence.SqliteConnectionProvide
 import com.ghostchu.quickshop.addon.exchange.persistence.TableNames;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
+import com.ghostchu.quickshop.addon.exchange.repository.MarketFeeSchedule;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -242,6 +244,56 @@ final class ExchangeServiceFixture {
     return rowCount(tables.trades());
   }
 
+  void replaceFeeSchedule(long activeVersion, String makerFee, String takerFee) throws SQLException {
+    repository.storeFeeSchedule(rules.marketId(), new MarketFeeSchedule(
+        activeVersion, rules.priceScale(), Map.of(
+            1L, new FeeRates(rules.makerFeeRate(), rules.takerFeeRate()),
+            activeVersion, new FeeRates(new BigDecimal(makerFee), new BigDecimal(takerFee)))));
+  }
+
+  void archiveFeeVersion(long feeVersion) throws SQLException {
+    repository.archiveFeeVersion(rules.marketId(), feeVersion);
+  }
+
+  void setMarketStructuralVersion(long structuralVersion) throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement update = connection.prepareStatement(
+             "UPDATE " + tables.markets() + " SET structural_version=? WHERE market_id=?")) {
+      update.setLong(1, structuralVersion);
+      update.setString(2, rules.marketId());
+      update.executeUpdate();
+    }
+  }
+
+  BigDecimal lastTradeMakerFee() throws SQLException {
+    return lastTradeValue("maker_fee");
+  }
+
+  BigDecimal lastTradeTakerFee() throws SQLException {
+    return lastTradeValue("taker_fee");
+  }
+
+  long latestOrderFeeVersion() throws SQLException {
+    return latestOrderVersion("fee_version");
+  }
+
+  long latestOrderConfigVersion() throws SQLException {
+    return latestOrderVersion("config_version");
+  }
+
+  private long latestOrderVersion(String column) throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement query = connection.prepareStatement(
+             "SELECT " + column + " FROM " + tables.orders()
+                 + " ORDER BY created_at DESC, priority_sequence DESC LIMIT 1");
+         ResultSet result = query.executeQuery()) {
+      if (!result.next()) {
+        throw new SQLException("order missing");
+      }
+      return result.getLong(1);
+    }
+  }
+
   long orderCount() throws SQLException {
     return rowCount(tables.orders());
   }
@@ -272,6 +324,19 @@ final class ExchangeServiceFixture {
          ResultSet result = query.executeQuery()) {
       result.next();
       return result.getLong(1);
+    }
+  }
+
+  private BigDecimal lastTradeValue(String column) throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement query = connection.prepareStatement(
+             "SELECT " + column + " FROM " + tables.trades()
+                 + " ORDER BY executed_at DESC, match_sequence DESC LIMIT 1");
+         ResultSet result = query.executeQuery()) {
+      if (!result.next()) {
+        throw new SQLException("trade missing");
+      }
+      return new BigDecimal(result.getString(1));
     }
   }
 

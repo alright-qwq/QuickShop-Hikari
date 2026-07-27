@@ -181,6 +181,39 @@ class PersistentOrderServiceTest {
   }
 
   @Test
+  void restartedServiceUsesEachOrdersPersistedFeeVersion() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+    fixture.replaceFeeSchedule(2, "0.010", "0.020");
+    fixture.setMarketStructuralVersion(7);
+
+    PersistentOrderService restarted = fixture.restartedService();
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    restarted.place(new OrderRequest(UUID.randomUUID(), buyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    assertThat(fixture.lastTradeMakerFee()).isEqualByComparingTo("0.10");
+    assertThat(fixture.lastTradeTakerFee()).isEqualByComparingTo("2.00");
+    assertThat(fixture.latestOrderFeeVersion()).isEqualTo(2);
+    assertThat(fixture.latestOrderConfigVersion()).isEqualTo(7);
+  }
+
+  @Test
+  void refusesToArchiveFeeVersionReferencedByOpenOrder() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+    fixture.replaceFeeSchedule(2, "0.010", "0.020");
+
+    assertThatThrownBy(() -> fixture.archiveFeeVersion(1))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("open order");
+  }
+
+  @Test
   void preservesSqlFailureWhenRecoveryCallbackAlsoFails() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite((market, failure) -> {
       throw new IllegalStateException("forced recovery failure");
