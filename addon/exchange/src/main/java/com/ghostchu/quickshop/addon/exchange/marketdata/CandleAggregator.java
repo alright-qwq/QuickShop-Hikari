@@ -2,7 +2,9 @@ package com.ghostchu.quickshop.addon.exchange.marketdata;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -33,6 +35,36 @@ public final class CandleAggregator {
     Objects.requireNonNull(bucketStart, "bucketStart");
     Instant bucket = Instant.ofEpochSecond(Math.floorDiv(bucketStart.getEpochSecond(), 60) * 60L);
     return Optional.ofNullable(candles.get(new Key(marketId, bucket)));
+  }
+
+  /** Returns UTC-minute candles whose buckets lie in the requested half-open interval. */
+  public synchronized List<Candle> snapshots(String marketId, Instant fromInclusive,
+                                              Instant toExclusive) {
+    Objects.requireNonNull(marketId, "marketId");
+    Objects.requireNonNull(fromInclusive, "fromInclusive");
+    Objects.requireNonNull(toExclusive, "toExclusive");
+    if (!fromInclusive.isBefore(toExclusive)) {
+      throw new IllegalArgumentException("candle range must not be empty or reversed");
+    }
+    Instant from = bucketStart(fromInclusive);
+    Instant to = bucketStart(toExclusive);
+    return candles.entrySet().stream()
+        .filter(entry -> entry.getKey().marketId().equals(marketId))
+        .map(Map.Entry::getValue)
+        .filter(candle -> !candle.bucketStart().isBefore(from)
+            && candle.bucketStart().isBefore(to))
+        .sorted(Comparator.comparing(Candle::bucketStart))
+        .toList();
+  }
+
+  public synchronized void discard(String marketId, Instant bucketStart) {
+    Objects.requireNonNull(marketId, "marketId");
+    Objects.requireNonNull(bucketStart, "bucketStart");
+    candles.remove(new Key(marketId, bucketStart(bucketStart)));
+  }
+
+  private static Instant bucketStart(Instant instant) {
+    return Instant.ofEpochSecond(Math.floorDiv(instant.getEpochSecond(), 60) * 60L);
   }
 
   private record Key(String marketId, Instant bucketStart) {}

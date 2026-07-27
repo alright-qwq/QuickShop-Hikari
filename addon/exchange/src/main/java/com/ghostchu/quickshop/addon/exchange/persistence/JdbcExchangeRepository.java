@@ -12,6 +12,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
+import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
 import com.ghostchu.quickshop.addon.exchange.repository.CurrencyBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
@@ -240,6 +241,39 @@ public final class JdbcExchangeRepository
   @Override
   public ReconciliationReport reconcile() throws SQLException {
     return inTransaction(transaction -> ((JdbcTransaction) transaction).reconcile());
+  }
+
+  @Override
+  public void upsertCandle(Candle candle) throws SQLException {
+    requireCandle(candle);
+    inTransaction(transaction -> {
+      ((JdbcTransaction) transaction).upsertCandle(candle);
+      return null;
+    });
+  }
+
+  @Override
+  public List<Candle> loadCandles(String marketId, Instant fromInclusive, Instant toExclusive)
+      throws SQLException {
+    if (marketId == null || marketId.isBlank() || fromInclusive == null || toExclusive == null
+        || !fromInclusive.isBefore(toExclusive)) {
+      throw new IllegalArgumentException("invalid candle range");
+    }
+    try (Connection connection = connections.open()) {
+      return new JdbcTransaction(connection, dialect, tables)
+          .loadCandles(marketId, fromInclusive, toExclusive);
+    }
+  }
+
+  private static void requireCandle(Candle candle) {
+    if (candle == null || candle.marketId() == null || candle.marketId().isBlank()
+        || candle.bucketStart() == null || candle.open() == null || candle.high() == null
+        || candle.low() == null || candle.close() == null || candle.open().signum() <= 0
+        || candle.high().compareTo(candle.open()) < 0 || candle.high().compareTo(candle.close()) < 0
+        || candle.low().compareTo(candle.open()) > 0 || candle.low().compareTo(candle.close()) > 0
+        || candle.volume() < 0 || candle.notional() == null || candle.notional().signum() < 0) {
+      throw new IllegalArgumentException("invalid candle");
+    }
   }
 
   private static final class JdbcTransaction implements ExchangeTransaction {
@@ -1086,7 +1120,7 @@ public final class JdbcExchangeRepository
       return underReserved;
     }
 
-      private static BigDecimal requiredBuyReservation(
+    private static BigDecimal requiredBuyReservation(
         String limitPrice, long remainingQuantity, String feeSchedulePayload, long feeVersion)
         throws SQLException {
       MarketFeeSchedule schedule = FeeSchedule.from(feeSchedulePayload);
@@ -1095,6 +1129,57 @@ public final class JdbcExchangeRepository
       BigDecimal fee = notional.multiply(fees.makerRate().max(fees.takerRate()))
           .setScale(schedule.currencyScale(), RoundingMode.UP);
       return notional.add(fee);
+    }
+
+    private void upsertCandle(Candle candle) throws SQLException {
+      String sql = dialect == SqlDialect.SQLITE
+          ? "INSERT INTO " + tables.candles1m()
+              + " (market_id,bucket_start,open_price,high_price,low_price,close_price,volume,notional)"
+              + " VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(market_id,bucket_start) DO UPDATE SET"
+              + " open_price=excluded.open_price,high_price=excluded.high_price,"
+              + "low_price=excluded.low_price,close_price=excluded.close_price,"
+              + "volume=excluded.volume,notional=excluded.notional"
+          : "INSERT INTO " + tables.candles1m()
+              + " (market_id,bucket_start,open_price,high_price,low_price,close_price,volume,notional)"
+              + " VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE"
+              + " open_price=VALUES(open_price),high_price=VALUES(high_price),"
+              + "low_price=VALUES(low_price),close_price=VALUES(close_price),"
+              + "volume=VALUES(volume),notional=VALUES(notional)";
+      try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        statement.setString(1, candle.marketId());
+        statement.setLong(2, candle.bucketStart().toEpochMilli());
+        writeDecimal(statement, 3, candle.open());
+        writeDecimal(statement, 4, candle.high());
+        writeDecimal(statement, 5, candle.low());
+        writeDecimal(statement, 6, candle.close());
+        statement.setLong(7, candle.volume());
+        writeDecimal(statement, 8, candle.notional());
+        statement.executeUpdate();
+      }
+    }
+
+    private List<Candle> loadCandles(String marketId, Instant fromInclusive, Instant toExclusive)
+        throws SQLException {
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT market_id,bucket_start,open_price,high_price,low_price,close_price,volume,notional"
+              + " FROM " + tables.candles1m()
+              + " WHERE market_id=? AND bucket_start>=? AND bucket_start<?"
+              + " ORDER BY bucket_start ASC")) {
+        query.setString(1, marketId);
+        query.setLong(2, fromInclusive.toEpochMilli());
+        query.setLong(3, toExclusive.toEpochMilli());
+        try (ResultSet result = query.executeQuery()) {
+          List<Candle> candles = new ArrayList<>();
+          while (result.next()) {
+            candles.add(new Candle(result.getString("market_id"),
+                Instant.ofEpochMilli(result.getLong("bucket_start")),
+                readDecimal(result, "open_price"), readDecimal(result, "high_price"),
+                readDecimal(result, "low_price"), readDecimal(result, "close_price"),
+                result.getLong("volume"), readDecimal(result, "notional")));
+          }
+          return List.copyOf(candles);
+        }
+      }
     }
 
     private void insertJournal(LedgerJournal journal) throws SQLException {
