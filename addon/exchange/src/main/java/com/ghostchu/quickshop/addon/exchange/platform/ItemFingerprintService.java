@@ -4,16 +4,27 @@ import com.ghostchu.quickshop.QuickShop;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.function.BiPredicate;
+import java.util.function.Function;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.ItemStack;
 
 public final class ItemFingerprintService {
-  private final QuickShop quickShop;
+  private final Function<ItemStack, String> stackEncoder;
+  private final BiPredicate<ItemStack, ItemStack> itemMatcher;
   private final NamespacedKey transferMarker;
 
   public ItemFingerprintService(QuickShop quickShop, NamespacedKey transferMarker) {
-    this.quickShop = quickShop;
+    this(quickShop.platform()::encodeStack, quickShop.getItemMatcher()::matches, transferMarker);
+  }
+
+  ItemFingerprintService(
+      Function<ItemStack, String> stackEncoder,
+      BiPredicate<ItemStack, ItemStack> itemMatcher,
+      NamespacedKey transferMarker) {
+    this.stackEncoder = stackEncoder;
+    this.itemMatcher = itemMatcher;
     this.transferMarker = transferMarker;
   }
 
@@ -28,7 +39,7 @@ public final class ItemFingerprintService {
       }
       return new ItemFingerprint("material-v1", normalized.getType().getKey().asString());
     }
-    String encoded = quickShop.platform().encodeStack(normalized);
+    String encoded = stackEncoder.apply(normalized);
     return new ItemFingerprint("sha256-stack-v1", sha256(encoded));
   }
 
@@ -36,10 +47,9 @@ public final class ItemFingerprintService {
     ItemStack normalized = normalize(candidate);
     ItemStack vanilla = new ItemStack(material, 1);
     return normalized.getType() == material
-        && quickShop.getItemMatcher().matches(vanilla, normalized)
-        && quickShop.getItemMatcher().matches(normalized, vanilla)
-        && quickShop.platform().encodeStack(normalized)
-            .equals(quickShop.platform().encodeStack(vanilla));
+        && itemMatcher.test(vanilla, normalized)
+        && itemMatcher.test(normalized, vanilla)
+        && stackEncoder.apply(normalized).equals(stackEncoder.apply(vanilla));
   }
 
   private ItemStack normalize(ItemStack source) {

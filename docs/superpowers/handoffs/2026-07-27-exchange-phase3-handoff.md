@@ -13,8 +13,8 @@
 
 - 分支：`codex/exchange-order-book`
 - 远程：`origin` 指向 `alright-qwq/QuickShop-Hikari`
-- 本交接提交前的远程基准：`f8d50c539`
-- 当前本地分支包含 5 个尚未推送的 Phase 3 提交和本交接 WIP 提交。
+- Task 5 完成前的远程基准：`9491d7c9f`
+- Phase 3 Task 1--5 和本交接更新均在 `codex/exchange-order-book` 上。
 - 本次未创建 PR，未合并到 `hikari`。
 
 新电脑恢复：
@@ -22,7 +22,6 @@
 ```bash
 git fetch origin
 git switch --track origin/codex/exchange-order-book
-# 若远程尚未包含本交接提交，则先从当前电脑 push，或把该提交迁移到新电脑。
 ```
 
 ## 已完成并已提交
@@ -33,7 +32,7 @@ Phase 2 Task 8 已完成，远端基准为 `f8d50c539`。本机无 Docker，真�
 的 7 个用例尚需在 Docker 主机补跑；非 Docker 全量记录为 140 passed、7 MySQL
 skipped、0 failures。
 
-### Phase 3 Task 1--4
+### Phase 3 Task 1--5
 
 - `4f6f6b794` `feat(exchange): persist transfer state machine`
   - 转账模型、requestId 幂等创建及 CAS 状态迁移。
@@ -48,6 +47,9 @@ skipped、0 failures。
     `-> UNKNOWN`；`default` currency 映射为 provider 的 `null`；不做 `BigDecimal`
     到 `double` 的转换。
   - Task 4 独立审查通过，无 Critical/Important/Minor。
+- `fix(exchange): complete fungible item fingerprints`
+  - 完成普通材料和特殊物品严格指纹，修复 Paper 1.21 测试启动，并删除测试中的
+    `Unsafe` fixture。
 
 已验证：
 
@@ -61,49 +63,58 @@ skipped、0 failures。
 结果为 8 tests、0 failures、0 errors、0 skipped。Maven 会产生仓库原有模型、SLF4J
 provider 和 Java native-access 警告。
 
-## 当前 WIP：Phase 3 Task 5，不能视为完成
+## Phase 3 Task 5 完成更新（2026-07-28）
 
-本交接提交会保留下列未完成文件，方便继续而不丢失红灯测试和实现草稿：
+以下文件现已完成：
 
 - `addon/exchange/src/main/java/com/ghostchu/quickshop/addon/exchange/platform/FingerprintMode.java`
 - `addon/exchange/src/main/java/com/ghostchu/quickshop/addon/exchange/platform/ItemFingerprint.java`
 - `addon/exchange/src/main/java/com/ghostchu/quickshop/addon/exchange/platform/ItemFingerprintService.java`
 - `addon/exchange/src/test/java/com/ghostchu/quickshop/addon/exchange/platform/ItemFingerprintServiceTest.java`
-- `addon/exchange/pom.xml` 的 `quickshop-platform-interface` provided 依赖。
+- `addon/exchange/pom.xml` 的 Paper、QuickShop platform 和 MockBukkit 依赖。
 
-已实现草稿遵循计划：数量规范为 1、只移除 exchange transfer marker、严格模式使用
+实现遵循计划：数量规范为 1、只移除 exchange transfer marker、严格模式使用
 `encodeStack` 的 SHA-256、普通材料同时要求双向 `ItemMatcher` 匹配和编码完全相等。
 直接声明 `quickshop-platform-interface` 是必要的，因为本机已安装的 QuickShop shade
 consumer POM 没有传递 `QuickShop.platform()` 的公开返回类型。
 
-### 阻断
+Paper 测试使用 `MockBukkit-v1.21:3.133.2` 启动 `RegistryAccess`。该版本要求
+`paper-api:1.21.1-R0.1-SNAPSHOT`；仓库默认的无补丁 `1.21-R0.1-SNAPSHOT` 缺少
+MockBukkit 使用的 `RegistryKey.MENU`，因此 Exchange 模块显式对齐到 1.21.1。
 
-以下聚焦测试能编译，但不能执行：
+测试通过 package-private encoder/matcher 端口使用真实 ItemStack/PDC API，不再构造
+伪 QuickShop 实例，也没有 `sun.misc.Unsafe`、final 字段反射写入或
+`allocateInstance`。
 
-```powershell
-& 'C:\Users\ztrnb\.cache\codex-tools\apache-maven-3.9.11\bin\mvn.cmd' `
-  -pl addon/exchange '-Dtest=ItemFingerprintServiceTest' '-Dapi.version=1.44' test
-```
+### 红绿验证
 
-Paper API 在普通 JVM 下构造 `new ItemStack(Material.DIAMOND)` 时抛出：
+修复前聚焦测试稳定复现 2 个错误：
 
 ```text
 IllegalStateException: No RegistryAccess implementation found
 ```
 
-因此 Task 5 **没有完成、没有经过独立审查、没有跑全量测试**。当前测试里的
-`TestQuickShop` 使用 `Unsafe` 仅是临时 fixture，也不应作为最终方案保留。
+修复后使用 Reactor 运行，以便解析本地尚未安装的 QuickShop 模块：
+
+```bash
+mvn -nsu -pl addon/exchange -am \
+  -Dtest=ItemFingerprintServiceTest \
+  -Dsurefire.failIfNoSpecifiedTests=false \
+  -Dapi.version=1.44 test
+mvn -nsu -pl addon/exchange -am -Dapi.version=1.44 test
+```
+
+结果分别为 2/2 和 154/154，通过且无 failures/errors/skips。测试覆盖 amount 与
+transfer marker 不改变 STRICT 指纹、display name 和其他插件 PDC 会改变 STRICT
+指纹、干净普通材料被接受且带 metadata 的物品被拒绝。
+
+`gpt-5.6-sol` 和 `gpt-5.6-terra` 两次独立只读审查均无 Critical、Important 或
+Minor 发现。
 
 ### 下一位 AI 的起点
 
-1. 为 `addon/exchange` 采用项目兼容的 Paper 测试服务器 bootstrap（优先验证可用的
-   MockBukkit/Paper 对应版本），不要绕过 `ItemStack` 的 RegistryAccess 要求。
-2. 移除 `ItemFingerprintServiceTest` 的 `Unsafe` fixture，使用测试服务器和正常的
-   QuickShop/平台边界 fake 或可测试端口。
-3. 重新执行 Task 5 的 TDD 聚焦测试，确保 amount 与 transfer marker 不影响严格指纹，
-   其他元数据会改变严格指纹，普通材料拒绝 metadata。
-4. 通过聚焦和全量测试后，提交 Task 5 并进行独立规范/质量审查；随后按计划执行
-   Task 6（Folia 背包网关）、Task 7（物品存取）和 Task 8（恢复）。
+从 Phase 3 Task 6（Folia 背包网关）继续，然后执行 Task 7（物品存取）和 Task 8
+（恢复）。不要回退 Task 5 的 MockBukkit bootstrap 或重新引入 Unsafe fixture。
 
 ## 仍需完成的验证
 
@@ -119,6 +130,5 @@ mvn -pl addon/exchange verify
 
 ## 本地辅助记录
 
-`.superpowers/sdd/progress.md` 记录任务进度；该文件已随本交接 WIP 提交。Task 5
-的详细执行记录另在 `.superpowers/sdd/task-5-report.md`，不应替代本文件的可传递
+`.superpowers/sdd/progress.md` 记录任务进度；本文件是跨设备继续 Phase 3 的可传递
 交接说明。
