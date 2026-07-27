@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.math.BigDecimal;
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.*;
 
@@ -26,6 +27,15 @@ class JdbcLedgerTest {
     LedgerJournal reversal = journal("-10.00", journal.journalId());
     repository.inTransaction(tx -> { tx.appendJournal(reversal); return null; });
 
+    assertThat(rowCount(cp, names.journals())).isEqualTo(2);
+    assertThat(rowCount(cp, names.entries())).isEqualTo(4);
+    LedgerJournal duplicateReference = new LedgerJournal(
+        UUID.randomUUID(), journal.journalType(), journal.referenceId(), Instant.EPOCH, null,
+        journal("10.00", null).entries());
+    assertThatThrownBy(() -> repository.inTransaction(tx -> {
+      tx.appendJournal(duplicateReference);
+      return null;
+    })).isInstanceOf(SQLException.class);
     assertThat(rowCount(cp, names.journals())).isEqualTo(2);
     assertThat(rowCount(cp, names.entries())).isEqualTo(4);
     assertThat(reversalOf(cp, names, reversal.journalId())).isEqualTo(journal.journalId());
@@ -67,6 +77,34 @@ class JdbcLedgerTest {
             Instant.EPOCH))))
         .isInstanceOf(UnbalancedJournalException.class)
         .hasMessage("journal is not balanced for asset DIAMOND");
+  }
+
+  @Test
+  void entryBatchFailureCannotCommitPartialJournalWhenCallerContinues(@TempDir Path temp)
+      throws Exception {
+    ConnectionProvider cp = SqliteTestDatabase.at(temp.resolve("batch-failure.db"));
+    TableNames names = new TableNames("qs_");
+    new MigrationRunner(cp, SqlDialect.SQLITE, names).migrate();
+    ExchangeRepository repository = new JdbcExchangeRepository(cp, SqlDialect.SQLITE, names);
+    LedgerJournal existing = journal("10.00", null);
+    repository.inTransaction(tx -> { tx.appendJournal(existing); return null; });
+    LedgerJournal failing = new LedgerJournal(
+        UUID.randomUUID(), "ADJUSTMENT", UUID.randomUUID(), Instant.EPOCH, null, List.of(
+        new LedgerEntry(UUID.randomUUID(), "player:b", "USD", BigDecimal.ONE, Instant.EPOCH),
+        new LedgerEntry(existing.entries().get(0).entryId(), "custody:USD", "USD",
+            BigDecimal.ONE.negate(), Instant.EPOCH)));
+
+    repository.inTransaction(tx -> {
+      try {
+        tx.appendJournal(failing);
+      } catch (SQLException expected) {
+        assertThat(expected.getMessage()).isNotBlank();
+      }
+      return null;
+    });
+
+    assertThat(rowCount(cp, names.journals())).isEqualTo(1);
+    assertThat(rowCount(cp, names.entries())).isEqualTo(2);
   }
 
   private static LedgerJournal journal(String amount, UUID reversalOf) {

@@ -10,6 +10,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,6 +38,7 @@ class MySqlMigrationIT {
       assertThat(indexExists(connection, names.trades(), names.prefix() + "exchange_trades_time_idx"))
           .isTrue();
       assertImmutableLedgerTriggers(connection, names);
+      assertImmutableLedgerBehavior(connection, names);
       assertThatThrownBy(() -> connection.createStatement().executeUpdate(
           "INSERT INTO " + names.accounts()
               + " (account_id,currency_id,available,frozen,version) VALUES "
@@ -124,5 +126,46 @@ class MySqlMigrationIT {
         return result.next();
       }
     }
+  }
+
+  private static void assertImmutableLedgerBehavior(Connection connection, TableNames names)
+      throws SQLException {
+    String journalId = UUID.randomUUID().toString();
+    try (var journal = connection.prepareStatement(
+        "INSERT INTO " + names.journals()
+            + " (journal_id,journal_type,reference_id,created_at,reversal_of)"
+            + " VALUES (?,?,?,?,NULL)")) {
+      journal.setString(1, journalId);
+      journal.setString(2, "ADJUSTMENT");
+      journal.setString(3, UUID.randomUUID().toString());
+      journal.setLong(4, 0);
+      journal.executeUpdate();
+    }
+    try (var entry = connection.prepareStatement(
+        "INSERT INTO " + names.entries()
+            + " (entry_id,journal_id,account_code,asset_id,amount,created_at)"
+            + " VALUES (?,?,?,?,?,?)")) {
+      entry.setString(1, UUID.randomUUID().toString());
+      entry.setString(2, journalId);
+      entry.setString(3, "player:a");
+      entry.setString(4, "USD");
+      entry.setBigDecimal(5, java.math.BigDecimal.ONE);
+      entry.setLong(6, 0);
+      entry.executeUpdate();
+    }
+
+    assertImmutableFailure(connection, "UPDATE " + names.entries() + " SET amount=2");
+    assertImmutableFailure(connection, "DELETE FROM " + names.entries());
+    assertImmutableFailure(connection,
+        "UPDATE " + names.journals() + " SET journal_type='MUTATED'");
+    assertImmutableFailure(connection, "DELETE FROM " + names.journals());
+    assertThat(rowCount(connection, names.journals())).isEqualTo(1);
+    assertThat(rowCount(connection, names.entries())).isEqualTo(1);
+  }
+
+  private static void assertImmutableFailure(Connection connection, String sql) {
+    assertThatThrownBy(() -> connection.createStatement().executeUpdate(sql))
+        .isInstanceOf(SQLException.class)
+        .hasMessageContaining("immutable ledger");
   }
 }

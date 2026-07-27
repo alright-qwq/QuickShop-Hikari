@@ -75,6 +75,8 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
   }
 
   private static final class JdbcTransaction implements ExchangeTransaction {
+    private static final String LEDGER_SAVEPOINT = "exchange_ledger_append";
+
     private final Connection connection;
     private final SqlDialect dialect;
     private final TableNames tables;
@@ -299,6 +301,23 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
 
     @Override
     public void appendJournal(LedgerJournal journal) throws SQLException {
+      executeTransactionControl("SAVEPOINT " + LEDGER_SAVEPOINT);
+      try {
+        insertJournal(journal);
+        insertEntries(journal);
+        executeTransactionControl("RELEASE SAVEPOINT " + LEDGER_SAVEPOINT);
+      } catch (SQLException | RuntimeException failure) {
+        try {
+          executeTransactionControl("ROLLBACK TO SAVEPOINT " + LEDGER_SAVEPOINT);
+          executeTransactionControl("RELEASE SAVEPOINT " + LEDGER_SAVEPOINT);
+        } catch (SQLException rollbackFailure) {
+          failure.addSuppressed(rollbackFailure);
+        }
+        throw failure;
+      }
+    }
+
+    private void insertJournal(LedgerJournal journal) throws SQLException {
       try (PreparedStatement insertJournal = connection.prepareStatement(
           "INSERT INTO " + tables.journals()
               + " (journal_id,journal_type,reference_id,created_at,reversal_of)"
@@ -314,6 +333,9 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
         }
         insertJournal.executeUpdate();
       }
+    }
+
+    private void insertEntries(LedgerJournal journal) throws SQLException {
       try (PreparedStatement insertEntry = connection.prepareStatement(
           "INSERT INTO " + tables.entries()
               + " (entry_id,journal_id,account_code,asset_id,amount,created_at)"
@@ -328,6 +350,12 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
           insertEntry.addBatch();
         }
         insertEntry.executeBatch();
+      }
+    }
+
+    private void executeTransactionControl(String sql) throws SQLException {
+      try (Statement statement = connection.createStatement()) {
+        statement.execute(sql);
       }
     }
 
