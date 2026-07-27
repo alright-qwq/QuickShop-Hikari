@@ -27,6 +27,7 @@ import com.ghostchu.quickshop.addon.exchange.transfer.ItemTransferService;
 import com.ghostchu.quickshop.addon.exchange.transfer.MoneyTransferService;
 import com.ghostchu.quickshop.addon.exchange.transfer.PlayerOperationSerialiser;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferRecoveryService;
+import com.ghostchu.quickshop.addon.exchange.ui.ExchangeViewService;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -105,6 +106,13 @@ public final class ExchangeRuntimeFactory {
         new CommandResult(command.requestId(), "accepted"));
     ScheduledExecutorService maintenance = Executors.newSingleThreadScheduledExecutor(
         Thread.ofPlatform().daemon(true).name("qs-exchange-maintenance-", 0).factory());
+    Map<String, ExchangeViewService.MarketView> marketViews = new java.util.LinkedHashMap<>();
+    for (Map.Entry<String, PersistentOrderService> entry : markets.entrySet()) {
+      MarketDefinition definition = registry.require(entry.getKey());
+      marketViews.put(entry.getKey(), new ExchangeViewService.MarketView(
+          entry.getKey(), definition.displayName(), entry.getValue()));
+    }
+    ExchangeViewService views = new ExchangeViewService(marketViews, marketData, maintenance);
     Runnable resumeHalted = () -> resumeExpiredHalts(repository, registry.marketIds(), database.writer());
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(() -> {
@@ -122,7 +130,7 @@ public final class ExchangeRuntimeFactory {
             maintenance.shutdownNow();
             marketData.flush(Instant.now());
             playerOperations.close();
-          });
+          }, views);
     } catch (Exception failure) {
       database.writer().close();
       throw failure;

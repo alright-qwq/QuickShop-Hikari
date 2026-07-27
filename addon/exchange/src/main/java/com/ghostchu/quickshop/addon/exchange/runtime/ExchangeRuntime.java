@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.runtime;
 
 import com.ghostchu.quickshop.addon.exchange.core.service.MarketDispatcher;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferRecoveryService;
+import com.ghostchu.quickshop.addon.exchange.ui.ExchangeViewService;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -13,6 +14,7 @@ public final class ExchangeRuntime implements AutoCloseable {
   private final AutoCloseable dispatcher;
   private final CheckedRunnable onLockLost;
   private final CheckedRunnable afterDispatcherClosed;
+  private final ExchangeViewService views;
   private final AtomicBoolean acceptingWrites = new AtomicBoolean();
 
   public ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
@@ -34,6 +36,13 @@ public final class ExchangeRuntime implements AutoCloseable {
   ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
                   CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
                   CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed) {
+    this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed, null);
+  }
+
+  ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
+                  CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
+                  CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
+                  ExchangeViewService views) {
     this.writer = Objects.requireNonNull(writer, "writer");
     this.recoverBooks = Objects.requireNonNull(recoverBooks, "recoverBooks");
     this.recoverTransfers = Objects.requireNonNull(recoverTransfers, "recoverTransfers");
@@ -41,6 +50,7 @@ public final class ExchangeRuntime implements AutoCloseable {
     this.onLockLost = Objects.requireNonNull(onLockLost, "onLockLost");
     this.afterDispatcherClosed = Objects.requireNonNull(afterDispatcherClosed,
         "afterDispatcherClosed");
+    this.views = views;
     writer.onLockLost(this::fenceAfterLockLoss);
   }
 
@@ -60,6 +70,13 @@ public final class ExchangeRuntime implements AutoCloseable {
 
   public boolean acceptingWrites() {
     return acceptingWrites.get() && writer.held();
+  }
+
+  public ExchangeViewService views() {
+    if (views == null) {
+      throw new IllegalStateException("runtime views are not configured");
+    }
+    return views;
   }
 
   private void fenceAfterLockLoss() {
