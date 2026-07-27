@@ -83,6 +83,18 @@ final class ExchangeServiceFixture {
     return new ExchangeServiceFixture(connections, tables, repository, service, rules);
   }
 
+  static ExchangeServiceFixture mysql(
+      ConnectionProvider connections, TableNames tables, MarketRules rules) throws Exception {
+    new MigrationRunner(connections, SqlDialect.MYSQL, tables).migrate();
+    seedMarket(connections, tables, rules);
+    JdbcExchangeRepository repository =
+        new JdbcExchangeRepository(connections, SqlDialect.MYSQL, tables);
+    PersistentOrderService service = new PersistentOrderService(
+        repository, rules, com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP);
+    return new ExchangeServiceFixture(connections, tables, repository, service, rules);
+  }
+
   PersistentOrderService service() {
     return service;
   }
@@ -202,6 +214,13 @@ final class ExchangeServiceFixture {
     return account;
   }
 
+  void creditItems(UUID account, long quantity) throws SQLException {
+    repository.inTransaction(tx -> {
+      tx.creditAvailableItems(account, rules.marketId(), quantity);
+      return null;
+    });
+  }
+
   UUID accountWithCurrency(String amount) throws SQLException {
     UUID account = UUID.randomUUID();
     repository.inTransaction(tx -> {
@@ -218,6 +237,14 @@ final class ExchangeServiceFixture {
 
   long orderCount() throws SQLException {
     return rowCount(tables.orders());
+  }
+
+  long orderCountForRequest(UUID requestId) throws SQLException {
+    return rowCountFor(tables.orders(), "request_id", requestId);
+  }
+
+  long requestResultCount(UUID requestId) throws SQLException {
+    return rowCountFor(tables.requestResults(), "request_id", requestId);
   }
 
   void insertUnjournaledTrade() throws SQLException {
@@ -238,6 +265,18 @@ final class ExchangeServiceFixture {
          ResultSet result = query.executeQuery()) {
       result.next();
       return result.getLong(1);
+    }
+  }
+
+  private long rowCountFor(String table, String column, UUID value) throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement query = connection.prepareStatement(
+             "SELECT COUNT(*) FROM " + table + " WHERE " + column + "=?")) {
+      query.setString(1, value.toString());
+      try (ResultSet result = query.executeQuery()) {
+        result.next();
+        return result.getLong(1);
+      }
     }
   }
 
@@ -631,7 +670,9 @@ final class ExchangeServiceFixture {
         market.setString(3, "diamond");
         market.setString(4, "{}");
         market.setString(5, "{}");
-        market.setString(6, "{}");
+        market.setString(6, "{\"makerFeeRate\":\"" + rules.makerFeeRate().toPlainString()
+            + "\",\"takerFeeRate\":\"" + rules.takerFeeRate().toPlainString()
+            + "\",\"currencyScale\":" + rules.priceScale() + "}");
         market.setString(7, "{}");
         market.setLong(8, 1);
         market.setLong(9, 1);

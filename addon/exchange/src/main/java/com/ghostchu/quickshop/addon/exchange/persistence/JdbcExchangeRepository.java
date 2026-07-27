@@ -9,6 +9,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
+import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
 import com.ghostchu.quickshop.addon.exchange.repository.CurrencyBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
@@ -17,7 +18,11 @@ import com.ghostchu.quickshop.addon.exchange.repository.ItemBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketSnapshot;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketTradeSample;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -26,6 +31,9 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Objects;
@@ -83,6 +91,11 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
     }
   }
 
+  @Override
+  public ReconciliationReport reconcile() throws SQLException {
+    return inTransaction(transaction -> ((JdbcTransaction) transaction).reconcile());
+  }
+
   private static final class JdbcTransaction implements ExchangeTransaction {
     private static final String LEDGER_SAVEPOINT = "exchange_ledger_append";
 
@@ -100,7 +113,8 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
     public CurrencyBalance currency(UUID accountId, String currencyId) throws SQLException {
       try (PreparedStatement insert = connection.prepareStatement(
           insertIgnorePrefix() + tables.accounts()
-              + " (account_id,currency_id,available,frozen,version) VALUES (?,?,?,?,0)")) {
+              + " (account_id,currency_id,available,frozen,version) VALUES (?,?,?,?,0)"
+              + duplicateKeyNoOp("account_id"))) {
         insert.setString(1, accountId.toString());
         insert.setString(2, currencyId);
         writeDecimal(insert, 3, BigDecimal.ZERO);
@@ -128,7 +142,7 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
       try (PreparedStatement insert = connection.prepareStatement(
           insertIgnorePrefix() + tables.inventory()
               + " (account_id,market_id,available_quantity,frozen_quantity,version)"
-              + " VALUES (?,?,0,0,0)")) {
+              + " VALUES (?,?,0,0,0)" + duplicateKeyNoOp("account_id"))) {
         insert.setString(1, accountId.toString());
         insert.setString(2, marketId);
         insert.executeUpdate();
@@ -505,6 +519,97 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
       }
     }
 
+    private ReconciliationReport reconcile() throws SQLException {
+      Map<String, BigDecimal> ledgerDifferences = nonZeroTotals(readTotals(
+          "SELECT asset_id,SUM(amount) AS total FROM " + tables.entries() + " GROUP BY asset_id"));
+      Map<String, BigDecimal> custody = readTotals(
+          "SELECT asset_id,SUM(amount) AS total FROM " + tables.entries()
+              + " WHERE account_code LIKE 'custody:%' GROUP BY asset_id");
+      Map<String, BigDecimal> liabilities = readTotals(
+          "SELECT currency_id AS asset_id,SUM(available + frozen) AS total FROM "
+              + tables.accounts() + " GROUP BY currency_id");
+      mergeTotals(liabilities, readTotals(
+          "SELECT market_id AS asset_id,SUM(available_quantity + frozen_quantity) AS total FROM "
+              + tables.inventory() + " GROUP BY market_id"));
+      return new ReconciliationReport(ledgerDifferences, custodyDifferences(custody, liabilities),
+          underReservedOrderCount());
+    }
+
+    private Map<String, BigDecimal> readTotals(String sql) throws SQLException {
+      HashMap<String, BigDecimal> totals = new HashMap<>();
+      try (PreparedStatement query = connection.prepareStatement(sql);
+           ResultSet result = query.executeQuery()) {
+        while (result.next()) {
+          totals.put(result.getString("asset_id"), new BigDecimal(result.getString("total")));
+        }
+      }
+      return totals;
+    }
+
+    private static Map<String, BigDecimal> nonZeroTotals(Map<String, BigDecimal> totals) {
+      HashMap<String, BigDecimal> nonZero = new HashMap<>();
+      totals.forEach((asset, total) -> {
+        if (total.signum() != 0) {
+          nonZero.put(asset, total);
+        }
+      });
+      return nonZero;
+    }
+
+    private static void mergeTotals(Map<String, BigDecimal> destination,
+                                    Map<String, BigDecimal> additions) {
+      additions.forEach((asset, total) -> destination.merge(asset, total, BigDecimal::add));
+    }
+
+    private static Map<String, BigDecimal> custodyDifferences(
+        Map<String, BigDecimal> custody, Map<String, BigDecimal> liabilities) {
+      HashSet<String> assets = new HashSet<>(custody.keySet());
+      assets.addAll(liabilities.keySet());
+      HashMap<String, BigDecimal> differences = new HashMap<>();
+      for (String asset : assets) {
+        BigDecimal difference = custody.getOrDefault(asset, BigDecimal.ZERO)
+            .subtract(liabilities.getOrDefault(asset, BigDecimal.ZERO));
+        if (difference.signum() != 0) {
+          differences.put(asset, difference);
+        }
+      }
+      return differences;
+    }
+
+    private int underReservedOrderCount() throws SQLException {
+      int underReserved = 0;
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT o.side,o.order_type,o.remaining_quantity,o.reserved_currency,"
+              + "o.reserved_quantity,o.limit_price,m.fee_schedule_payload FROM "
+              + tables.orders() + " o JOIN " + tables.markets()
+              + " m ON m.market_id=o.market_id WHERE o.status IN ('OPEN','PARTIALLY_FILLED')");
+           ResultSet result = query.executeQuery()) {
+        while (result.next()) {
+          long remaining = result.getLong("remaining_quantity");
+          if (OrderSide.SELL.name().equals(result.getString("side"))) {
+            if (result.getLong("reserved_quantity") < remaining) {
+              underReserved++;
+            }
+          } else if (OrderType.LIMIT.name().equals(result.getString("order_type"))
+              && requiredBuyReservation(result.getString("limit_price"), remaining,
+                  result.getString("fee_schedule_payload"))
+                  .compareTo(readDecimal(result, "reserved_currency")) > 0) {
+            underReserved++;
+          }
+        }
+      }
+      return underReserved;
+    }
+
+    private static BigDecimal requiredBuyReservation(
+        String limitPrice, long remainingQuantity, String feeSchedulePayload) throws SQLException {
+      FeeSchedule fees = FeeSchedule.from(feeSchedulePayload);
+      BigDecimal notional = new BigDecimal(limitPrice).multiply(BigDecimal.valueOf(remainingQuantity));
+      BigDecimal fee = notional.multiply(fees.maximumRate())
+          .setScale(fees.currencyScale(), RoundingMode.UP);
+      return notional.add(fee);
+    }
+
     private void insertJournal(LedgerJournal journal) throws SQLException {
       try (PreparedStatement insertJournal = connection.prepareStatement(
           "INSERT INTO " + tables.journals()
@@ -581,7 +686,12 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
     }
 
     private String insertIgnorePrefix() {
-      return dialect == SqlDialect.SQLITE ? "INSERT OR IGNORE INTO " : "INSERT IGNORE INTO ";
+      return dialect == SqlDialect.SQLITE ? "INSERT OR IGNORE INTO " : "INSERT INTO ";
+    }
+
+    private String duplicateKeyNoOp(String primaryKeyColumn) {
+      return dialect == SqlDialect.MYSQL
+          ? " ON DUPLICATE KEY UPDATE " + primaryKeyColumn + "=" + primaryKeyColumn : "";
     }
 
     private void writeDecimal(PreparedStatement statement, int index, BigDecimal value)
@@ -603,9 +713,7 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
     }
 
     private BigDecimal readDecimal(ResultSet result, String column) throws SQLException {
-      return dialect == SqlDialect.SQLITE
-          ? new BigDecimal(result.getString(column))
-          : result.getBigDecimal(column);
+      return new BigDecimal(result.getString(column));
     }
 
     private BigDecimal readNullableDecimal(ResultSet result, String column) throws SQLException {
@@ -657,6 +765,38 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
       statement.setLong(firstIndex + 15, reservedQuantity);
       statement.setLong(firstIndex + 16, order.createdAt().toEpochMilli());
       statement.setLong(firstIndex + 17, order.updatedAt().toEpochMilli());
+    }
+
+    private record FeeSchedule(BigDecimal makerRate, BigDecimal takerRate, int currencyScale) {
+      private static FeeSchedule from(String payload) throws SQLException {
+        try {
+          JsonObject json = JsonParser.parseString(payload).getAsJsonObject();
+          return new FeeSchedule(decimal(json, "makerFeeRate"), decimal(json, "takerFeeRate"),
+              integer(json, "currencyScale"));
+        } catch (RuntimeException failure) {
+          throw new SQLException("invalid market fee schedule", failure);
+        }
+      }
+
+      private BigDecimal maximumRate() {
+        return makerRate.max(takerRate);
+      }
+
+      private static BigDecimal decimal(JsonObject json, String field) {
+        JsonElement value = json.get(field);
+        if (value == null || value.isJsonNull()) {
+          throw new IllegalArgumentException("missing JSON field: " + field);
+        }
+        return new BigDecimal(value.getAsString());
+      }
+
+      private static int integer(JsonObject json, String field) {
+        JsonElement value = json.get(field);
+        if (value == null || value.isJsonNull()) {
+          throw new IllegalArgumentException("missing JSON field: " + field);
+        }
+        return value.getAsInt();
+      }
     }
 
     private static void requirePositive(BigDecimal amount) {
