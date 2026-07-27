@@ -29,4 +29,13 @@ class OrderRiskServiceTest {
     assertThat(snapshot.canFreeze(new BigDecimal("0.01"), new BigDecimal("10000000.00"))).isFalse();
     assertThat(snapshot.canOpenOrder(100)).isFalse();
   }
+
+  @Test
+  void rejectsMarketOrderWhoseProtectionExceedsMaximumSlippage() {
+    OrderRiskService service = new OrderRiskService(new OrderRateLimiter(5, 60));
+
+    assertThat(service.checkMarketSlippage(
+        new BigDecimal("125.00"), new BigDecimal("100.00"), new BigDecimal("0.20")))
+        .isEqualTo(OrderRiskService.RejectReason.SLIPPAGE_TOO_HIGH);
+  }
 }

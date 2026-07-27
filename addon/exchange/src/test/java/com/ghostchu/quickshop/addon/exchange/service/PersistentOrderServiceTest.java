@@ -65,6 +65,44 @@ class PersistentOrderServiceTest {
   }
 
   @Test
+  void rejectsMarketOrderWhoseProtectionExceedsConfiguredMaximumSlippage() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    assertThatThrownBy(() -> fixture.service().place(new OrderRequest(
+        UUID.randomUUID(), buyer, "diamond-usd", OrderSide.BUY, "MARKET", null,
+        new BigDecimal("125.00"), 1)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("SLIPPAGE_TOO_HIGH");
+
+    assertThat(fixture.tradeCount()).isZero();
+    assertThat(fixture.orderCount()).isEqualTo(1);
+    assertThat(fixture.frozenCurrency(buyer)).isZero();
+  }
+
+  @Test
+  void rejectsSixthOrderFromAccountWithinOneSecond() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(6);
+    for (int index = 0; index < 5; index++) {
+      fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+          OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+    }
+
+    assertThatThrownBy(() -> fixture.service().place(new OrderRequest(
+        UUID.randomUUID(), seller, "diamond-usd", OrderSide.SELL, "LIMIT",
+        new BigDecimal("100.00"), null, 1)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("RATE_LIMITED");
+
+    assertThat(fixture.orderCount()).isEqualTo(5);
+    assertThat(fixture.frozenItems(seller)).isEqualTo(5);
+  }
+
+  @Test
   void commitsTradeAndReturnsSameReceiptForDuplicateRequest() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID seller = fixture.accountWithItems(10);

@@ -18,6 +18,8 @@ import com.ghostchu.quickshop.addon.exchange.core.model.TimeOrderedIdGenerator;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.core.risk.CircuitBreaker;
 import com.ghostchu.quickshop.addon.exchange.core.risk.ReferencePriceTracker;
+import com.ghostchu.quickshop.addon.exchange.core.risk.OrderRateLimiter;
+import com.ghostchu.quickshop.addon.exchange.core.risk.OrderRiskService;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
 import com.ghostchu.quickshop.addon.exchange.core.risk.TradePermission;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
@@ -63,6 +65,7 @@ public final class PersistentOrderService {
   private final ExchangeRepository repository;
   private final MarketRules rules;
   private final RiskLimits riskLimits;
+  private final OrderRiskService orderRisks;
   private final FeeCalculator fees;
   private final ReservationCalculator reservations;
   private final TimeOrderedIdGenerator ids;
@@ -102,6 +105,7 @@ public final class PersistentOrderService {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.rules = Objects.requireNonNull(rules, "rules");
     this.riskLimits = Objects.requireNonNull(riskLimits, "riskLimits");
+    this.orderRisks = new OrderRiskService(new OrderRateLimiter(5, 60));
     this.recovery = Objects.requireNonNull(recovery, "recovery");
     this.observer = Objects.requireNonNull(observer, "observer");
     this.ids = Objects.requireNonNull(ids, "ids");
@@ -198,8 +202,21 @@ public final class PersistentOrderService {
       throw new IllegalStateException(
           "market " + request.marketId() + " is " + lockedState.status());
     }
-    RuntimeRiskSnapshot runtimeRisk = runtimeRisk(tx, lockedState, now.get());
+    Instant evaluatedAt = now.get();
+    OrderRiskService.RejectReason rateLimitRejection =
+        orderRisks.checkRateLimit(request.accountId(), evaluatedAt);
+    if (rateLimitRejection != null) {
+      throw new IllegalStateException(rateLimitRejection.name());
+    }
+    RuntimeRiskSnapshot runtimeRisk = runtimeRisk(tx, lockedState, evaluatedAt);
     MarketState beforeState = runtimeRisk.state();
+    if (parseType(request.type()) == OrderType.MARKET) {
+      OrderRiskService.RejectReason rejection = orderRisks.checkMarketSlippage(
+          request.slippageBoundary(), beforeState.referencePrice(), riskLimits.maximumSlippage());
+      if (rejection != null) {
+        throw new IllegalStateException(rejection.name());
+      }
+    }
     List<PersistedOrder> persistedOrders = tx.openOrders(request.marketId());
     long structuralVersion = tx.marketStructuralVersion(request.marketId());
     MarketFeeSchedule feeSchedule = tx.marketFeeSchedule(request.marketId());
