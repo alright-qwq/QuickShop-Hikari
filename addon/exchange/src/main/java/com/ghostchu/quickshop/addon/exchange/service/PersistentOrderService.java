@@ -46,6 +46,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 public final class PersistentOrderService {
@@ -55,6 +56,7 @@ public final class PersistentOrderService {
   private static final String PLACE_OPERATION = "PLACE";
   private static final long REFERENCE_DISCOVERY_QUANTITY = 100;
   private static final Duration REFERENCE_WINDOW = Duration.ofMinutes(5);
+  private static final Map<String, Object> MARKET_SERIAL_EXECUTORS = new ConcurrentHashMap<>();
   private final ExchangeRepository repository;
   private final MarketRules rules;
   private final RiskLimits riskLimits;
@@ -63,7 +65,6 @@ public final class PersistentOrderService {
   private final TimeOrderedIdGenerator ids;
   private final Supplier<Instant> now;
   private final RecoveryHandler recovery;
-  private final Map<String, Object> marketSerialExecutors = new ConcurrentHashMap<>();
   private volatile OrderBook committedBook = new OrderBook();
   private volatile ReferencePriceTracker referencePrices;
   private volatile CircuitBreaker circuitBreaker;
@@ -98,26 +99,41 @@ public final class PersistentOrderService {
 
   public OrderReceipt place(OrderRequest request) throws SQLException {
     validate(request);
-    Object serialExecutor = marketSerialExecutors.computeIfAbsent(request.marketId(), ignored -> new Object());
+    Object serialExecutor = MARKET_SERIAL_EXECUTORS.computeIfAbsent(
+        request.marketId(), ignored -> new Object());
     synchronized (serialExecutor) {
+      AtomicReference<TransactionOutcome> attemptedOutcome = new AtomicReference<>();
       try {
-        TransactionOutcome outcome = repository.inTransaction(tx -> settle(tx, request));
-        if (!outcome.duplicate()) {
-          committedBook = outcome.book();
-          referencePrices = outcome.referencePrices();
-          circuitBreaker = outcome.circuitBreaker();
-          committedMarketVersion = outcome.marketVersion();
-        }
+        TransactionOutcome outcome = repository.inTransaction(tx -> {
+          TransactionOutcome settled = settle(tx, request);
+          attemptedOutcome.set(settled);
+          return settled;
+        });
+        publish(outcome);
         return outcome.receipt();
       } catch (SQLException failure) {
         OrderReceipt committed = committedReceipt(request, failure);
         if (committed != null) {
+          TransactionOutcome attempted = attemptedOutcome.get();
+          if (attempted != null && committed.equals(attempted.receipt())) {
+            publish(attempted);
+          }
           return committed;
         }
         enterRecovery(request.marketId(), failure);
         throw failure;
       }
     }
+  }
+
+  private void publish(TransactionOutcome outcome) {
+    if (outcome.duplicate()) {
+      return;
+    }
+    committedBook = outcome.book();
+    referencePrices = outcome.referencePrices();
+    circuitBreaker = outcome.circuitBreaker();
+    committedMarketVersion = outcome.marketVersion();
   }
 
   private OrderReceipt committedReceipt(OrderRequest request, SQLException originalFailure) {
@@ -139,6 +155,7 @@ public final class PersistentOrderService {
 
   private TransactionOutcome settle(ExchangeTransaction tx, OrderRequest request)
       throws SQLException {
+    MarketState beforeState = tx.marketState(request.marketId());
     StoredRequestResult stored = tx.requestResult(request.accountId(), request.requestId())
         .orElse(null);
     if (stored != null) {
@@ -148,7 +165,6 @@ public final class PersistentOrderService {
       return TransactionOutcome.duplicate(decodeReceipt(stored.payload()));
     }
 
-    MarketState beforeState = tx.marketState(request.marketId());
     if (beforeState.status() != MarketStatus.OPEN) {
       throw new IllegalStateException(
           "market " + request.marketId() + " is " + beforeState.status());
@@ -239,7 +255,8 @@ public final class PersistentOrderService {
     Objects.requireNonNull(rebuiltBook, "rebuiltBook");
     Objects.requireNonNull(rebuiltReferencePrices, "rebuiltReferencePrices");
     Objects.requireNonNull(rebuiltCircuitBreaker, "rebuiltCircuitBreaker");
-    Object serialExecutor = marketSerialExecutors.computeIfAbsent(rules.marketId(), ignored -> new Object());
+    Object serialExecutor = MARKET_SERIAL_EXECUTORS.computeIfAbsent(
+        rules.marketId(), ignored -> new Object());
     synchronized (serialExecutor) {
       committedBook = rebuiltBook;
       referencePrices = rebuiltReferencePrices.copy();

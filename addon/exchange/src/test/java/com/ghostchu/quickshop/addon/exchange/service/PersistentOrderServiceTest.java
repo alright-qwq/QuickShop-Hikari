@@ -17,6 +17,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -294,6 +295,42 @@ class PersistentOrderServiceTest {
   }
 
   @Test
+  void serializesSameMarketAcrossServiceInstances() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    CountDownLatch firstEntered = new CountDownLatch(1);
+    CountDownLatch releaseFirst = new CountDownLatch(1);
+    CountDownLatch secondEntered = new CountDownLatch(1);
+    PersistentOrderService firstService = fixture.serviceWithTransactionEntry(() -> {
+      firstEntered.countDown();
+      await(releaseFirst);
+    });
+    PersistentOrderService secondService = fixture.serviceWithTransactionEntry(
+        secondEntered::countDown);
+
+    boolean overlapped;
+    try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+      Future<OrderReceipt> first = executor.submit(() -> firstService.place(new OrderRequest(
+          UUID.randomUUID(), seller, "diamond-usd", OrderSide.SELL, "LIMIT",
+          new BigDecimal("100.00"), null, 1)));
+      assertThat(firstEntered.await(5, TimeUnit.SECONDS)).isTrue();
+      Future<OrderReceipt> second = executor.submit(() -> secondService.place(new OrderRequest(
+          UUID.randomUUID(), buyer, "diamond-usd", OrderSide.BUY, "LIMIT",
+          new BigDecimal("90.00"), null, 1)));
+
+      overlapped = secondEntered.await(1, TimeUnit.SECONDS);
+      releaseFirst.countDown();
+      first.get();
+      second.get();
+    } finally {
+      releaseFirst.countDown();
+    }
+
+    assertThat(overlapped).isFalse();
+  }
+
+  @Test
   void reportedCommitFailureReturnsDurableReceiptWithoutRecovery() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID seller = fixture.accountWithItems(1);
@@ -312,6 +349,28 @@ class PersistentOrderServiceTest {
     assertThat(fixture.tradeCount()).isEqualTo(1);
     assertThat(fixture.marketStatus()).isEqualTo("OPEN");
     assertThat(recoveredMarket).hasNullValue();
+  }
+
+  @Test
+  void reportedCommitFailurePublishesExactRiskHistory() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID firstSeller = fixture.accountWithItems(50);
+    UUID firstBuyer = fixture.accountWithCurrency("10000.00");
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), firstSeller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("105.00"), null, 50));
+    PersistentOrderService uncertain = fixture.serviceWithReportedCommitFailure(
+        RecoveryHandler.NO_OP);
+
+    uncertain.place(new OrderRequest(UUID.randomUUID(), firstBuyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("105.00"), null, 50));
+    UUID secondSeller = fixture.accountWithItems(1);
+    UUID secondBuyer = fixture.accountWithCurrency("1000.00");
+    uncertain.place(new OrderRequest(UUID.randomUUID(), secondSeller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("105.00"), null, 1));
+    uncertain.place(new OrderRequest(UUID.randomUUID(), secondBuyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("105.00"), null, 1));
+
+    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("102.55");
   }
 
   @Test
@@ -334,5 +393,16 @@ class PersistentOrderServiceTest {
         OrderSide.BUY, "LIMIT", new BigDecimal("120.00"), null, 1));
 
     assertThat(fixture.highAlertCount()).isEqualTo(1);
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      if (!latch.await(5, TimeUnit.SECONDS)) {
+        throw new AssertionError("timed out waiting for transaction gate");
+      }
+    } catch (InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(failure);
+    }
   }
 }

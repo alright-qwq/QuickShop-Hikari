@@ -88,6 +88,19 @@ final class ExchangeServiceFixture {
         RecoveryHandler.NO_OP);
   }
 
+  PersistentOrderService serviceWithTransactionEntry(Runnable onEntry) {
+    ExchangeRepository observed = new ExchangeRepository() {
+      @Override
+      public <T> T inTransaction(TransactionWork<T> work) throws SQLException {
+        onEntry.run();
+        return repository.inTransaction(work);
+      }
+    };
+    return new PersistentOrderService(observed, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP);
+  }
+
   PersistentOrderService serviceWithReportedCommitFailure(RecoveryHandler recovery) {
     AtomicBoolean failOnce = new AtomicBoolean(true);
     ExchangeRepository uncertainCommit = new ExchangeRepository() {

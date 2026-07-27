@@ -279,7 +279,7 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
               + "priority_sequence,config_version,fee_version,reserved_currency,"
               + "reserved_quantity,created_at,updated_at,version FROM " + tables.orders()
               + " WHERE market_id=? AND status IN ('OPEN','PARTIALLY_FILLED')"
-              + " ORDER BY priority_sequence")) {
+              + " ORDER BY priority_sequence" + dialect.forUpdate())) {
         select.setString(1, marketId);
         try (ResultSet result = select.executeQuery()) {
           ArrayList<PersistedOrder> orders = new ArrayList<>();
