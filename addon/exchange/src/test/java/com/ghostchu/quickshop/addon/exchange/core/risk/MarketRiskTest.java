@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Predicate;
 
@@ -43,6 +44,40 @@ class MarketRiskTest {
         .isEqualByComparingTo("120.00");
     assertThat(tracker.referenceAt(Instant.EPOCH.plus(Duration.ofMinutes(5)).plusNanos(1)))
         .isEqualByComparingTo("100.00");
+  }
+
+  @Test
+  void saturatesDiscoveryQuantityAtConfiguredTarget() {
+    ReferencePriceTracker tracker =
+        new ReferencePriceTracker(new BigDecimal("100.00"), 100, Duration.ofMinutes(5), 2);
+
+    tracker.record(new BigDecimal("105.00"), Long.MAX_VALUE, Instant.EPOCH);
+
+    assertThat(tracker.discoveryQuantity()).isEqualTo(100);
+  }
+
+  @Test
+  void restoresExactWindowAndDiscoveryState() {
+    ReferencePriceTracker tracker = ReferencePriceTracker.restored(
+        new BigDecimal("100.00"), 100, Duration.ofMinutes(5), 2, 50,
+        List.of(new PriceSample(new BigDecimal("105.00"), 50, Instant.EPOCH)));
+
+    tracker.record(new BigDecimal("105.00"), 1, Instant.EPOCH.plusSeconds(1));
+
+    assertThat(tracker.referenceAt(Instant.EPOCH.plusSeconds(1)))
+        .isEqualByComparingTo("102.55");
+    assertThat(tracker.discoveryQuantity()).isEqualTo(51);
+  }
+
+  @Test
+  void restoresExactBreakerLevelAfterResume() {
+    CircuitBreaker breaker = CircuitBreaker.restored(RiskLimits.defaults(), 1, null);
+
+    TradePermission permission = breaker.onPrice(
+        new BigDecimal("120.00"), new BigDecimal("100.00"), Instant.EPOCH);
+
+    assertThat(permission.level()).isEqualTo(2);
+    assertThat(breaker.level()).isEqualTo(2);
   }
 
   @Test

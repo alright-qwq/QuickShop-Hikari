@@ -5,6 +5,8 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.List;
+import java.util.Objects;
 
 public final class ReferencePriceTracker {
   private final BigDecimal basePrice;
@@ -26,8 +28,15 @@ public final class ReferencePriceTracker {
   }
 
   public void record(BigDecimal price, long quantity, Instant occurredAt) {
+    requireSample(price, quantity, occurredAt);
+    PriceSample previous = samples.peekLast();
+    if (previous != null && occurredAt.isBefore(previous.occurredAt())) {
+      throw new IllegalArgumentException("price samples must be chronological");
+    }
     samples.addLast(new PriceSample(price, quantity, occurredAt));
-    cumulativeDiscoveryQuantity = Math.addExact(cumulativeDiscoveryQuantity, quantity);
+    long remainingDiscovery = discoveryQuantity - cumulativeDiscoveryQuantity;
+    cumulativeDiscoveryQuantity = Math.addExact(cumulativeDiscoveryQuantity,
+        Math.min(quantity, remainingDiscovery));
   }
 
   public BigDecimal referenceAt(Instant now) {
@@ -63,8 +72,49 @@ public final class ReferencePriceTracker {
     return cumulativeDiscoveryQuantity;
   }
 
+  public List<PriceSample> samples() {
+    return List.copyOf(samples);
+  }
+
   public static ReferencePriceTracker restored(
       BigDecimal referencePrice, long discoveryQuantity, Duration window, int scale) {
     return new ReferencePriceTracker(referencePrice, discoveryQuantity, window, scale);
+  }
+
+  public static ReferencePriceTracker restored(
+      BigDecimal basePrice, long discoveryQuantity, Duration window, int scale,
+      long cumulativeDiscoveryQuantity, List<PriceSample> samples) {
+    if (cumulativeDiscoveryQuantity < 0 || cumulativeDiscoveryQuantity > discoveryQuantity) {
+      throw new IllegalArgumentException("discovery quantity is outside configured bounds");
+    }
+    ReferencePriceTracker restored =
+        new ReferencePriceTracker(basePrice, discoveryQuantity, window, scale);
+    Objects.requireNonNull(samples, "samples");
+    long recentQuantity = 0;
+    Instant previous = null;
+    for (PriceSample sample : samples) {
+      Objects.requireNonNull(sample, "sample");
+      requireSample(sample.price(), sample.quantity(), sample.occurredAt());
+      if (previous != null && sample.occurredAt().isBefore(previous)) {
+        throw new IllegalArgumentException("price samples must be chronological");
+      }
+      previous = sample.occurredAt();
+      long remainingDiscovery = discoveryQuantity - recentQuantity;
+      recentQuantity = Math.addExact(recentQuantity,
+          Math.min(sample.quantity(), remainingDiscovery));
+      restored.samples.addLast(sample);
+    }
+    if (cumulativeDiscoveryQuantity < discoveryQuantity
+        && recentQuantity > cumulativeDiscoveryQuantity) {
+      throw new IllegalArgumentException("recent quantity exceeds cumulative discovery quantity");
+    }
+    restored.cumulativeDiscoveryQuantity = cumulativeDiscoveryQuantity;
+    return restored;
+  }
+
+  private static void requireSample(BigDecimal price, long quantity, Instant occurredAt) {
+    if (price == null || price.signum() <= 0 || quantity <= 0 || occurredAt == null) {
+      throw new IllegalArgumentException("price sample must be positive and timestamped");
+    }
   }
 }

@@ -51,6 +51,21 @@ public final class CircuitBreaker {
     return lastLevel;
   }
 
+  public Instant haltedUntil() {
+    return haltedUntil;
+  }
+
+  public static CircuitBreaker restored(
+      RiskLimits limits, int level, Instant haltedUntil) {
+    if (level < 0 || level > 2 || (level == 0 && haltedUntil != null)) {
+      throw new IllegalArgumentException("invalid circuit breaker state");
+    }
+    CircuitBreaker restored = new CircuitBreaker(limits);
+    restored.lastLevel = level;
+    restored.haltedUntil = haltedUntil;
+    return restored;
+  }
+
   public static CircuitBreaker restored(
       RiskLimits limits, MarketStatus status, BigDecimal referencePrice,
       BigDecimal lastPrice, Instant haltedUntil) {
