@@ -140,6 +140,24 @@ class PersistentOrderServiceTest {
   }
 
   @Test
+  void rejectsBuyOrderWhoseMaximumPotentialHoldingExceedsLimit() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    PersistentOrderService limited = fixture.serviceWithAccountLimits(
+        new AccountOrderLimits(1, new BigDecimal("10000000.00"), 100, 5, 60));
+    UUID buyer = fixture.accountWithItems(1);
+    fixture.creditCurrency(buyer, "1000.00");
+
+    assertThatThrownBy(() -> limited.place(new OrderRequest(
+        UUID.randomUUID(), buyer, "diamond-usd", OrderSide.BUY, "LIMIT",
+        new BigDecimal("100.00"), null, 1)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("HOLDING_LIMIT");
+
+    assertThat(fixture.orderCount()).isZero();
+    assertThat(fixture.frozenCurrency(buyer)).isZero();
+  }
+
+  @Test
   void commitsTradeAndReturnsSameReceiptForDuplicateRequest() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID seller = fixture.accountWithItems(10);

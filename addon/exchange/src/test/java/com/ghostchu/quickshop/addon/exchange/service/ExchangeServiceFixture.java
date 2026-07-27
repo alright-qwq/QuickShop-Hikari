@@ -240,12 +240,16 @@ final class ExchangeServiceFixture {
 
   UUID accountWithCurrency(String amount) throws SQLException {
     UUID account = UUID.randomUUID();
+    creditCurrency(account, amount);
+    return account;
+  }
+
+  void creditCurrency(UUID account, String amount) throws SQLException {
     repository.inTransaction(tx -> {
       tx.creditAvailableCurrency(account, rules.currencyId(),
           new BigDecimal(amount));
       return null;
     });
-    return account;
   }
 
   long tradeCount() throws SQLException {
