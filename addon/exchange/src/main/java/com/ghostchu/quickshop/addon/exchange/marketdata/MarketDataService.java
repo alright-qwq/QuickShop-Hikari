@@ -17,8 +17,12 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /** Builds read-only quotes from executed trades and their UTC-minute candles. */
 public final class MarketDataService {
@@ -27,6 +31,9 @@ public final class MarketDataService {
   private final ExchangeRepository repository;
   private final Map<String, BigDecimal> lastPrices = new ConcurrentHashMap<>();
   private final Map<String, Instant> currentBuckets = new HashMap<>();
+  private final List<Consumer<TradeEvent>> auditConsumers = new CopyOnWriteArrayList<>();
+  private final Map<UUID, Consumer<PlayerUpdate>> playerConsumers = new ConcurrentHashMap<>();
+  private final Set<String> changedMarkets = ConcurrentHashMap.newKeySet();
 
   public MarketDataService(CandleAggregator candles) {
     this(candles, null);
@@ -50,6 +57,50 @@ public final class MarketDataService {
     candles.record(marketId, price, quantity, occurredAt);
     currentBuckets.put(marketId, bucket);
     lastPrices.put(marketId, price);
+    changedMarkets.add(marketId);
+    TradeEvent event = new TradeEvent(marketId, price, quantity, occurredAt);
+    for (Consumer<TradeEvent> consumer : auditConsumers) {
+      try {
+        consumer.accept(event);
+      } catch (RuntimeException ignored) {
+        // Audit publication is observational and cannot invalidate a committed trade.
+      }
+    }
+  }
+
+  /** Registers an audit sink that receives every committed trade. */
+  public void addAuditConsumer(Consumer<TradeEvent> consumer) {
+    auditConsumers.add(Objects.requireNonNull(consumer, "consumer"));
+  }
+
+  public void removeAuditConsumer(Consumer<TradeEvent> consumer) {
+    auditConsumers.remove(Objects.requireNonNull(consumer, "consumer"));
+  }
+
+  /** Registers one player's view refresh callback. The runtime invokes {@link #publishPlayerUpdates()} every 20 ticks. */
+  public void subscribePlayer(UUID playerId, Consumer<PlayerUpdate> consumer) {
+    playerConsumers.put(Objects.requireNonNull(playerId, "playerId"),
+        Objects.requireNonNull(consumer, "consumer"));
+  }
+
+  public void unsubscribePlayer(UUID playerId) {
+    playerConsumers.remove(Objects.requireNonNull(playerId, "playerId"));
+  }
+
+  /** Publishes at most one coalesced update per subscribed player for the current scheduler tick. */
+  public synchronized void publishPlayerUpdates() {
+    if (changedMarkets.isEmpty()) {
+      return;
+    }
+    PlayerUpdate update = new PlayerUpdate(Set.copyOf(changedMarkets));
+    changedMarkets.clear();
+    for (Consumer<PlayerUpdate> consumer : playerConsumers.values()) {
+      try {
+        consumer.accept(update);
+      } catch (RuntimeException ignored) {
+        // A disconnected player view must not stop refreshes for other viewers.
+      }
+    }
   }
 
   /** Persists every in-memory candle whose UTC minute ended before {@code asOf}. */
@@ -163,6 +214,24 @@ public final class MarketDataService {
     public DepthLevel {
       if (price == null || price.signum() <= 0 || quantity <= 0) {
         throw new IllegalArgumentException("invalid depth level");
+      }
+    }
+  }
+
+  public record TradeEvent(String marketId, BigDecimal price, long quantity, Instant occurredAt) {
+    public TradeEvent {
+      if (marketId == null || marketId.isBlank() || price == null || price.signum() <= 0
+          || quantity <= 0 || occurredAt == null) {
+        throw new IllegalArgumentException("invalid trade event");
+      }
+    }
+  }
+
+  public record PlayerUpdate(Set<String> marketIds) {
+    public PlayerUpdate {
+      marketIds = Set.copyOf(Objects.requireNonNull(marketIds, "marketIds"));
+      if (marketIds.isEmpty()) {
+        throw new IllegalArgumentException("player update requires a changed market");
       }
     }
   }

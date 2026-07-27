@@ -20,11 +20,34 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class MarketDataServiceTest {
+  @Test
+  void publishesEveryTradeToAuditButCoalescesPlayerFeedUntilScheduledTick() {
+    MarketDataService data = new MarketDataService(new CandleAggregator());
+    AtomicInteger audited = new AtomicInteger();
+    AtomicInteger playerUpdates = new AtomicInteger();
+    UUID player = UUID.randomUUID();
+    data.addAuditConsumer(event -> audited.incrementAndGet());
+    data.subscribePlayer(player, update -> playerUpdates.incrementAndGet());
+
+    data.recordTrade("diamond-usd", new BigDecimal("100.00"), 1,
+        Instant.parse("2026-07-26T00:00:01Z"));
+    data.recordTrade("diamond-usd", new BigDecimal("101.00"), 1,
+        Instant.parse("2026-07-26T00:00:02Z"));
+
+    assertThat(audited).hasValue(2);
+    assertThat(playerUpdates).hasValue(0);
+    data.publishPlayerUpdates();
+    assertThat(playerUpdates).hasValue(1);
+    data.publishPlayerUpdates();
+    assertThat(playerUpdates).hasValue(1);
+  }
+
   @Test
   void exposesLatestTradeAndCurrentMinuteTotalsInQuote() {
     MarketDataService data = new MarketDataService(new CandleAggregator());

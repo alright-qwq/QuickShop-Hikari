@@ -107,6 +107,13 @@ public final class ExchangeRuntimeFactory {
         Thread.ofPlatform().daemon(true).name("qs-exchange-maintenance-", 0).factory());
     Runnable resumeHalted = () -> resumeExpiredHalts(repository, registry.marketIds(), database.writer());
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
+    maintenance.scheduleWithFixedDelay(() -> {
+      if (database.writer().held()) {
+        marketData.flush(Instant.now());
+      }
+    }, 1L, 1L, TimeUnit.MINUTES);
+    maintenance.scheduleWithFixedDelay(marketData::publishPlayerUpdates,
+        1L, 1L, TimeUnit.SECONDS);
 
       return new ExchangeRuntime(database.writer(),
           () -> recoverMarkets(markets), transfers::recoverAllMoneyTransfers, dispatcher,
