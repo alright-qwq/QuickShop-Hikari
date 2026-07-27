@@ -245,17 +245,15 @@ public final class PersistentOrderService {
   }
 
   private OrderReceipt storedReceipt(OrderRequest request) throws SQLException {
-    return repository.inTransaction(tx -> {
-      StoredRequestResult stored = tx.requestResult(request.accountId(), request.requestId())
-          .orElse(null);
-      if (stored == null) {
-        return null;
-      }
-      if (!PLACE_OPERATION.equals(stored.operation())) {
-        throw new IllegalStateException("request id belongs to another operation");
-      }
-      return decodeReceipt(stored.payload());
-    });
+    StoredRequestResult stored = repository.findRequestResult(request.accountId(), request.requestId())
+        .orElse(null);
+    if (stored == null) {
+      return null;
+    }
+    if (!PLACE_OPERATION.equals(stored.operation())) {
+      throw new IllegalStateException("request id belongs to another operation");
+    }
+    return decodeReceipt(stored.payload());
   }
 
   private TransactionOutcome settle(ExchangeTransaction tx, OrderRequest request)

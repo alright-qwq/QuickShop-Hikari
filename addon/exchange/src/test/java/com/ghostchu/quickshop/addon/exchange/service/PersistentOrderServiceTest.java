@@ -73,7 +73,9 @@ class PersistentOrderServiceTest {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID seller = fixture.accountWithItems(1);
     fixture.service().recoverFromDatabase();
-    PersistentOrderService guarded = fixture.service();
+    AtomicInteger transactionEntries = new AtomicInteger();
+    PersistentOrderService guarded = fixture.serviceWithTransactionEntry(
+        transactionEntries::incrementAndGet);
 
     assertThatThrownBy(() -> guarded.place(new OrderRequest(
         UUID.randomUUID(), seller, "diamond-usd", OrderSide.SELL, "LIMIT",
@@ -82,6 +84,7 @@ class PersistentOrderServiceTest {
         .hasMessageContaining("PRICE_OUTSIDE_CAGE");
 
     assertThat(fixture.orderCount()).isZero();
+    assertThat(transactionEntries).hasValue(0);
   }
 
   @Test
@@ -97,6 +100,21 @@ class PersistentOrderServiceTest {
     OrderReceipt retry = limited.place(request);
 
     assertThat(retry).isEqualTo(first);
+    assertThat(fixture.orderCount()).isEqualTo(1);
+  }
+
+  @Test
+  void returnsStoredReceiptWhenRetryIsOutsideTheCurrentPriceCage() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    OrderRequest request = new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1);
+
+    OrderReceipt first = fixture.service().place(request);
+    fixture.setMarketReferencePrice("200.00");
+    fixture.service().recoverFromDatabase();
+
+    assertThat(fixture.service().place(request)).isEqualTo(first);
     assertThat(fixture.orderCount()).isEqualTo(1);
   }
 

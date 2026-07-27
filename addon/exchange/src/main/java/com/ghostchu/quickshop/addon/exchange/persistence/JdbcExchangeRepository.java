@@ -138,6 +138,16 @@ public final class JdbcExchangeRepository
   }
 
   @Override
+  public Optional<StoredRequestResult> findRequestResult(UUID accountId, UUID requestId)
+      throws SQLException {
+    Objects.requireNonNull(accountId, "accountId");
+    Objects.requireNonNull(requestId, "requestId");
+    try (Connection connection = connections.open()) {
+      return new JdbcTransaction(connection, dialect, tables).requestResult(accountId, requestId);
+    }
+  }
+
+  @Override
   public List<TransferRecord> findUnfinished(UUID accountId) throws SQLException {
     Objects.requireNonNull(accountId, "accountId");
     try (Connection connection = connections.open()) {

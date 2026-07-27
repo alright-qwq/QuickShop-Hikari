@@ -169,6 +169,12 @@ final class ExchangeServiceFixture {
       public Object coordinationKey() {
         return repository.coordinationKey();
       }
+
+      @Override
+      public java.util.Optional<StoredRequestResult> findRequestResult(
+          UUID accountId, UUID requestId) throws SQLException {
+        return repository.findRequestResult(accountId, requestId);
+      }
     };
     return new PersistentOrderService(rollbackReporting, rules,
         com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
@@ -194,6 +200,12 @@ final class ExchangeServiceFixture {
       @Override
       public Object coordinationKey() {
         return repository.coordinationKey();
+      }
+
+      @Override
+      public java.util.Optional<StoredRequestResult> findRequestResult(
+          UUID accountId, UUID requestId) throws SQLException {
+        return repository.findRequestResult(accountId, requestId);
       }
     };
     return new PersistentOrderService(observed, rules,
