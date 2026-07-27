@@ -20,3 +20,4 @@ Task 6: complete (commits 09774d42d..c6a9524ad, review clean after 4 Important f
 Task 6 minor follow-ups: add explicit out-of-range breaker and distinct-order duplicate-priority corruption cases; extract the pure snapshot assembler during a later focused cleanup.
 Task 7: complete (commit 6f2eb7ee8; independent review resolved 3 Important findings; full 142/142 pass including 5 real MySQL 8.4 tests)
 Task 7 follow-up carried into Task 8: exercise settlement concurrency and reconciliation against real MySQL, retaining exact per-trade journal completeness and conservation checks.
+Task 8: implementation complete (commits 4b7abf4b8..53c42d963; controller review resolved exact SQLite aggregation and JVM-serialized MySQL concurrency coverage; 140/140 non-Docker tests pass); final acceptance pending execution of 7 MySQL tests on a Docker-capable host.
