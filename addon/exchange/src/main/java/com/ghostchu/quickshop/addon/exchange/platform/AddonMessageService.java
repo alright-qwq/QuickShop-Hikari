@@ -19,6 +19,9 @@ public final class AddonMessageService {
     for (int index = 0; index < arguments.length; index++) {
       template = template.replace("<" + index + ">", String.valueOf(arguments[index]));
     }
+    if (arguments.length > 0) {
+      template = template.replace("<requestId>", String.valueOf(arguments[0]));
+    }
     return template;
   }
 }
