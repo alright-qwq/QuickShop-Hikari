@@ -3,17 +3,37 @@ package com.ghostchu.quickshop.addon.exchange.runtime;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Holds MySQL's advisory writer lock on a dedicated connection for runtime lifetime. */
 public final class MySqlSingleWriterGuard implements SingleWriterGuard {
   private final ConnectionFactory connections;
   private final String lockName;
+  private final ScheduledExecutorService monitor;
+  private final long checkIntervalMillis;
+  private final AtomicBoolean lossReported = new AtomicBoolean();
   private Connection connection;
+  private Runnable onLockLost = () -> {};
 
   public MySqlSingleWriterGuard(ConnectionFactory connections, String databasePrefix) {
+    this(connections, databasePrefix, Duration.ofSeconds(1));
+  }
+
+  MySqlSingleWriterGuard(ConnectionFactory connections, String databasePrefix,
+                         Duration checkInterval) {
     this.connections = Objects.requireNonNull(connections, "connections");
     this.lockName = Objects.requireNonNull(databasePrefix, "databasePrefix") + "exchange_writer";
+    if (checkInterval == null || checkInterval.isZero() || checkInterval.isNegative()) {
+      throw new IllegalArgumentException("check interval must be positive");
+    }
+    this.checkIntervalMillis = checkInterval.toMillis();
+    this.monitor = Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform()
+        .daemon(true).name("qs-exchange-writer-lock-", 0).factory());
   }
 
   @Override
@@ -30,6 +50,9 @@ public final class MySqlSingleWriterGuard implements SingleWriterGuard {
       }
     }
     connection = candidate;
+    lossReported.set(false);
+    monitor.scheduleWithFixedDelay(this::checkConnection,
+        checkIntervalMillis, checkIntervalMillis, TimeUnit.MILLISECONDS);
   }
 
   @Override
@@ -42,7 +65,13 @@ public final class MySqlSingleWriterGuard implements SingleWriterGuard {
   }
 
   @Override
+  public synchronized void onLockLost(Runnable action) {
+    onLockLost = Objects.requireNonNull(action, "action");
+  }
+
+  @Override
   public synchronized void close() throws Exception {
+    monitor.shutdownNow();
     if (connection == null) return;
     try (PreparedStatement statement = connection.prepareStatement("SELECT RELEASE_LOCK(?)")) {
       statement.setString(1, lockName);
@@ -50,6 +79,34 @@ public final class MySqlSingleWriterGuard implements SingleWriterGuard {
     } finally {
       connection.close();
       connection = null;
+    }
+  }
+
+  private void checkConnection() {
+    Runnable listener = null;
+    synchronized (this) {
+      if (connection == null) {
+        return;
+      }
+      try {
+        if (connection.isValid(1) && !connection.isClosed()) {
+          return;
+        }
+      } catch (Exception ignored) {
+        // A failed health check has the same safety meaning as a disconnected lock session.
+      }
+      try {
+        connection.close();
+      } catch (Exception ignored) {
+        // The connection is already unusable.
+      }
+      connection = null;
+      if (lossReported.compareAndSet(false, true)) {
+        listener = onLockLost;
+      }
+    }
+    if (listener != null) {
+      listener.run();
     }
   }
 

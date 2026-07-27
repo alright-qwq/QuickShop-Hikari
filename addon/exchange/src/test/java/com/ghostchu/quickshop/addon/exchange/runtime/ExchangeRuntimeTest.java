@@ -24,10 +24,25 @@ class ExchangeRuntimeTest {
     assertThat(writer.closedAfterDispatcher()).isTrue();
   }
 
+  @Test
+  void fencesNewWritesImmediatelyWhenTheWriterLockIsLost() throws Exception {
+    TrackingGuard writer = new TrackingGuard(new AtomicBoolean());
+    AtomicBoolean marketsRecovering = new AtomicBoolean();
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {}, () -> {},
+        () -> marketsRecovering.set(true));
+
+    runtime.start();
+    writer.loseLock();
+
+    assertThat(runtime.acceptingWrites()).isFalse();
+    assertThat(marketsRecovering).isTrue();
+  }
+
   private static final class TrackingGuard implements SingleWriterGuard {
     private final AtomicBoolean dispatcherClosed;
     private boolean held;
     private boolean closedAfterDispatcher;
+    private Runnable onLockLost = () -> {};
 
     private TrackingGuard(AtomicBoolean dispatcherClosed) {
       this.dispatcherClosed = dispatcherClosed;
@@ -47,6 +62,16 @@ class ExchangeRuntimeTest {
     public void close() {
       closedAfterDispatcher = dispatcherClosed.get();
       held = false;
+    }
+
+    @Override
+    public void onLockLost(Runnable action) {
+      onLockLost = action;
+    }
+
+    private void loseLock() {
+      held = false;
+      onLockLost.run();
     }
 
     private boolean closedAfterDispatcher() {
