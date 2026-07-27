@@ -61,7 +61,11 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
             failure.addSuppressed(rollbackFailure);
           }
         } else {
-          connection.rollback();
+          try {
+            connection.rollback();
+          } catch (SQLException rollbackFailure) {
+            failure.addSuppressed(rollbackFailure);
+          }
         }
         throw failure;
       }

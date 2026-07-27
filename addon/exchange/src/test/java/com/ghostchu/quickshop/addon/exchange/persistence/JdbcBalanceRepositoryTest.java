@@ -14,6 +14,7 @@ import com.ghostchu.quickshop.addon.exchange.repository.ItemBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -222,6 +223,27 @@ class JdbcBalanceRepositoryTest {
     })).isSameAs(failure);
 
     assertCurrency(repository.inTransaction(tx -> tx.currency(account, "USD")), "0", "0", 0);
+  }
+
+  @Test
+  void preservesOriginalFailureWhenMysqlRollbackAlsoFails() {
+    SQLException rollbackFailure = new SQLException("rollback failed");
+    Connection connection = (Connection) Proxy.newProxyInstance(
+        Connection.class.getClassLoader(), new Class<?>[] {Connection.class},
+        (proxy, method, arguments) -> switch (method.getName()) {
+          case "setAutoCommit", "close" -> null;
+          case "rollback" -> throw rollbackFailure;
+          default -> throw new AssertionError("unexpected connection call: " + method.getName());
+        });
+    ExchangeRepository mysqlRepository =
+        new JdbcExchangeRepository(() -> connection, SqlDialect.MYSQL, tables);
+    IllegalStateException workFailure = new IllegalStateException("work failed");
+
+    assertThatThrownBy(() -> mysqlRepository.inTransaction(tx -> {
+      throw workFailure;
+    })).isSameAs(workFailure)
+        .satisfies(failure -> assertThat(failure.getSuppressed())
+            .containsExactly(rollbackFailure));
   }
 
   @Test
