@@ -35,10 +35,13 @@ class MySqlRepositoryIT {
     UUID requestId = UUID.randomUUID();
     OrderRequest request = limitOrder(
         requestId, buyer, fixture.rules().marketId(), OrderSide.BUY, "100.00");
+    List<PersistentOrderService> services = IntStream.range(0, 32)
+        .mapToObj(ignored -> fixture.independentMysqlService())
+        .toList();
 
     try (ExecutorService executor = Executors.newFixedThreadPool(8)) {
       List<Future<OrderReceipt>> attempts = IntStream.range(0, 32)
-          .mapToObj(ignored -> executor.submit(() -> fixture.service().place(request)))
+          .mapToObj(index -> executor.submit(() -> services.get(index).place(request)))
           .toList();
       for (Future<OrderReceipt> attempt : attempts) {
         assertThat(attempt.get(20, TimeUnit.SECONDS).requestId()).isEqualTo(requestId);

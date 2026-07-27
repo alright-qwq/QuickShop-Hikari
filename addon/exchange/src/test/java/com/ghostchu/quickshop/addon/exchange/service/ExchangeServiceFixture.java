@@ -99,6 +99,13 @@ final class ExchangeServiceFixture {
     return service;
   }
 
+  PersistentOrderService independentMysqlService() {
+    return new PersistentOrderService(
+        new JdbcExchangeRepository(connections, SqlDialect.MYSQL, tables), rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP);
+  }
+
   PersistentOrderService restartedService() {
     return new PersistentOrderService(repository, rules,
         com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),

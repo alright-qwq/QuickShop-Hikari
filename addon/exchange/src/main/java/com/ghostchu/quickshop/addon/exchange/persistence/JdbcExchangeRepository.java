@@ -520,27 +520,31 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
     }
 
     private ReconciliationReport reconcile() throws SQLException {
-      Map<String, BigDecimal> ledgerDifferences = nonZeroTotals(readTotals(
-          "SELECT asset_id,SUM(amount) AS total FROM " + tables.entries() + " GROUP BY asset_id"));
-      Map<String, BigDecimal> custody = readTotals(
-          "SELECT asset_id,SUM(amount) AS total FROM " + tables.entries()
-              + " WHERE account_code LIKE 'custody:%' GROUP BY asset_id");
-      Map<String, BigDecimal> liabilities = readTotals(
-          "SELECT currency_id AS asset_id,SUM(available + frozen) AS total FROM "
-              + tables.accounts() + " GROUP BY currency_id");
-      mergeTotals(liabilities, readTotals(
-          "SELECT market_id AS asset_id,SUM(available_quantity + frozen_quantity) AS total FROM "
-              + tables.inventory() + " GROUP BY market_id"));
+      Map<String, BigDecimal> ledgerDifferences = nonZeroTotals(readExactTotals(
+          "SELECT asset_id,amount FROM " + tables.entries(), "amount"));
+      Map<String, BigDecimal> custody = readExactTotals(
+          "SELECT asset_id,amount FROM " + tables.entries()
+              + " WHERE account_code LIKE 'custody:%'", "amount");
+      Map<String, BigDecimal> liabilities = readExactTotals(
+          "SELECT currency_id AS asset_id,available,frozen FROM " + tables.accounts(),
+          "available", "frozen");
+      mergeTotals(liabilities, readExactTotals(
+          "SELECT market_id AS asset_id,available_quantity,frozen_quantity FROM "
+              + tables.inventory(), "available_quantity", "frozen_quantity"));
       return new ReconciliationReport(ledgerDifferences, custodyDifferences(custody, liabilities),
           underReservedOrderCount());
     }
 
-    private Map<String, BigDecimal> readTotals(String sql) throws SQLException {
+    private Map<String, BigDecimal> readExactTotals(String sql, String... amountColumns)
+        throws SQLException {
       HashMap<String, BigDecimal> totals = new HashMap<>();
       try (PreparedStatement query = connection.prepareStatement(sql);
            ResultSet result = query.executeQuery()) {
         while (result.next()) {
-          totals.put(result.getString("asset_id"), new BigDecimal(result.getString("total")));
+          String asset = result.getString("asset_id");
+          for (String amountColumn : amountColumns) {
+            totals.merge(asset, new BigDecimal(result.getString(amountColumn)), BigDecimal::add);
+          }
         }
       }
       return totals;

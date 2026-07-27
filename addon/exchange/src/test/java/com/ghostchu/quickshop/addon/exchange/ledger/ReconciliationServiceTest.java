@@ -77,6 +77,17 @@ class ReconciliationServiceTest {
     assertThat(report.balanced()).isFalse();
   }
 
+  @Test
+  void preservesExactDecimalDifferencesInSqlite() throws Exception {
+    TestDatabase database = database();
+    insertUnbalancedEntry(database, "USD", "9007199254740993.01");
+    insertUnbalancedEntry(database, "USD", "-9007199254740993.00");
+
+    ReconciliationReport report = new ReconciliationService(database.repository()).run();
+
+    assertThat(report.ledgerDifferences().get("USD")).isEqualByComparingTo("0.01");
+  }
+
   private static TestDatabase database() throws Exception {
     Path file = Files.createTempFile("quickshop-exchange-reconciliation-", ".sqlite");
     file.toFile().deleteOnExit();
