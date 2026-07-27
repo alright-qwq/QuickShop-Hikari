@@ -185,7 +185,8 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
       this.tables = tables;
     }
 
-    private TransferRecord createTransfer(TransferRecord prepared) throws SQLException {
+    @Override
+    public TransferRecord createTransfer(TransferRecord prepared) throws SQLException {
       try (PreparedStatement insert = connection.prepareStatement(
           "INSERT INTO " + tables.transfers()
               + " (transfer_id,request_id,account_id,transfer_type,asset_id,amount,status,"
@@ -208,6 +209,13 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
         }
         return original;
       }
+    }
+
+    @Override
+    public TransferRecord completeTransfer(UUID transferId, long expectedVersion)
+        throws SQLException {
+      return transitionTransfer(transferId, expectedVersion, TransferStatus.PROCESSING,
+          TransferStatus.COMPLETED, null);
     }
 
     private Optional<TransferRecord> findTransfer(UUID transferId) throws SQLException {
