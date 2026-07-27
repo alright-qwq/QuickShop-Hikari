@@ -32,11 +32,11 @@ class ReconciliationServiceTest {
       tx.creditAvailableCurrency(account, "USD", new BigDecimal("100.00"));
       tx.creditAvailableItems(account, "diamond-usd", 2);
       tx.appendJournal(journal("deposit-currency", List.of(
-          entry("custody:currency:USD", "USD", "100.00"),
-          entry("external:currency", "USD", "-100.00"))));
+          entry("custody:currency:USD", "USD", "-100.00"),
+          entry("liability:currency:" + account, "USD", "100.00"))));
       tx.appendJournal(journal("deposit-item", List.of(
-          entry("custody:item:diamond-usd", "diamond-usd", "2"),
-          entry("external:item", "diamond-usd", "-2"))));
+          entry("custody:item:diamond-usd", "diamond-usd", "-2"),
+          entry("liability:item:" + account, "diamond-usd", "2"))));
       return null;
     });
 
@@ -57,11 +57,11 @@ class ReconciliationServiceTest {
       tx.creditAvailableCurrency(account, "USD", new BigDecimal("100.00"));
       tx.creditAvailableItems(account, "diamond-usd", 2);
       tx.appendJournal(journal("deposit-currency", List.of(
-          entry("custody:currency:USD", "USD", "100.00"),
-          entry("external:currency", "USD", "-100.00"))));
+          entry("custody:currency:USD", "USD", "-100.00"),
+          entry("liability:currency:" + account, "USD", "100.00"))));
       tx.appendJournal(journal("deposit-item", List.of(
-          entry("custody:item:diamond-usd", "diamond-usd", "2"),
-          entry("external:item", "diamond-usd", "-2"))));
+          entry("custody:item:diamond-usd", "diamond-usd", "-2"),
+          entry("liability:item:" + account, "diamond-usd", "2"))));
       tx.insertOrder(order(account, OrderSide.BUY, now, 1), new BigDecimal("20.00"), 0);
       tx.insertOrder(order(account, OrderSide.SELL, now, 2), BigDecimal.ZERO, 1);
       tx.creditAvailableCurrency(account, "USD", BigDecimal.ONE);
@@ -72,7 +72,7 @@ class ReconciliationServiceTest {
     ReconciliationReport report = new ReconciliationService(database.repository()).run();
 
     assertThat(report.ledgerDifferences().get("USD")).isEqualByComparingTo("1.00");
-    assertThat(report.custodyDifferences().get("USD")).isEqualByComparingTo("-1.00");
+    assertThat(report.custodyDifferences().get("USD")).isEqualByComparingTo("1.00");
     assertThat(report.underReservedOrders()).isEqualTo(2);
     assertThat(report.balanced()).isFalse();
   }

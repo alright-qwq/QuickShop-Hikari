@@ -784,7 +784,7 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
       HashMap<String, BigDecimal> differences = new HashMap<>();
       for (String asset : assets) {
         BigDecimal difference = custody.getOrDefault(asset, BigDecimal.ZERO)
-            .subtract(liabilities.getOrDefault(asset, BigDecimal.ZERO));
+            .add(liabilities.getOrDefault(asset, BigDecimal.ZERO));
         if (difference.signum() != 0) {
           differences.put(asset, difference);
         }
