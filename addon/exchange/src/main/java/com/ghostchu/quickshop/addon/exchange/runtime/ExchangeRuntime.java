@@ -9,15 +9,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class ExchangeRuntime implements AutoCloseable {
   private final SingleWriterGuard writer;
   private final CheckedRunnable recoverBooks;
-  private final TransferRecoveryService transfers;
-  private final MarketDispatcher dispatcher;
+  private final CheckedRunnable recoverTransfers;
+  private final AutoCloseable dispatcher;
   private final AtomicBoolean acceptingWrites = new AtomicBoolean();
 
   public ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
                          TransferRecoveryService transfers, MarketDispatcher dispatcher) {
+    this(writer, recoverBooks, transfers::recoverAllMoneyTransfers, dispatcher);
+  }
+
+  ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
+                  CheckedRunnable recoverTransfers, AutoCloseable dispatcher) {
     this.writer = Objects.requireNonNull(writer, "writer");
     this.recoverBooks = Objects.requireNonNull(recoverBooks, "recoverBooks");
-    this.transfers = Objects.requireNonNull(transfers, "transfers");
+    this.recoverTransfers = Objects.requireNonNull(recoverTransfers, "recoverTransfers");
     this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher");
   }
 
@@ -25,7 +30,7 @@ public final class ExchangeRuntime implements AutoCloseable {
     writer.acquire();
     try {
       recoverBooks.run();
-      transfers.recoverAllMoneyTransfers();
+      recoverTransfers.run();
       acceptingWrites.set(true);
     } catch (Exception failure) {
       writer.close();
