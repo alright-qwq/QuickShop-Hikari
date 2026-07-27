@@ -43,5 +43,6 @@ public interface ExchangeTransaction {
 
   record MarketState(String marketId, MarketStatus status, long prioritySequence,
                      long matchSequence, BigDecimal referencePrice, BigDecimal lastPrice,
-                     Instant haltedUntil, long version) {}
+                     Instant haltedUntil, Long discoveryQuantity,
+                     Integer circuitBreakerLevel, long version) {}
 }

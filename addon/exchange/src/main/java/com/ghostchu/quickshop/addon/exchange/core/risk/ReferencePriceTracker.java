@@ -59,6 +59,10 @@ public final class ReferencePriceTracker {
     return copy;
   }
 
+  public long discoveryQuantity() {
+    return cumulativeDiscoveryQuantity;
+  }
+
   public static ReferencePriceTracker restored(
       BigDecimal referencePrice, long discoveryQuantity, Duration window, int scale) {
     return new ReferencePriceTracker(referencePrice, discoveryQuantity, window, scale);

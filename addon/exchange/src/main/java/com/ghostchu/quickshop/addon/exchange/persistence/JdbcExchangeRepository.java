@@ -254,7 +254,8 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
     public MarketState marketState(String marketId) throws SQLException {
       try (PreparedStatement select = connection.prepareStatement(
           "SELECT status,priority_sequence,match_sequence,reference_price,last_price,"
-              + "halted_until,version FROM " + tables.marketState()
+              + "halted_until,discovery_quantity,circuit_breaker_level,version FROM "
+              + tables.marketState()
               + " WHERE market_id=?" + dialect.forUpdate())) {
         select.setString(1, marketId);
         try (ResultSet result = select.executeQuery()) {
@@ -266,6 +267,8 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
               result.getLong("priority_sequence"), result.getLong("match_sequence"),
               readDecimal(result, "reference_price"), readNullableDecimal(result, "last_price"),
               haltedUntil == null ? null : Instant.ofEpochMilli(haltedUntil),
+              nullableLong(result, "discovery_quantity"),
+              nullableInteger(result, "circuit_breaker_level"),
               result.getLong("version"));
         }
       }
@@ -311,7 +314,8 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
       try (PreparedStatement update = connection.prepareStatement(
           "UPDATE " + tables.marketState()
               + " SET status=?,priority_sequence=?,match_sequence=?,reference_price=?,"
-              + "last_price=?,halted_until=?,version=version+1"
+              + "last_price=?,halted_until=?,discovery_quantity=?,circuit_breaker_level=?,"
+              + "version=version+1"
               + " WHERE market_id=? AND version=?")) {
         update.setString(1, state.status().name());
         update.setLong(2, state.prioritySequence());
@@ -323,8 +327,18 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
         } else {
           update.setLong(6, state.haltedUntil().toEpochMilli());
         }
-        update.setString(7, state.marketId());
-        update.setLong(8, expectedVersion);
+        if (state.discoveryQuantity() == null) {
+          update.setNull(7, Types.BIGINT);
+        } else {
+          update.setLong(7, state.discoveryQuantity());
+        }
+        if (state.circuitBreakerLevel() == null) {
+          update.setNull(8, Types.INTEGER);
+        } else {
+          update.setInt(8, state.circuitBreakerLevel());
+        }
+        update.setString(9, state.marketId());
+        update.setLong(10, expectedVersion);
         if (update.executeUpdate() != 1) {
           throw new ConcurrentModificationException("market state version changed");
         }
@@ -534,6 +548,11 @@ public final class JdbcExchangeRepository implements ExchangeRepository {
 
     private static Long nullableLong(ResultSet result, String column) throws SQLException {
       long value = result.getLong(column);
+      return result.wasNull() ? null : value;
+    }
+
+    private static Integer nullableInteger(ResultSet result, String column) throws SQLException {
+      int value = result.getInt(column);
       return result.wasNull() ? null : value;
     }
 

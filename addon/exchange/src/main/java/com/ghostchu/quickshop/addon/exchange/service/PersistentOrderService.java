@@ -486,7 +486,8 @@ public final class PersistentOrderService {
       }
     }
     return new MarketState(before.marketId(), status, prioritySequence, matchSequence,
-        reference, lastPrice, haltedUntil, before.version() + 1);
+        reference, lastPrice, haltedUntil, prices.discoveryQuantity(), breaker.level(),
+        before.version() + 1);
   }
 
   private void enterRecovery(String marketId, SQLException failure) {
@@ -495,7 +496,8 @@ public final class PersistentOrderService {
         MarketState state = tx.marketState(marketId);
         tx.updateMarketState(new MarketState(state.marketId(), MarketStatus.RECOVERING,
             state.prioritySequence(), state.matchSequence(), state.referencePrice(),
-            state.lastPrice(), state.haltedUntil(), state.version() + 1), state.version());
+            state.lastPrice(), state.haltedUntil(), state.discoveryQuantity(),
+            state.circuitBreakerLevel(), state.version() + 1), state.version());
         return null;
       });
     } catch (SQLException | RuntimeException recoveryWriteFailure) {

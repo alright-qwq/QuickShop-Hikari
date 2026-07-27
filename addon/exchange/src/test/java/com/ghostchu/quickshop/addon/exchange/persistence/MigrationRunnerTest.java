@@ -23,7 +23,9 @@ class MigrationRunnerTest {
 
     try (Connection connection = connections.open()) {
       assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(13);
-      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(1);
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(2);
+      assertThat(columnExists(connection, names.marketState(), "discovery_quantity")).isTrue();
+      assertThat(columnExists(connection, names.marketState(), "circuit_breaker_level")).isTrue();
       assertThat(indexExists(connection, names.orders(), names.prefix() + "exchange_orders_book_idx"))
           .isTrue();
       assertThat(indexExists(connection, names.trades(), names.prefix() + "exchange_trades_time_idx"))
@@ -124,6 +126,13 @@ class MigrationRunnerTest {
         }
       }
       return false;
+    }
+  }
+
+  private static boolean columnExists(Connection connection, String table, String column)
+      throws SQLException {
+    try (ResultSet result = connection.getMetaData().getColumns(null, null, table, column)) {
+      return result.next();
     }
   }
 

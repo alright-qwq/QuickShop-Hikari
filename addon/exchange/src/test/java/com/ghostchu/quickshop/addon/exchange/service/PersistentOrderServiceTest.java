@@ -160,6 +160,8 @@ class PersistentOrderServiceTest {
     assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("100.00");
     assertThat(fixture.marketLastPrice()).isEqualByComparingTo("120.00");
     assertThat(fixture.marketHaltedUntil()).isNotNull();
+    assertThat(fixture.marketDiscoveryQuantity()).isEqualTo("1");
+    assertThat(fixture.marketCircuitBreakerLevel()).isEqualTo("1");
   }
 
   @Test

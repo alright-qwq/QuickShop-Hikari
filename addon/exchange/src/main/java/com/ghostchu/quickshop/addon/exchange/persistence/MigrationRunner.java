@@ -43,17 +43,42 @@ public final class MigrationRunner {
         for (SchemaV1.TriggerDefinition trigger : SchemaV1.triggers(dialect, tables)) {
           ensureTrigger(connection, trigger);
         }
-        try (PreparedStatement insert = connection.prepareStatement(
-            "INSERT INTO " + tables.schemaVersion()
-                + " (version,applied_at) SELECT 1,? WHERE NOT EXISTS "
-                + "(SELECT 1 FROM " + tables.schemaVersion() + " WHERE version=1)")) {
-          insert.setLong(1, Instant.now().toEpochMilli());
-          insert.executeUpdate();
+        recordVersion(connection, 1);
+        for (SchemaV2.ColumnDefinition column : SchemaV2.columns(dialect, tables)) {
+          ensureColumn(connection, column);
         }
+        recordVersion(connection, 2);
         connection.commit();
       } catch (SQLException failure) {
         connection.rollback();
         throw failure;
+      }
+    }
+  }
+
+  private void recordVersion(Connection connection, int version) throws SQLException {
+    try (PreparedStatement insert = connection.prepareStatement(
+        "INSERT INTO " + tables.schemaVersion()
+            + " (version,applied_at) SELECT ?,? WHERE NOT EXISTS "
+            + "(SELECT 1 FROM " + tables.schemaVersion() + " WHERE version=?)")) {
+      insert.setInt(1, version);
+      insert.setLong(2, Instant.now().toEpochMilli());
+      insert.setInt(3, version);
+      insert.executeUpdate();
+    }
+  }
+
+  private static void ensureColumn(Connection connection, SchemaV2.ColumnDefinition column)
+      throws SQLException {
+    boolean exists;
+    try (ResultSet result = connection.getMetaData()
+        .getColumns(null, null, column.table(), column.name())) {
+      exists = result.next();
+    }
+    if (!exists) {
+      try (Statement statement = connection.createStatement()) {
+        statement.execute("ALTER TABLE " + column.table() + " ADD COLUMN "
+            + column.name() + " " + column.type());
       }
     }
   }

@@ -294,6 +294,14 @@ final class ExchangeServiceFixture {
     return value == null ? null : Long.valueOf(value);
   }
 
+  String marketDiscoveryQuantity() throws SQLException {
+    return marketValue("discovery_quantity");
+  }
+
+  String marketCircuitBreakerLevel() throws SQLException {
+    return marketValue("circuit_breaker_level");
+  }
+
   Set<String> journalAccountKinds() throws SQLException {
     Set<String> kinds = new HashSet<>();
     try (Connection connection = connections.open();
@@ -344,7 +352,8 @@ final class ExchangeServiceFixture {
            PreparedStatement state = connection.prepareStatement(
                "INSERT INTO " + tables.marketState()
                    + " (market_id,status,priority_sequence,match_sequence,reference_price,"
-                   + "last_price,halted_until,version) VALUES (?,?,?,?,?,?,?,?)")) {
+                   + "last_price,halted_until,discovery_quantity,circuit_breaker_level,version)"
+                   + " VALUES (?,?,?,?,?,?,?,?,?,?)")) {
         market.setString(1, rules.marketId());
         market.setString(2, rules.currencyId());
         market.setString(3, "diamond");
@@ -365,6 +374,8 @@ final class ExchangeServiceFixture {
         state.setNull(6, java.sql.Types.DECIMAL);
         state.setNull(7, java.sql.Types.BIGINT);
         state.setLong(8, 0);
+        state.setInt(9, 0);
+        state.setLong(10, 0);
         state.executeUpdate();
         connection.commit();
       } catch (SQLException failure) {

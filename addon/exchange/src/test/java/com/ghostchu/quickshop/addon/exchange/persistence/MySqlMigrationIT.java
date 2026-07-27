@@ -48,7 +48,9 @@ class MySqlMigrationIT {
 
     try (Connection connection = connections.open()) {
       assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(13);
-      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(1);
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(2);
+      assertThat(columnExists(connection, names.marketState(), "discovery_quantity")).isTrue();
+      assertThat(columnExists(connection, names.marketState(), "circuit_breaker_level")).isTrue();
       assertThat(indexExists(connection, names.orders(), names.prefix() + "exchange_orders_book_idx"))
           .isTrue();
       assertThat(indexExists(connection, names.trades(), names.prefix() + "exchange_trades_time_idx"))
@@ -86,7 +88,7 @@ class MySqlMigrationIT {
 
     try (Connection connection = connections.open()) {
       assertThat(tableCount(connection, "recover_exchange_%")).isEqualTo(13);
-      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(1);
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(2);
       assertThat(indexExists(connection, names.orders(), names.prefix() + "exchange_orders_book_idx"))
           .isTrue();
       assertThat(indexExists(connection, names.trades(), names.prefix() + "exchange_trades_time_idx"))
@@ -160,7 +162,8 @@ class MySqlMigrationIT {
          PreparedStatement state = connection.prepareStatement(
              "INSERT INTO " + names.marketState()
                  + " (market_id,status,priority_sequence,match_sequence,reference_price,"
-                 + "last_price,halted_until,version) VALUES (?,?,?,?,?,?,?,?)")) {
+                 + "last_price,halted_until,discovery_quantity,circuit_breaker_level,version)"
+                 + " VALUES (?,?,?,?,?,?,?,?,?,?)")) {
       market.setString(1, "diamond-usd");
       market.setString(2, "USD");
       market.setString(3, "diamond");
@@ -181,6 +184,8 @@ class MySqlMigrationIT {
       state.setNull(6, java.sql.Types.DECIMAL);
       state.setNull(7, java.sql.Types.BIGINT);
       state.setLong(8, 0);
+      state.setInt(9, 0);
+      state.setLong(10, 0);
       state.executeUpdate();
     }
   }
@@ -211,6 +216,13 @@ class MySqlMigrationIT {
         }
       }
       return false;
+    }
+  }
+
+  private static boolean columnExists(Connection connection, String table, String column)
+      throws SQLException {
+    try (ResultSet result = connection.getMetaData().getColumns(null, null, table, column)) {
+      return result.next();
     }
   }
 

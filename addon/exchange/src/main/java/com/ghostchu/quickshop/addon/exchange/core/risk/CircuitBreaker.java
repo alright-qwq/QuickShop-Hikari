@@ -47,6 +47,10 @@ public final class CircuitBreaker {
     return copy;
   }
 
+  public int level() {
+    return lastLevel;
+  }
+
   public static CircuitBreaker restored(
       RiskLimits limits, MarketStatus status, BigDecimal referencePrice,
       BigDecimal lastPrice, Instant haltedUntil) {
