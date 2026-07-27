@@ -23,6 +23,11 @@ class MigrationRunnerTest {
 
     try (Connection connection = connections.open()) {
       assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(13);
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(1);
+      assertThat(indexExists(connection, names.orders(), names.prefix() + "exchange_orders_book_idx"))
+          .isTrue();
+      assertThat(indexExists(connection, names.trades(), names.prefix() + "exchange_trades_time_idx"))
+          .isTrue();
       assertThatThrownBy(() -> connection.createStatement().executeUpdate(
           "INSERT INTO " + names.accounts()
               + " (account_id,currency_id,available,frozen,version) VALUES "
@@ -70,11 +75,47 @@ class MigrationRunnerTest {
     }
   }
 
+  @Test
+  void sqliteConnectionsRejectOrphanForeignKeys(@TempDir Path temp) throws Exception {
+    ConnectionProvider connections = SqliteTestDatabase.at(temp.resolve("exchange.db"));
+    TableNames names = new TableNames("qs_");
+    new MigrationRunner(connections, SqlDialect.SQLITE, names).migrate();
+
+    try (Connection connection = connections.open(); Statement statement = connection.createStatement()) {
+      assertThatThrownBy(() -> statement.executeUpdate(
+          "INSERT INTO " + names.marketState() + " (market_id,status,priority_sequence,"
+              + "match_sequence,reference_price,version) VALUES ('missing','OPEN',0,0,'0',0)"))
+          .isInstanceOf(SQLException.class);
+      assertThatThrownBy(() -> statement.executeUpdate(
+          "INSERT INTO " + names.entries() + " (entry_id,journal_id,account_code,asset_id,"
+              + "amount,created_at) VALUES ('entry','missing','account','asset','1.00',0)"))
+          .isInstanceOf(SQLException.class);
+    }
+  }
+
   private static int tableCount(Connection connection, String pattern) throws SQLException {
     int count = 0;
     try (ResultSet result = connection.getMetaData().getTables(null, null, pattern, null)) {
       while (result.next()) count++;
     }
     return count;
+  }
+
+  private static int rowCount(Connection connection, String table) throws SQLException {
+    try (ResultSet result = connection.createStatement().executeQuery("SELECT COUNT(*) FROM " + table)) {
+      return result.next() ? result.getInt(1) : 0;
+    }
+  }
+
+  private static boolean indexExists(Connection connection, String table, String index)
+      throws SQLException {
+    try (ResultSet result = connection.getMetaData().getIndexInfo(null, null, table, false, false)) {
+      while (result.next()) {
+        if (index.equalsIgnoreCase(result.getString("INDEX_NAME"))) {
+          return true;
+        }
+      }
+      return false;
+    }
   }
 }

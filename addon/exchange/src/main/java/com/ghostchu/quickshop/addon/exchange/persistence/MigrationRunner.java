@@ -7,6 +7,13 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 
+/**
+ * Applies the version-one schema and records the version only after every table and index exists.
+ *
+ * <p>SQLite executes the migration as one transaction. MySQL implicitly commits DDL, so recovery is
+ * forward-only: every DDL statement and index check is idempotent, and a retry resumes a partially
+ * applied migration before inserting the version row.</p>
+ */
 public final class MigrationRunner {
   private final ConnectionProvider connections;
   private final SqlDialect dialect;

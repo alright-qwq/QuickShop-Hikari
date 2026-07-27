@@ -6,6 +6,7 @@ import java.sql.DriverManager;
 final class SqliteTestDatabase {
   private SqliteTestDatabase() {}
   static ConnectionProvider at(Path file) {
-    return () -> DriverManager.getConnection("jdbc:sqlite:" + file.toAbsolutePath());
+    return new SqliteConnectionProvider(
+        () -> DriverManager.getConnection("jdbc:sqlite:" + file.toAbsolutePath()));
   }
 }
