@@ -6,6 +6,26 @@ api-version: '1.20'
 depend:
   - QuickShop-Hikari
 authors: [ Ghost_chu ]
+commands:
+  qse:
+    description: Open QuickShop Exchange
+    usage: /qse
 permissions:
   quickshop.exchange.use:
     default: true
+  quickshop.exchange.deposit:
+    default: true
+  quickshop.exchange.withdraw:
+    default: true
+  quickshop.exchange.order.limit:
+    default: true
+  quickshop.exchange.order.market:
+    default: true
+  quickshop.exchange.admin.market:
+    default: op
+  quickshop.exchange.admin.orders:
+    default: op
+  quickshop.exchange.admin.recovery:
+    default: op
+  quickshop.exchange.admin.audit:
+    default: op
