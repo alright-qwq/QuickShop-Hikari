@@ -14,6 +14,12 @@
   <packaging>takari-jar</packaging>
   <name>Addon-Exchange</name>
   <description>Central limit order book for fungible Minecraft items</description>
+  <repositories>
+    <repository>
+      <id>tcoded-releases</id>
+      <url>https://repo.tcoded.com/releases</url>
+    </repository>
+  </repositories>
   <build>
     <plugins>
       <plugin>
@@ -50,6 +56,12 @@
       <groupId>com.ghostchu</groupId>
       <artifactId>quickshop-bukkit</artifactId>
       <version>${project.parent.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tcoded</groupId>
+      <artifactId>FoliaLib</artifactId>
+      <version>0.5.1</version>
       <scope>provided</scope>
     </dependency>
     <dependency>

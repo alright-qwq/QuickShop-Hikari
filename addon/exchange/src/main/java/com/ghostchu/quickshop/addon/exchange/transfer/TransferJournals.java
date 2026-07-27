@@ -4,6 +4,7 @@ import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -57,6 +58,40 @@ public final class TransferJournals {
             new LedgerEntry(id("money-withdrawal-release:available:" + reference),
                 "liability:currency:available:" + transfer.accountId(), transfer.assetId(),
                 transfer.amount(), at)));
+  }
+
+  public static LedgerJournal itemDeposit(TransferRecord transfer, Instant at) {
+    String reference = transfer.transferId().toString();
+    BigDecimal quantity = transfer.amount();
+    return new LedgerJournal(id("item-deposit:journal:" + reference), "ITEM_DEPOSIT",
+        transfer.transferId(), at, null, List.of(
+            new LedgerEntry(id("item-deposit:liability:" + reference),
+                "liability:item:" + transfer.accountId(), transfer.assetId(), quantity, at),
+            new LedgerEntry(id("item-deposit:custody:" + reference),
+                "custody:item:" + transfer.assetId(), transfer.assetId(), quantity.negate(), at)));
+  }
+
+  public static LedgerJournal freezeItemWithdrawal(TransferRecord transfer, Instant at) {
+    String reference = transfer.transferId().toString();
+    BigDecimal quantity = transfer.amount();
+    return new LedgerJournal(id("item-withdrawal-freeze:journal:" + reference),
+        "ITEM_WITHDRAWAL_FREEZE", transfer.transferId(), at, null, List.of(
+            new LedgerEntry(id("item-withdrawal-freeze:available:" + reference),
+                "liability:item:available:" + transfer.accountId(), transfer.assetId(),
+                quantity.negate(), at),
+            new LedgerEntry(id("item-withdrawal-freeze:frozen:" + reference),
+                "liability:item:frozen:" + transfer.accountId(), transfer.assetId(), quantity, at)));
+  }
+
+  public static LedgerJournal itemWithdrawal(TransferRecord transfer, Instant at) {
+    String reference = transfer.transferId().toString();
+    BigDecimal quantity = transfer.amount();
+    return new LedgerJournal(id("item-withdrawal:journal:" + reference), "ITEM_WITHDRAWAL",
+        transfer.transferId(), at, null, List.of(
+            new LedgerEntry(id("item-withdrawal:liability:" + reference),
+                "liability:item:" + transfer.accountId(), transfer.assetId(), quantity.negate(), at),
+            new LedgerEntry(id("item-withdrawal:custody:" + reference),
+                "custody:item:" + transfer.assetId(), transfer.assetId(), quantity, at)));
   }
 
   private static UUID id(String value) {

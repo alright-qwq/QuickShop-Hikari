@@ -73,6 +73,27 @@ class JdbcTransferRepositoryTest {
   }
 
   @Test
+  void onlyEvidenceGuardedRecoveryCanReturnProcessingTransferToPrepared() throws Exception {
+    TransferRepository repository = repository();
+    TransferRecord prepared = repository.create(prepared(
+        UUID.randomUUID(), UUID.randomUUID(), TransferType.ITEM_WITHDRAWAL, "diamond-usd", "2"));
+    TransferRecord processing = repository.transition(prepared.transferId(), prepared.version(),
+        TransferStatus.PREPARED, TransferStatus.PROCESSING, null);
+
+    assertThatThrownBy(() -> repository.transition(processing.transferId(), processing.version(),
+        TransferStatus.PROCESSING, TransferStatus.PREPARED, "inventory-capacity-race"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("illegal transfer transition");
+
+    TransferRecord recovered = repository.transitionGuarded(
+        processing.transferId(), processing.version(), TransferStatus.PROCESSING,
+        TransferStatus.PREPARED, RecoveryEvidence.NO_MARKED_ITEMS, "inventory-capacity-race");
+
+    assertThat(recovered.status()).isEqualTo(TransferStatus.PREPARED);
+    assertThat(recovered.failureReason()).isEqualTo("inventory-capacity-race");
+  }
+
+  @Test
   void listsOnlyUnfinishedTransfers() throws Exception {
     TransferRepository repository = repository();
     UUID firstAccount = UUID.randomUUID();

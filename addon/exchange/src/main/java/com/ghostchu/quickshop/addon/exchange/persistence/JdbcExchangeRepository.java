@@ -19,6 +19,7 @@ import com.ghostchu.quickshop.addon.exchange.repository.MarketSnapshot;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketTradeSample;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
 import com.ghostchu.quickshop.addon.exchange.transfer.IdempotencyConflictException;
+import com.ghostchu.quickshop.addon.exchange.transfer.RecoveryEvidence;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferRepository;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferStatus;
@@ -111,6 +112,16 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
         transferId, expectedVersion, expectedStatus, targetStatus, reason));
   }
 
+  @Override
+  public TransferRecord transitionGuarded(
+      UUID transferId, long expectedVersion, TransferStatus expectedStatus,
+      TransferStatus targetStatus, RecoveryEvidence evidence, String reason) throws SQLException {
+    Objects.requireNonNull(transferId, "transferId");
+    requireGuardedTransition(expectedStatus, targetStatus, evidence);
+    return inTransaction(transaction -> ((JdbcTransaction) transaction).transitionTransfer(
+        transferId, expectedVersion, expectedStatus, targetStatus, reason));
+  }
+
   private static void requireLegalTransition(
       TransferStatus expectedStatus, TransferStatus targetStatus) {
     Objects.requireNonNull(expectedStatus, "expectedStatus");
@@ -125,6 +136,16 @@ public final class JdbcExchangeRepository implements ExchangeRepository, Transfe
             || targetStatus == TransferStatus.REVIEW_REQUIRED);
     if (!legal) {
       throw new IllegalArgumentException("illegal transfer transition");
+    }
+  }
+
+  private static void requireGuardedTransition(
+      TransferStatus expectedStatus, TransferStatus targetStatus, RecoveryEvidence evidence) {
+    Objects.requireNonNull(expectedStatus, "expectedStatus");
+    Objects.requireNonNull(targetStatus, "targetStatus");
+    if (expectedStatus != TransferStatus.PROCESSING || targetStatus != TransferStatus.PREPARED
+        || evidence != RecoveryEvidence.NO_MARKED_ITEMS) {
+      throw new IllegalArgumentException("illegal guarded transfer transition");
     }
   }
 

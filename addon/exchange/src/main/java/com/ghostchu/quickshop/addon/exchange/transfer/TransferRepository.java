@@ -21,4 +21,8 @@ public interface TransferRepository {
   TransferRecord transition(UUID transferId, long expectedVersion,
                             TransferStatus expectedStatus, TransferStatus targetStatus,
                             String reason) throws SQLException;
+
+  TransferRecord transitionGuarded(UUID transferId, long expectedVersion,
+                                   TransferStatus expectedStatus, TransferStatus targetStatus,
+                                   RecoveryEvidence evidence, String reason) throws SQLException;
 }
