@@ -13,6 +13,7 @@ import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
+import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import com.ghostchu.quickshop.addon.exchange.repository.CurrencyBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
@@ -144,6 +145,35 @@ public final class JdbcExchangeRepository
     Objects.requireNonNull(requestId, "requestId");
     try (Connection connection = connections.open()) {
       return new JdbcTransaction(connection, dialect, tables).requestResult(accountId, requestId);
+    }
+  }
+
+  @Override
+  public List<AuditRecord> auditRecords(Instant fromInclusive, Instant toExclusive)
+      throws SQLException {
+    Objects.requireNonNull(fromInclusive, "fromInclusive");
+    Objects.requireNonNull(toExclusive, "toExclusive");
+    if (!fromInclusive.isBefore(toExclusive)) {
+      throw new IllegalArgumentException("audit record range must be non-empty");
+    }
+    try (Connection connection = connections.open();
+         PreparedStatement select = connection.prepareStatement(
+             "SELECT audit_id,actor_id,action,target_id,reason,before_state,after_state,created_at"
+                 + " FROM " + tables.auditRecords()
+                 + " WHERE created_at>=? AND created_at<? ORDER BY created_at,audit_id")) {
+      select.setLong(1, fromInclusive.toEpochMilli());
+      select.setLong(2, toExclusive.toEpochMilli());
+      try (ResultSet result = select.executeQuery()) {
+        List<AuditRecord> records = new ArrayList<>();
+        while (result.next()) {
+          records.add(new AuditRecord(UUID.fromString(result.getString("audit_id")),
+              UUID.fromString(result.getString("actor_id")), result.getString("action"),
+              result.getString("target_id"), result.getString("reason"),
+              result.getString("before_state"), result.getString("after_state"),
+              Instant.ofEpochMilli(result.getLong("created_at"))));
+        }
+        return List.copyOf(records);
+      }
     }
   }
 
@@ -991,6 +1021,25 @@ public final class JdbcExchangeRepository
         insert.setString(6, payload);
         insert.setLong(7, createdAt.toEpochMilli());
         insert.setNull(8, Types.BIGINT);
+        insert.executeUpdate();
+      }
+    }
+
+    @Override
+    public void appendAudit(AuditRecord record) throws SQLException {
+      Objects.requireNonNull(record, "record");
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO " + tables.auditRecords()
+              + " (audit_id,actor_id,action,target_id,reason,before_state,after_state,created_at)"
+              + " VALUES (?,?,?,?,?,?,?,?)")) {
+        insert.setString(1, record.auditId().toString());
+        insert.setString(2, record.actorId().toString());
+        insert.setString(3, record.action());
+        insert.setString(4, record.targetId());
+        insert.setString(5, record.reason());
+        insert.setString(6, record.beforeState());
+        insert.setString(7, record.afterState());
+        insert.setLong(8, record.createdAt().toEpochMilli());
         insert.executeUpdate();
       }
     }

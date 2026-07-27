@@ -48,6 +48,15 @@ public final class MigrationRunner {
           ensureColumn(connection, column);
         }
         recordVersion(connection, 2);
+        for (String sql : SchemaV3.statements(dialect, tables)) {
+          try (Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+          }
+        }
+        for (SchemaV1.TriggerDefinition trigger : SchemaV3.triggers(dialect, tables)) {
+          ensureTrigger(connection, trigger);
+        }
+        recordVersion(connection, 3);
         connection.commit();
       } catch (SQLException failure) {
         connection.rollback();

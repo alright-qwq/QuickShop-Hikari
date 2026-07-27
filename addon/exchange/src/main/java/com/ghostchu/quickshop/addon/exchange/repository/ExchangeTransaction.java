@@ -4,6 +4,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
+import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import java.math.BigDecimal;
 import java.sql.SQLException;
@@ -39,6 +40,7 @@ public interface ExchangeTransaction {
   void updateMarketState(MarketState state, long expectedVersion) throws SQLException;
   void insertHighAlert(UUID alertId, String marketId, String alertType,
                        String payload, Instant createdAt) throws SQLException;
+  void appendAudit(AuditRecord record) throws SQLException;
   void insertOrder(Order order, BigDecimal reservedCurrency, long reservedQuantity)
       throws SQLException;
   void updateOrder(Order order, BigDecimal reservedCurrency, long reservedQuantity,

@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.repository;
 
 import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
+import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
@@ -37,6 +38,11 @@ public interface ExchangeRepository {
   default List<Candle> loadCandles(String marketId, Instant fromInclusive, Instant toExclusive)
       throws SQLException {
     throw new UnsupportedOperationException("candle persistence is not supported by this repository");
+  }
+
+  default List<AuditRecord> auditRecords(Instant fromInclusive, Instant toExclusive)
+      throws SQLException {
+    throw new UnsupportedOperationException("audit records are not supported by this repository");
   }
 
   @FunctionalInterface
