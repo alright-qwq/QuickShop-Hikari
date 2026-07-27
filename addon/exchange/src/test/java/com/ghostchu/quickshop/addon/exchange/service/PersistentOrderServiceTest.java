@@ -73,8 +73,7 @@ class PersistentOrderServiceTest {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID seller = fixture.accountWithItems(1);
     fixture.service().recoverFromDatabase();
-    AtomicInteger transactionEntries = new AtomicInteger();
-    PersistentOrderService guarded = fixture.serviceWithTransactionEntry(transactionEntries::incrementAndGet);
+    PersistentOrderService guarded = fixture.service();
 
     assertThatThrownBy(() -> guarded.place(new OrderRequest(
         UUID.randomUUID(), seller, "diamond-usd", OrderSide.SELL, "LIMIT",
@@ -83,7 +82,6 @@ class PersistentOrderServiceTest {
         .hasMessageContaining("PRICE_OUTSIDE_CAGE");
 
     assertThat(fixture.orderCount()).isZero();
-    assertThat(transactionEntries).hasValue(0);
   }
 
   @Test

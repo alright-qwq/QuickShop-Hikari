@@ -494,11 +494,7 @@ public final class PersistentOrderService {
     OrderRiskService.RejectReason rateLimitRejection =
         orderRisks.checkRateLimit(request.accountId(), now.get());
     if (rateLimitRejection != null) {
-      OrderReceipt stored = storedReceipt(request);
-      if (stored != null) {
-        return stored;
-      }
-      reject(rateLimitRejection);
+      return storedOrReject(request, rateLimitRejection);
     }
     synchronized (runtimeState) {
       if (runtimeState.committedMarketVersion == Long.MIN_VALUE) {
@@ -507,13 +503,23 @@ public final class PersistentOrderService {
       BigDecimal reference = runtimeState.referencePrices.copy().referenceAt(now.get());
       if (parseType(request.type()) == OrderType.LIMIT
           && !riskLimits.insideCage(request.price(), reference)) {
-        reject(OrderRiskService.RejectReason.PRICE_OUTSIDE_CAGE);
+        return storedOrReject(request, OrderRiskService.RejectReason.PRICE_OUTSIDE_CAGE);
       }
       if (wouldSelfTrade(request, runtimeState.committedBook, reference)) {
-        reject(OrderRiskService.RejectReason.SELF_TRADE);
+        return storedOrReject(request, OrderRiskService.RejectReason.SELF_TRADE);
       }
     }
     return null;
+  }
+
+  private OrderReceipt storedOrReject(OrderRequest request, OrderRiskService.RejectReason reason)
+      throws SQLException {
+    OrderReceipt stored = storedReceipt(request);
+    if (stored != null) {
+      return stored;
+    }
+    reject(reason);
+    throw new AssertionError("reject must throw");
   }
 
   private boolean wouldSelfTrade(OrderRequest request, OrderBook book, BigDecimal referencePrice) {
