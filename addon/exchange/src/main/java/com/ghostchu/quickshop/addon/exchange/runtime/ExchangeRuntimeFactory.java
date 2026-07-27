@@ -279,22 +279,13 @@ public final class ExchangeRuntimeFactory {
   private static void resumeExpiredHalts(JdbcExchangeRepository repository,
                                           Collection<String> marketIds,
                                           SingleWriterGuard writer) {
-    if (!writer.held()) {
-      return;
-    }
     try {
-      repository.inTransaction(tx -> {
-        if (!writer.held()) {
-          return null;
-        }
+      writer.runWhileHeld(() -> repository.inTransaction(tx -> {
         Instant now = Instant.now();
         for (String marketId : marketIds) {
           MarketState state = tx.marketState(marketId);
           if (state.status() == MarketStatus.HALTED && state.haltedUntil() != null
               && !now.isBefore(state.haltedUntil())) {
-            if (!writer.held()) {
-              return null;
-            }
             tx.updateMarketState(new MarketState(marketId, MarketStatus.OPEN,
                 state.prioritySequence(), state.matchSequence(), state.referencePrice(),
                 state.lastPrice(), null, state.discoveryQuantity(), state.circuitBreakerLevel(),
@@ -302,8 +293,8 @@ public final class ExchangeRuntimeFactory {
           }
         }
         return null;
-      });
-    } catch (SQLException | RuntimeException ignored) {
+      }));
+    } catch (Exception ignored) {
       // A later maintenance tick retries; CAS versioning prevents stale automatic reopen.
     }
   }

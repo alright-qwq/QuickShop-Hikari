@@ -4,6 +4,9 @@ import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
@@ -27,6 +30,42 @@ class MySqlSingleWriterGuardTest {
     }
     assertThat(fenced).isTrue();
     assertThat(guard.held()).isFalse();
+    guard.close();
+  }
+
+  @Test
+  void waitsForGuardedWorkBeforePublishingLockLoss() throws Exception {
+    AtomicBoolean valid = new AtomicBoolean(true);
+    AtomicBoolean fenced = new AtomicBoolean();
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    MySqlSingleWriterGuard guard = new MySqlSingleWriterGuard(
+        () -> lockConnection(valid), "qs_", Duration.ofMillis(5));
+    guard.onLockLost(() -> fenced.set(true));
+    guard.acquire();
+
+    Thread guarded = Thread.ofPlatform().start(() -> {
+      try {
+        guard.runWhileHeld(() -> {
+          entered.countDown();
+          release.await();
+        });
+      } catch (Exception failure) {
+        throw new AssertionError(failure);
+      }
+    });
+    assertThat(entered.await(1, TimeUnit.SECONDS)).isTrue();
+    valid.set(false);
+    Thread.sleep(30L);
+    assertThat(fenced).isFalse();
+
+    release.countDown();
+    guarded.join(1_000L);
+    long deadline = System.nanoTime() + 1_000_000_000L;
+    while (!fenced.get() && System.nanoTime() < deadline) {
+      Thread.sleep(5L);
+    }
+    assertThat(fenced).isTrue();
     guard.close();
   }
 
