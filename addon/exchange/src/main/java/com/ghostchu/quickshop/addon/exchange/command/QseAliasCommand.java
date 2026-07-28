@@ -35,7 +35,6 @@ public final class QseAliasCommand implements TabExecutor {
     if (!(sender instanceof Player)) {
       return List.of();
     }
-    return args.length <= 1 ? List.of("open", "market", "order", "orders", "assets", "history")
-        : List.of();
+    return router.tabComplete(actors.apply((Player) sender), args);
   }
 }

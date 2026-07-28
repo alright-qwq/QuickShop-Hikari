@@ -41,8 +41,17 @@ public final class BukkitCommandActor implements CommandActor {
     menus.open(menuName, page);
   }
 
+  @Override
+  public void openMenu(ExchangeMenuRequest request) {
+    menus.open(request);
+  }
+
   @FunctionalInterface
   public interface MenuOpener {
     void open(String menuName, int page);
+
+    default void open(ExchangeMenuRequest request) {
+      open(request.menuName(), request.page());
+    }
   }
 }

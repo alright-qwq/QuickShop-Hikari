@@ -4,6 +4,7 @@ import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.command.BukkitCommandActor;
 import com.ghostchu.quickshop.addon.exchange.command.AdminCommandRouter;
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeCommandRouter;
+import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.command.QseAliasCommand;
 import com.ghostchu.quickshop.addon.exchange.command.SubCommandExchange;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
@@ -70,7 +71,17 @@ public final class Main extends JavaPlugin {
     var actors = (java.util.function.Function<org.bukkit.entity.Player,
         com.ghostchu.quickshop.addon.exchange.command.CommandActor>) player ->
         new BukkitCommandActor(player, messages, player.locale(),
-            (menu, page) -> menus.open(player, menu, page));
+            new BukkitCommandActor.MenuOpener() {
+              @Override
+              public void open(String menu, int page) {
+                menus.open(player, menu, page);
+              }
+
+              @Override
+              public void open(ExchangeMenuRequest request) {
+                menus.open(player, request);
+              }
+            });
     exchangeCommand = CommandContainer.builder()
         .prefix("exchange")
         .permission("quickshop.exchange.use")

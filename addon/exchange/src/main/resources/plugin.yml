@@ -17,6 +17,8 @@ permissions:
     default: true
   quickshop.exchange.withdraw:
     default: true
+  quickshop.exchange.order.cancel:
+    default: true
   quickshop.exchange.order.limit:
     default: true
   quickshop.exchange.order.market:

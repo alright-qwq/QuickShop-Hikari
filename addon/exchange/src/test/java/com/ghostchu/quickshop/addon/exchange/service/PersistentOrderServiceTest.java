@@ -159,6 +159,21 @@ class PersistentOrderServiceTest {
   }
 
   @Test
+  void playerCancellationCannotCancelAnotherAccountOrder() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID owner = fixture.accountWithItems(1);
+    UUID other = fixture.accountWithItems(1);
+    OrderReceipt placed = fixture.service().place(new OrderRequest(UUID.randomUUID(), owner,
+        "diamond-usd", OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    assertThatThrownBy(() -> fixture.service().cancel(other, UUID.randomUUID(), placed.orderId()))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("not owned");
+    assertThat(fixture.orderCount()).isEqualTo(1);
+    assertThat(fixture.frozenItems(owner)).isEqualTo(1);
+  }
+
+  @Test
   void rejectsMarketOrderWhoseProtectionExceedsConfiguredMaximumSlippage() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID seller = fixture.accountWithItems(1);

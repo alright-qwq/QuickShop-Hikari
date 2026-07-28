@@ -3,6 +3,7 @@ package com.ghostchu.quickshop.addon.exchange.runtime;
 import com.ghostchu.quickshop.addon.exchange.core.service.MarketDispatcher;
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferRecoveryService;
+import com.ghostchu.quickshop.addon.exchange.service.ExchangeActionService;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeViewService;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -17,6 +18,7 @@ public final class ExchangeRuntime implements AutoCloseable {
   private final CheckedRunnable afterDispatcherClosed;
   private final ExchangeViewService views;
   private final AdminExchangeService administration;
+  private final ExchangeActionService actions;
   private final AtomicBoolean acceptingWrites = new AtomicBoolean();
 
   public ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
@@ -46,13 +48,22 @@ public final class ExchangeRuntime implements AutoCloseable {
                   CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
                   ExchangeViewService views) {
     this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
-        views, null);
+        views, null, null);
   }
 
   ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
                   CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
                   CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
                   ExchangeViewService views, AdminExchangeService administration) {
+    this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
+        views, administration, null);
+  }
+
+  ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
+                  CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
+                  CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
+                  ExchangeViewService views, AdminExchangeService administration,
+                  ExchangeActionService actions) {
     this.writer = Objects.requireNonNull(writer, "writer");
     this.recoverBooks = Objects.requireNonNull(recoverBooks, "recoverBooks");
     this.recoverTransfers = Objects.requireNonNull(recoverTransfers, "recoverTransfers");
@@ -62,6 +73,7 @@ public final class ExchangeRuntime implements AutoCloseable {
         "afterDispatcherClosed");
     this.views = views;
     this.administration = administration;
+    this.actions = actions;
     writer.onLockLost(this::fenceAfterLockLoss);
   }
 
@@ -95,6 +107,13 @@ public final class ExchangeRuntime implements AutoCloseable {
       throw new IllegalStateException("runtime administration is not configured");
     }
     return administration;
+  }
+
+  public ExchangeActionService actions() {
+    if (actions == null) {
+      throw new IllegalStateException("runtime actions are not configured");
+    }
+    return actions;
   }
 
   /** Executes a command mutation while writer ownership remains fenced. */

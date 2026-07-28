@@ -1,6 +1,7 @@
 en-US:
   command-description: Open the central item exchange
   permission-denied: You do not have permission for this exchange action.
+  command-invalid: The exchange command or its arguments are invalid.
   market-not-open: This market currently accepts queries and cancellations only.
   request-accepted: 'Exchange request accepted: <requestId>'
   review-required: This transfer needs administrator review and will not be retried automatically.
@@ -10,6 +11,7 @@ en-US:
 zh-CN:
   command-description: '打开中央物品交易所'
   permission-denied: '你没有执行此交易所操作的权限。'
+  command-invalid: '交易所命令或参数无效。'
   market-not-open: '当前市场只允许查询和撤单。'
   request-accepted: '交易请求已受理：<requestId>'
   review-required: '此转账需要管理员审核，系统不会自动重试。'

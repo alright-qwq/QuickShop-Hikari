@@ -245,6 +245,23 @@ public final class PersistentOrderService {
     }
   }
 
+  /** Cancels an order only when it belongs to the requesting account. */
+  public OrderReceipt cancel(UUID accountId, UUID requestId, UUID orderId) throws SQLException {
+    Objects.requireNonNull(accountId, "accountId");
+    Objects.requireNonNull(requestId, "requestId");
+    Objects.requireNonNull(orderId, "orderId");
+    synchronized (runtimeState) {
+      List<PersistedOrder> open = repository.inTransaction(tx -> tx.openOrders(rules.marketId()));
+      PersistedOrder order = open.stream().filter(candidate ->
+          candidate.order().orderId().equals(orderId)).findFirst()
+          .orElseThrow(() -> new IllegalArgumentException("order is not open: " + orderId));
+      if (!order.order().accountId().equals(accountId)) {
+        throw new IllegalArgumentException("order is not owned by account");
+      }
+      return forceCancel(accountId, requestId, orderId, "player cancellation");
+    }
+  }
+
   private void publish(TransactionOutcome outcome) {
     if (outcome.duplicate()) {
       return;

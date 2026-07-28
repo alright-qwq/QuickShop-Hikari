@@ -24,6 +24,7 @@ import com.ghostchu.quickshop.addon.exchange.platform.TransferLoginListener;
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
 import com.ghostchu.quickshop.addon.exchange.service.PersistentOrderService;
+import com.ghostchu.quickshop.addon.exchange.service.ExchangeActionService;
 import com.ghostchu.quickshop.addon.exchange.service.RecoveryHandler;
 import com.ghostchu.quickshop.addon.exchange.transfer.ItemTransferService;
 import com.ghostchu.quickshop.addon.exchange.transfer.MoneyTransferService;
@@ -94,12 +95,13 @@ public final class ExchangeRuntimeFactory {
     PlayerOperationSerialiser playerOperations = new PlayerOperationSerialiser();
     NamespacedKey marker = new NamespacedKey(addon, "exchange-transfer");
     FoliaInventoryGateway inventory = new FoliaInventoryGateway(quickShop, marker);
-    new MoneyTransferService(repository, repository,
+    MoneyTransferService moneyTransfers = new MoneyTransferService(repository, repository,
         new QuickShopEconomyGateway(quickShop, economyWorld()), playerOperations,
         Clock.systemUTC(), UUID::randomUUID);
-    new ItemTransferService(repository, repository, inventory,
+    ItemTransferService itemTransfers = new ItemTransferService(repository, repository, inventory,
         marketId -> itemTemplate(registry.require(marketId)), playerOperations,
         Clock.systemUTC(), UUID::randomUUID);
+    ExchangeActionService actions = new ExchangeActionService(markets, moneyTransfers, itemTransfers);
     TransferRecoveryService transfers = new TransferRecoveryService(
         repository, repository, inventory, Runnable::run);
     Bukkit.getPluginManager().registerEvents(new TransferLoginListener(transfers), addon);
@@ -134,7 +136,7 @@ public final class ExchangeRuntimeFactory {
             maintenance.shutdownNow();
             marketData.flush(Instant.now());
             playerOperations.close();
-          }, views, administration);
+          }, views, administration, actions);
     } catch (Exception failure) {
       database.writer().close();
       throw failure;
