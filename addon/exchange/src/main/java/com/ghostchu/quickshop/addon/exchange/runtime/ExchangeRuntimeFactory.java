@@ -21,6 +21,7 @@ import com.ghostchu.quickshop.addon.exchange.platform.FoliaInventoryGateway;
 import com.ghostchu.quickshop.addon.exchange.platform.ContainerShopPolicyListener;
 import com.ghostchu.quickshop.addon.exchange.platform.QuickShopEconomyGateway;
 import com.ghostchu.quickshop.addon.exchange.platform.TransferLoginListener;
+import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
 import com.ghostchu.quickshop.addon.exchange.service.PersistentOrderService;
 import com.ghostchu.quickshop.addon.exchange.service.RecoveryHandler;
@@ -115,6 +116,7 @@ public final class ExchangeRuntimeFactory {
           entry.getKey(), definition.displayName(), entry.getValue()));
     }
     ExchangeViewService views = new ExchangeViewService(marketViews, marketData, maintenance);
+    AdminExchangeService administration = new AdminExchangeService(markets);
     Runnable resumeHalted = () -> resumeExpiredHalts(repository, registry.marketIds(), database.writer());
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(() -> {
@@ -132,7 +134,7 @@ public final class ExchangeRuntimeFactory {
             maintenance.shutdownNow();
             marketData.flush(Instant.now());
             playerOperations.close();
-          }, views);
+          }, views, administration);
     } catch (Exception failure) {
       database.writer().close();
       throw failure;

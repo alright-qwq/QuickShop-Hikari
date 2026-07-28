@@ -26,4 +26,22 @@ public final class AdminExchangeService {
     }
     return market.forceCancel(actorId, requestId, orderId, reason);
   }
+
+  /** Locates an active order across configured markets without exposing market selection to staff. */
+  public OrderReceipt forceCancel(UUID actorId, UUID requestId, UUID orderId, String reason)
+      throws SQLException {
+    Objects.requireNonNull(orderId, "orderId");
+    IllegalArgumentException missing = null;
+    for (PersistentOrderService market : markets.values()) {
+      try {
+        return market.forceCancel(actorId, requestId, orderId, reason);
+      } catch (IllegalArgumentException failure) {
+        if (!failure.getMessage().startsWith("order is not open:")) {
+          throw failure;
+        }
+        missing = failure;
+      }
+    }
+    throw missing == null ? new IllegalArgumentException("order is not open: " + orderId) : missing;
+  }
 }

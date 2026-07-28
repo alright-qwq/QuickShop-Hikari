@@ -5,6 +5,8 @@ en-US:
   request-accepted: 'Exchange request accepted: <requestId>'
   review-required: This transfer needs administrator review and will not be retried automatically.
   inventory-full: Your inventory is full; the withdrawal remains ready to claim.
+  admin-command-invalid: The administrator command or its arguments are invalid.
+  admin-command-failed: The administrator request could not be completed.
 zh-CN:
   command-description: '打开中央物品交易所'
   permission-denied: '你没有执行此交易所操作的权限。'
@@ -12,3 +14,5 @@ zh-CN:
   request-accepted: '交易请求已受理：<requestId>'
   review-required: '此转账需要管理员审核，系统不会自动重试。'
   inventory-full: '背包空间不足，提现将保留为待领取。'
+  admin-command-invalid: '管理员命令或参数无效。'
+  admin-command-failed: '管理员请求未能完成。'

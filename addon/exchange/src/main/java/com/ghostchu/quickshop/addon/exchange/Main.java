@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange;
 
 import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.command.BukkitCommandActor;
+import com.ghostchu.quickshop.addon.exchange.command.AdminCommandRouter;
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeCommandRouter;
 import com.ghostchu.quickshop.addon.exchange.command.QseAliasCommand;
 import com.ghostchu.quickshop.addon.exchange.command.SubCommandExchange;
@@ -63,7 +64,9 @@ public final class Main extends JavaPlugin {
     AddonMessageService messages = AddonMessageService.load(
         new File(getDataFolder(), "messages.yml"));
     menus = new ExchangeMenuService(runtime.views());
-    ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID);
+    ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID,
+        new AdminCommandRouter(runtime.administration(), UUID::randomUUID,
+            work -> runtime.runWhileWriting(work::run)));
     var actors = (java.util.function.Function<org.bukkit.entity.Player,
         com.ghostchu.quickshop.addon.exchange.command.CommandActor>) player ->
         new BukkitCommandActor(player, messages, player.locale(),
