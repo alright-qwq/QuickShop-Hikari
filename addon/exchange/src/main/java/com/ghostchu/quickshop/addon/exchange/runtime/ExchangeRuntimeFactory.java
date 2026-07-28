@@ -116,7 +116,7 @@ public final class ExchangeRuntimeFactory {
           entry.getKey(), definition.displayName(), entry.getValue()));
     }
     ExchangeViewService views = new ExchangeViewService(marketViews, marketData, maintenance);
-    AdminExchangeService administration = new AdminExchangeService(markets);
+    AdminExchangeService administration = new AdminExchangeService(repository, markets);
     Runnable resumeHalted = () -> resumeExpiredHalts(repository, registry.marketIds(), database.writer());
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(() -> {

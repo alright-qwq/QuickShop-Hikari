@@ -45,6 +45,21 @@ class AdminCommandRouterTest {
     assertThat(actor.message).isEqualTo("permission-denied");
   }
 
+  @Test
+  void pausesAMarketWithTheDedicatedMarketPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    Actor actor = new Actor("quickshop.exchange.admin.market");
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        fixture.repository(), Map.of(fixture.rules().marketId(), fixture.service())),
+        UUID::randomUUID);
+
+    router.execute(actor, new String[] {"market", "pause", fixture.rules().marketId(),
+        "scheduled maintenance"});
+
+    assertThat(fixture.marketStatus()).isEqualTo("PAUSED");
+    assertThat(actor.message).isEqualTo("request-accepted");
+  }
+
   private static final class Actor implements CommandActor {
     private final UUID accountId = UUID.randomUUID();
     private final Set<String> permissions = new HashSet<>();

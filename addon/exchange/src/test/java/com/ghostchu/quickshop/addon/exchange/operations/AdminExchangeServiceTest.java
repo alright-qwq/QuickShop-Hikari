@@ -60,4 +60,21 @@ class AdminExchangeServiceTest {
     assertThat(fixture.availableItems(seller)).isEqualTo(3);
     assertThat(fixture.frozenItems(seller)).isZero();
   }
+
+  @Test
+  void pausesAndResumesAMarketWithImmutableAuditRecords() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminExchangeService admin = new AdminExchangeService(fixture.repository(),
+        Map.of(fixture.rules().marketId(), fixture.service()));
+    UUID actor = UUID.randomUUID();
+
+    admin.pauseMarket(actor, fixture.rules().marketId(), "scheduled maintenance");
+    assertThat(fixture.marketStatus()).isEqualTo("PAUSED");
+    admin.resumeMarket(actor, fixture.rules().marketId(), "maintenance complete");
+
+    assertThat(fixture.marketStatus()).isEqualTo("OPEN");
+    assertThat(fixture.repository().auditRecords(Instant.EPOCH, Instant.now().plusSeconds(1)))
+        .extracting(AuditRecord::action)
+        .containsExactly("PAUSE_MARKET", "RESUME_MARKET");
+  }
 }

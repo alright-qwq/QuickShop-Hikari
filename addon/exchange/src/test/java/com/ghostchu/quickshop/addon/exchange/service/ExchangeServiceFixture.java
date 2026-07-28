@@ -531,7 +531,7 @@ public final class ExchangeServiceFixture {
     }
   }
 
-  String marketStatus() throws SQLException {
+  public String marketStatus() throws SQLException {
     return marketValue("status");
   }
 
