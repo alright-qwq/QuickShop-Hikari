@@ -83,6 +83,10 @@ public final class PersistentOrderService {
   private final OrderBookRecoveryService marketRecovery;
   private final MarketRuntimeState runtimeState;
 
+  public MarketRules marketRules() {
+    return rules;
+  }
+
   /** Production wiring should prefer the constructor that supplies a recovery handler. */
   public PersistentOrderService(ExchangeRepository repository, MarketRules rules) {
     this(repository, rules, RiskLimits.defaults(), RecoveryHandler.NO_OP);
@@ -107,6 +111,14 @@ public final class PersistentOrderService {
     this(repository, rules, riskLimits, recovery, SettlementObserver.NONE,
         new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
         AccountOrderLimits.defaults(), marketData);
+  }
+
+  public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                                RiskLimits riskLimits, RecoveryHandler recovery,
+                                AccountOrderLimits accountLimits, MarketDataService marketData) {
+    this(repository, rules, riskLimits, recovery, SettlementObserver.NONE,
+        new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
+        accountLimits, marketData);
   }
 
   PersistentOrderService(ExchangeRepository repository, MarketRules rules,

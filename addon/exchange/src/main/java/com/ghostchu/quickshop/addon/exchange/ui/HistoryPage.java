@@ -1,0 +1,126 @@
+package com.ghostchu.quickshop.addon.exchange.ui;
+
+import com.ghostchu.quickshop.QuickShop;
+import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
+import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
+import com.ghostchu.quickshop.addon.exchange.repository.AccountLedgerEntry;
+import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
+import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+import net.kyori.adventure.text.Component;
+import net.tnemc.menu.core.PlayerInstancePage;
+import net.tnemc.menu.core.builder.IconBuilder;
+import net.tnemc.menu.core.callbacks.page.PageOpenCallback;
+import net.tnemc.menu.core.icon.action.impl.RunnableAction;
+import net.tnemc.menu.core.manager.MenuManager;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+
+/** Shows bounded account-filtered trade, transfer and liability-ledger history. */
+final class HistoryPage {
+  private final ExchangeViewService views;
+  private final ExchangeMenuContextStore contexts;
+  private final AddonMessageService messages;
+
+  HistoryPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
+              AddonMessageService messages) {
+    this.views = views;
+    this.contexts = contexts;
+    this.messages = messages;
+  }
+
+  void open(PageOpenCallback callback) {
+    if (!(callback.getPage() instanceof PlayerInstancePage page)) return;
+    UUID playerId = callback.getPlayer().identifier();
+    ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
+    if (opened == null) return;
+    int offset = HistoryPageSnapshot.offset(opened.page());
+    HistoryPageSnapshot.combine(
+        views.accountTrades(playerId, HistoryPageSnapshot.SECTION_SIZE, offset),
+        views.accountTransfers(playerId, HistoryPageSnapshot.SECTION_SIZE, offset),
+        views.accountLedger(playerId, HistoryPageSnapshot.SECTION_SIZE, offset))
+        .whenComplete((snapshot, failure) -> {
+          if (!contexts.isCurrent(playerId, opened)) return;
+          Player player = Bukkit.getPlayer(playerId);
+          if (player == null || !player.isOnline()) return;
+          QuickShop.folia().getScheduler().runAtEntityLater(player,
+              () -> render(page, player, snapshot, failure), 1L);
+        });
+  }
+
+  private void render(PlayerInstancePage page, Player player, HistoryPageSnapshot snapshot,
+                      Throwable failure) {
+    UUID playerId = player.getUniqueId();
+    page.getIcons(playerId).clear();
+    page.setLockEmptySlots(true);
+    if (failure != null || snapshot == null || snapshot.failure() != null) {
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BARRIER", 1)
+          .customName(text(player, "ui-data-unavailable"))).withSlot(22).build());
+      return;
+    }
+    int slot = 9;
+    for (Trade trade : snapshot.trades()) {
+      if (slot >= 21) break;
+      List<Component> lore = List.of(
+          text(player, "ui-history-trade-quantity", trade.quantity()),
+          text(player, "ui-history-maker-fee", trade.makerFee().toPlainString()),
+          text(player, "ui-history-taker-fee", trade.takerFee().toPlainString()),
+          text(player, "ui-history-created-at", trade.executedAt()));
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
+          .customName(text(player, "ui-history-trade-title", trade.marketId(),
+              trade.price().toPlainString())).lore(lore)).withSlot(slot++).build());
+    }
+    slot = 21;
+    for (TransferRecord transfer : snapshot.transfers()) {
+      if (slot >= 33) break;
+      List<Component> lore = List.of(
+          text(player, "ui-history-transfer-asset", transfer.assetId()),
+          text(player, "ui-history-transfer-amount", transfer.amount().toPlainString()),
+          text(player, "ui-history-transfer-status", transfer.status()),
+          text(player, "ui-history-created-at", transfer.updatedAt()));
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("HOPPER", 1)
+          .customName(text(player, "ui-history-transfer-title", transfer.type())).lore(lore))
+          .withSlot(slot++).build());
+    }
+    slot = 33;
+    for (AccountLedgerEntry entry : snapshot.ledger()) {
+      if (slot >= 45) break;
+      List<Component> lore = List.of(
+          text(player, "ui-history-ledger-asset", entry.assetId()),
+          text(player, "ui-history-ledger-amount", entry.amount().toPlainString()),
+          text(player, "ui-history-created-at", entry.createdAt()));
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("WRITABLE_BOOK", 1)
+          .customName(text(player, "ui-history-ledger-title", entry.journalType())).lore(lore))
+          .withSlot(slot++).build());
+    }
+    ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
+    if (opened == null || !"history".equals(opened.menuName())) return;
+    if (opened.page() > 1) {
+      addNavigation(page, player, 45, "ARROW", "ui-history-previous", opened.page() - 1);
+    }
+    if (snapshot.hasNext()) {
+      addNavigation(page, player, 53, "ARROW", "ui-history-next", opened.page() + 1);
+    }
+  }
+
+  private void addNavigation(PlayerInstancePage page, Player player, int slot, String material,
+                             String key, int targetPage) {
+    UUID playerId = player.getUniqueId();
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of(material, 1)
+        .customName(text(player, key)))
+        .withActions(new RunnableAction(click -> {
+          ExchangeMenuRequest request = ExchangeMenuRequest.page("history", targetPage);
+          contexts.put(playerId, request);
+          MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.HISTORY.page(),
+              click.player());
+        })).withSlot(slot).build());
+  }
+
+  private Component text(Player player, String key, Object... arguments) {
+    if (messages == null) return Component.text(key);
+    Locale locale = player.locale();
+    return Component.text(messages.message(key, locale, arguments));
+  }
+}

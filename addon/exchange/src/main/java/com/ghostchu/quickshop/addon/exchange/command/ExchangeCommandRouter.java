@@ -14,14 +14,21 @@ import java.util.function.Supplier;
 public final class ExchangeCommandRouter {
   private final Supplier<UUID> requestIds;
   private final AdminCommandRouter administration;
+  private final RolloutPolicy rollout;
 
   public ExchangeCommandRouter(Supplier<UUID> requestIds) {
-    this(requestIds, null);
+    this(requestIds, null, RolloutPolicy.DISABLED);
   }
 
   public ExchangeCommandRouter(Supplier<UUID> requestIds, AdminCommandRouter administration) {
+    this(requestIds, administration, RolloutPolicy.DISABLED);
+  }
+
+  public ExchangeCommandRouter(Supplier<UUID> requestIds, AdminCommandRouter administration,
+                               RolloutPolicy rollout) {
     this.requestIds = Objects.requireNonNull(requestIds, "requestIds");
     this.administration = administration;
+    this.rollout = Objects.requireNonNull(rollout, "rollout");
   }
 
   public void execute(CommandActor actor, String[] args) {
@@ -31,11 +38,23 @@ public final class ExchangeCommandRouter {
       return;
     }
     if (args.length > 0 && "admin".equalsIgnoreCase(args[0])) {
+      if (args.length == 1) {
+        if (!hasAnyAdminPermission(actor)) {
+          actor.message("permission-denied");
+          return;
+        }
+        actor.openMenu(ExchangeMenuRequest.page("admin"));
+        return;
+      }
       if (administration == null) {
         actor.message("admin-command-invalid");
       } else {
         administration.execute(actor, java.util.Arrays.copyOfRange(args, 1, args.length));
       }
+      return;
+    }
+    if (!rollout.allows(actor.accountId())) {
+      actor.message("rollout-not-allowed");
       return;
     }
     if (args.length == 0 || "open".equalsIgnoreCase(args[0])) {
@@ -101,16 +120,20 @@ public final class ExchangeCommandRouter {
     if (!allowed(actor, permission)) {
       return;
     }
+    if (args.length != 6) {
+      invalid(actor);
+      return;
+    }
     try {
       BigDecimal price = type == OrderType.LIMIT ? positiveDecimal(args[4], "price") : null;
       long quantity = positiveLong(args[type == OrderType.LIMIT ? 5 : 4], "quantity");
       BigDecimal boundary = null;
-      if (type == OrderType.MARKET && args.length == 6) {
+      if (type == OrderType.MARKET) {
         boundary = positiveDecimal(args[5], "slippage boundary");
       }
       ExchangeMenuRequest request = ExchangeMenuRequest.order(new OrderDraft(
           requestIds.get(), actor.accountId(), args[3], side, type, price, boundary, quantity));
-      actor.message("request-accepted", request.requestId());
+      actor.message("request-ready", request.requestId());
       actor.openMenu(request);
     } catch (IllegalArgumentException invalid) {
       invalid(actor);
@@ -126,8 +149,9 @@ public final class ExchangeCommandRouter {
       return;
     }
     try {
-      ExchangeMenuRequest request = ExchangeMenuRequest.cancel(requestIds.get(), UUID.fromString(args[1]));
-      actor.message("request-accepted", request.requestId());
+      ExchangeMenuRequest request = ExchangeMenuRequest.cancel(
+          requestIds.get(), actor.accountId(), UUID.fromString(args[1]));
+      actor.message("request-ready", request.requestId());
       actor.openMenu(request);
     } catch (IllegalArgumentException invalid) {
       invalid(actor);
@@ -163,7 +187,7 @@ public final class ExchangeCommandRouter {
       }
       ExchangeMenuRequest request = ExchangeMenuRequest.transfer(new TransferDraft(
           requestIds.get(), actor.accountId(), kind, assetId, amount, quantity, marketId));
-      actor.message("request-accepted", request.requestId());
+      actor.message("request-ready", request.requestId());
       actor.openMenu(request);
     } catch (IllegalArgumentException invalid) {
       invalid(actor);
@@ -212,6 +236,13 @@ public final class ExchangeCommandRouter {
     return false;
   }
 
+  private static boolean hasAnyAdminPermission(CommandActor actor) {
+    return actor.hasPermission("quickshop.exchange.admin.market")
+        || actor.hasPermission("quickshop.exchange.admin.orders")
+        || actor.hasPermission("quickshop.exchange.admin.recovery")
+        || actor.hasPermission("quickshop.exchange.admin.audit");
+  }
+
   private static void invalid(CommandActor actor) {
     actor.message("command-invalid");
   }
@@ -233,7 +264,11 @@ public final class ExchangeCommandRouter {
       case "order" -> args.length == 2 ? List.of("limit", "market")
           : args.length == 3 ? List.of("buy", "sell") : List.of();
       case "deposit", "withdraw" -> args.length == 2 ? List.of("money", "item") : List.of();
-      case "admin" -> args.length == 2 ? List.of("market", "order", "transfer", "audit") : List.of();
+      case "admin" -> args.length == 2 ? List.of("market", "order", "transfer", "audit")
+          : args.length == 3 && "transfer".equalsIgnoreCase(args[1]) ? List.of("review")
+          : args.length == 4 && "transfer".equalsIgnoreCase(args[1])
+              && "review".equalsIgnoreCase(args[2]) ? List.of("list", "show", "resolve")
+          : List.of();
       default -> List.of();
     };
   }

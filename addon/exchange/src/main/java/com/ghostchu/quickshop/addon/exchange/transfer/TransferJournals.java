@@ -94,6 +94,19 @@ public final class TransferJournals {
                 "custody:item:" + transfer.assetId(), transfer.assetId(), quantity, at)));
   }
 
+  public static LedgerJournal releaseItemWithdrawal(TransferRecord transfer, Instant at) {
+    String reference = transfer.transferId().toString();
+    BigDecimal quantity = transfer.amount();
+    return new LedgerJournal(id("item-withdrawal-release:journal:" + reference),
+        "ITEM_WITHDRAWAL_RELEASE", transfer.transferId(), at, null, List.of(
+            new LedgerEntry(id("item-withdrawal-release:frozen:" + reference),
+                "liability:item:frozen:" + transfer.accountId(), transfer.assetId(),
+                quantity.negate(), at),
+            new LedgerEntry(id("item-withdrawal-release:available:" + reference),
+                "liability:item:available:" + transfer.accountId(), transfer.assetId(),
+                quantity, at)));
+  }
+
   private static UUID id(String value) {
     return UUID.nameUUIDFromBytes(value.getBytes(StandardCharsets.UTF_8));
   }

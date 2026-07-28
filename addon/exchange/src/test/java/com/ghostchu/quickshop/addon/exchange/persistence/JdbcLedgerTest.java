@@ -67,6 +67,47 @@ class JdbcLedgerTest {
   }
 
   @Test
+  void readsOnlyTheRequestedAccountsLedgerInDescendingPages(@TempDir Path temp) throws Exception {
+    ConnectionProvider cp = SqliteTestDatabase.at(temp.resolve("account-ledger.db"));
+    TableNames names = new TableNames("qs_");
+    new MigrationRunner(cp, SqlDialect.SQLITE, names).migrate();
+    ExchangeRepository repository = new JdbcExchangeRepository(cp, SqlDialect.SQLITE, names);
+    UUID accountId = UUID.randomUUID();
+    UUID otherAccountId = UUID.randomUUID();
+    LedgerJournal older = accountJournal(accountId, "OLDER", "1.00", Instant.EPOCH);
+    LedgerJournal newer = accountJournal(accountId, "NEWER", "2.00", Instant.EPOCH.plusSeconds(1));
+    LedgerJournal unrelated = accountJournal(
+        otherAccountId, "UNRELATED", "3.00", Instant.EPOCH.plusSeconds(2));
+    LedgerJournal misleadingSuffix = new LedgerJournal(
+        UUID.randomUUID(), "NON_PLAYER", UUID.randomUUID(), Instant.EPOCH.plusSeconds(3), null,
+        List.of(
+            new LedgerEntry(UUID.randomUUID(), "custody:currency:" + accountId, "USD",
+                BigDecimal.ONE, Instant.EPOCH.plusSeconds(3)),
+            new LedgerEntry(UUID.randomUUID(), "custody:currency:balancing", "USD",
+                BigDecimal.ONE.negate(), Instant.EPOCH.plusSeconds(3))));
+    repository.inTransaction(tx -> {
+      tx.appendJournal(older);
+      tx.appendJournal(newer);
+      tx.appendJournal(unrelated);
+      tx.appendJournal(misleadingSuffix);
+      return null;
+    });
+
+    assertThat(repository.accountLedgerEntries(accountId, 1, 0))
+        .singleElement()
+        .satisfies(entry -> {
+          assertThat(entry.journalType()).isEqualTo("NEWER");
+          assertThat(entry.referenceId()).isEqualTo(newer.referenceId());
+          assertThat(entry.amount()).isEqualByComparingTo("2.00");
+        });
+    assertThat(repository.accountLedgerEntries(accountId, 1, 1))
+        .singleElement()
+        .satisfies(entry -> assertThat(entry.journalType()).isEqualTo("OLDER"));
+    assertThatThrownBy(() -> repository.accountLedgerEntries(accountId, 37, 0))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
   void rejectsJournalThatBalancesOneAssetButNotAnother() {
     assertThatThrownBy(() -> new LedgerJournal(
         UUID.randomUUID(), "BROKEN", UUID.randomUUID(), Instant.EPOCH, null, List.of(
@@ -113,6 +154,14 @@ class JdbcLedgerTest {
         Instant.EPOCH, reversalOf, List.of(
         new LedgerEntry(UUID.randomUUID(), "player:a", "USD", value, Instant.EPOCH),
         new LedgerEntry(UUID.randomUUID(), "custody:USD", "USD", value.negate(), Instant.EPOCH)));
+  }
+
+  private static LedgerJournal accountJournal(
+      UUID accountId, String type, String amount, Instant at) {
+    BigDecimal value = new BigDecimal(amount);
+    return new LedgerJournal(UUID.randomUUID(), type, UUID.randomUUID(), at, null, List.of(
+        new LedgerEntry(UUID.randomUUID(), "liability:currency:" + accountId, "USD", value, at),
+        new LedgerEntry(UUID.randomUUID(), "custody:currency:USD", "USD", value.negate(), at)));
   }
 
   private static void directUpdateFirstEntry(ConnectionProvider cp, TableNames names)

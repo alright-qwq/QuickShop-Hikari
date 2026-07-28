@@ -11,13 +11,49 @@ class ExchangeMenuContextStoreTest {
   void retainsTheSameRequestUntilPlayerClosesTheMenu() {
     ExchangeMenuContextStore store = new ExchangeMenuContextStore();
     UUID player = UUID.randomUUID();
-    ExchangeMenuRequest request = ExchangeMenuRequest.cancel(UUID.randomUUID(), UUID.randomUUID());
+    ExchangeMenuRequest request = ExchangeMenuRequest.cancel(
+        UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
 
     store.put(player, request);
 
     assertThat(store.get(player)).containsSame(request);
     assertThat(store.remove(player)).containsSame(request);
     assertThat(store.get(player)).isEmpty();
+  }
+
+  @Test
+  void onlyTheCurrentRequestCanBeClaimedOnce() {
+    ExchangeMenuContextStore store = new ExchangeMenuContextStore();
+    UUID player = UUID.randomUUID();
+    ExchangeMenuRequest first = ExchangeMenuRequest.cancel(
+        UUID.randomUUID(), player, UUID.randomUUID());
+    ExchangeMenuRequest replacement = ExchangeMenuRequest.cancel(
+        UUID.randomUUID(), player, UUID.randomUUID());
+    store.put(player, first);
+
+    assertThat(store.isCurrent(player, first)).isTrue();
+    assertThat(store.claim(player, first)).isTrue();
+    assertThat(store.claim(player, first)).isFalse();
+
+    store.put(player, replacement);
+    assertThat(store.isCurrent(player, first)).isFalse();
+    assertThat(store.claim(player, first)).isFalse();
+    assertThat(store.claim(player, replacement)).isTrue();
+  }
+
+  @Test
+  void exposesAStableSnapshotOfTrackedPlayersForPluginShutdown() {
+    ExchangeMenuContextStore store = new ExchangeMenuContextStore();
+    UUID first = UUID.randomUUID();
+    UUID second = UUID.randomUUID();
+    store.put(first, ExchangeMenuRequest.page("markets"));
+    store.put(second, ExchangeMenuRequest.page("assets"));
+
+    java.util.Set<UUID> snapshot = store.playerIds();
+    store.remove(first);
+
+    assertThat(snapshot).containsExactlyInAnyOrder(first, second);
+    assertThat(store.playerIds()).containsExactly(second);
   }
 
   @Test

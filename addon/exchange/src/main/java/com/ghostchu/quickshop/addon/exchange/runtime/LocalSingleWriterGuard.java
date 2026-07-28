@@ -60,6 +60,16 @@ public final class LocalSingleWriterGuard implements SingleWriterGuard {
   }
 
   @Override
+  public synchronized boolean runWhileHeld(GuardedWork work) throws Exception {
+    Objects.requireNonNull(work, "work");
+    if (!held.get()) {
+      return false;
+    }
+    work.run();
+    return true;
+  }
+
+  @Override
   public synchronized void close() {
     releaseResources();
     held.set(false);

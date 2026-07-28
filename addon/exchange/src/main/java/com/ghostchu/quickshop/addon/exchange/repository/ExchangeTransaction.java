@@ -4,6 +4,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
+import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import java.math.BigDecimal;
@@ -47,10 +48,18 @@ public interface ExchangeTransaction {
                    long expectedVersion) throws SQLException;
   void insertTrade(Trade trade) throws SQLException;
   void appendJournal(LedgerJournal journal) throws SQLException;
+  default ReconciliationReport reconcile() throws SQLException {
+    throw new UnsupportedOperationException("reconciliation is not supported by this transaction");
+  }
   TransferRecord createTransfer(TransferRecord prepared) throws SQLException;
+  Optional<TransferRecord> transfer(UUID transferId) throws SQLException;
   TransferRecord completeTransfer(UUID transferId, long expectedVersion) throws SQLException;
   TransferRecord failTransfer(UUID transferId, long expectedVersion, String reason)
       throws SQLException;
+  TransferRecord resolveReviewedTransfer(
+      UUID transferId, long expectedVersion,
+      com.ghostchu.quickshop.addon.exchange.transfer.model.TransferStatus targetStatus,
+      String reason) throws SQLException;
 
   record PersistedOrder(Order order, BigDecimal reservedCurrency,
                         long reservedQuantity, long version) {}

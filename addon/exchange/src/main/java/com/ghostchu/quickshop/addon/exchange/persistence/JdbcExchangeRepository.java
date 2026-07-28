@@ -15,6 +15,8 @@ import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import com.ghostchu.quickshop.addon.exchange.repository.CurrencyBalance;
+import com.ghostchu.quickshop.addon.exchange.repository.AccountAssetBalance;
+import com.ghostchu.quickshop.addon.exchange.repository.AccountLedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.InsufficientAssetsException;
@@ -145,6 +147,170 @@ public final class JdbcExchangeRepository
     Objects.requireNonNull(requestId, "requestId");
     try (Connection connection = connections.open()) {
       return new JdbcTransaction(connection, dialect, tables).requestResult(accountId, requestId);
+    }
+  }
+
+  @Override
+  public List<ExchangeTransaction.PersistedOrder> accountOpenOrders(
+      UUID accountId, int limit, int offset) throws SQLException {
+    Objects.requireNonNull(accountId, "accountId");
+    if (limit < 1 || limit > 36 || offset < 0) {
+      throw new IllegalArgumentException("invalid account order page");
+    }
+    String columns = "order_id,request_id,market_id,account_id,side,order_type,time_in_force,"
+        + "limit_price,slippage_boundary,original_quantity,remaining_quantity,status,"
+        + "priority_sequence,config_version,fee_version,reserved_currency,reserved_quantity,"
+        + "created_at,updated_at,version";
+    try (Connection connection = connections.open();
+         PreparedStatement select = connection.prepareStatement(
+             "SELECT " + columns + " FROM " + tables.orders()
+                 + " WHERE account_id=? AND status IN ('OPEN','PARTIALLY_FILLED')"
+                 + " ORDER BY CASE status WHEN 'PARTIALLY_FILLED' THEN 0 ELSE 1 END,"
+                 + " priority_sequence LIMIT ? OFFSET ?")) {
+      select.setString(1, accountId.toString());
+      select.setInt(2, limit);
+      select.setInt(3, offset);
+      try (ResultSet result = select.executeQuery()) {
+        List<ExchangeTransaction.PersistedOrder> orders = new ArrayList<>();
+        while (result.next()) {
+          Order order = new Order(UUID.fromString(result.getString("order_id")),
+              UUID.fromString(result.getString("request_id")), result.getString("market_id"),
+              UUID.fromString(result.getString("account_id")),
+              OrderSide.valueOf(result.getString("side")),
+              OrderType.valueOf(result.getString("order_type")),
+              TimeInForce.valueOf(result.getString("time_in_force")),
+              nullableDecimal(result, "limit_price"), nullableDecimal(result, "slippage_boundary"),
+              result.getLong("original_quantity"), result.getLong("remaining_quantity"),
+              OrderStatus.valueOf(result.getString("status")), result.getLong("priority_sequence"),
+              result.getLong("config_version"), result.getLong("fee_version"),
+              Instant.ofEpochMilli(result.getLong("created_at")),
+              Instant.ofEpochMilli(result.getLong("updated_at")));
+          orders.add(new ExchangeTransaction.PersistedOrder(order,
+              new BigDecimal(result.getString("reserved_currency")),
+              result.getLong("reserved_quantity"), result.getLong("version")));
+        }
+        return List.copyOf(orders);
+      }
+    }
+  }
+
+  private static BigDecimal nullableDecimal(ResultSet result, String column) throws SQLException {
+    String value = result.getString(column);
+    return value == null ? null : new BigDecimal(value);
+  }
+
+  @Override
+  public List<AccountAssetBalance> accountAssets(UUID accountId) throws SQLException {
+    Objects.requireNonNull(accountId, "accountId");
+    List<AccountAssetBalance> balances = new ArrayList<>();
+    try (Connection connection = connections.open();
+         PreparedStatement currencies = connection.prepareStatement(
+             "SELECT currency_id,available,frozen FROM " + tables.accounts()
+                 + " WHERE account_id=? AND (available<>0 OR frozen<>0)");
+         PreparedStatement items = connection.prepareStatement(
+             "SELECT market_id,available_quantity,frozen_quantity FROM " + tables.inventory()
+                 + " WHERE account_id=? AND (available_quantity<>0 OR frozen_quantity<>0)")) {
+      currencies.setString(1, accountId.toString());
+      try (ResultSet result = currencies.executeQuery()) {
+        while (result.next()) {
+          balances.add(new AccountAssetBalance("currency", result.getString("currency_id"),
+              new BigDecimal(result.getString("available")),
+              new BigDecimal(result.getString("frozen"))));
+        }
+      }
+      items.setString(1, accountId.toString());
+      try (ResultSet result = items.executeQuery()) {
+        while (result.next()) {
+          balances.add(new AccountAssetBalance("item", result.getString("market_id"),
+              BigDecimal.valueOf(result.getLong("available_quantity")),
+              BigDecimal.valueOf(result.getLong("frozen_quantity"))));
+        }
+      }
+    }
+    return List.copyOf(balances);
+  }
+
+  @Override
+  public List<Trade> accountTrades(UUID accountId, int limit, int offset) throws SQLException {
+    Objects.requireNonNull(accountId, "accountId");
+    if (limit < 1 || limit > 36 || offset < 0) throw new IllegalArgumentException("invalid account trade page");
+    try (Connection connection = connections.open(); PreparedStatement select = connection.prepareStatement(
+        "SELECT trade_id,market_id,maker_order_id,taker_order_id,buyer_account_id,seller_account_id,"
+            + "price,quantity,maker_fee,taker_fee,match_sequence,executed_at FROM " + tables.trades()
+            + " WHERE buyer_account_id=? OR seller_account_id=? ORDER BY executed_at DESC,trade_id LIMIT ? OFFSET ?")) {
+      select.setString(1, accountId.toString());
+      select.setString(2, accountId.toString());
+      select.setInt(3, limit);
+      select.setInt(4, offset);
+      try (ResultSet result = select.executeQuery()) {
+        List<Trade> trades = new ArrayList<>();
+        while (result.next()) trades.add(new Trade(UUID.fromString(result.getString("trade_id")),
+            result.getString("market_id"), UUID.fromString(result.getString("maker_order_id")),
+            UUID.fromString(result.getString("taker_order_id")), UUID.fromString(result.getString("buyer_account_id")),
+            UUID.fromString(result.getString("seller_account_id")), new BigDecimal(result.getString("price")),
+            result.getLong("quantity"), new BigDecimal(result.getString("maker_fee")),
+            new BigDecimal(result.getString("taker_fee")), result.getLong("match_sequence"),
+            Instant.ofEpochMilli(result.getLong("executed_at"))));
+        return List.copyOf(trades);
+      }
+    }
+  }
+
+  @Override
+  public List<TransferRecord> accountTransfers(UUID accountId, int limit, int offset)
+      throws SQLException {
+    Objects.requireNonNull(accountId, "accountId");
+    if (limit < 1 || limit > 36 || offset < 0) throw new IllegalArgumentException("invalid account transfer page");
+    try (Connection connection = connections.open(); PreparedStatement select = connection.prepareStatement(
+        "SELECT transfer_id,request_id,account_id,transfer_type,asset_id,amount,status,external_marker,"
+            + "failure_reason,created_at,updated_at,version FROM " + tables.transfers()
+            + " WHERE account_id=? ORDER BY updated_at DESC,transfer_id LIMIT ? OFFSET ?")) {
+      select.setString(1, accountId.toString());
+      select.setInt(2, limit);
+      select.setInt(3, offset);
+      try (ResultSet result = select.executeQuery()) {
+        List<TransferRecord> transfers = new ArrayList<>();
+        while (result.next()) transfers.add(new TransferRecord(
+            UUID.fromString(result.getString("transfer_id")), UUID.fromString(result.getString("request_id")),
+            UUID.fromString(result.getString("account_id")), TransferType.valueOf(result.getString("transfer_type")),
+            result.getString("asset_id"), new BigDecimal(result.getString("amount")),
+            TransferStatus.valueOf(result.getString("status")), result.getString("external_marker"),
+            result.getString("failure_reason"), Instant.ofEpochMilli(result.getLong("created_at")),
+            Instant.ofEpochMilli(result.getLong("updated_at")), result.getLong("version")));
+        return List.copyOf(transfers);
+      }
+    }
+  }
+
+  @Override
+  public List<AccountLedgerEntry> accountLedgerEntries(
+      UUID accountId, int limit, int offset) throws SQLException {
+    Objects.requireNonNull(accountId, "accountId");
+    if (limit < 1 || limit > 36 || offset < 0) {
+      throw new IllegalArgumentException("invalid account ledger page");
+    }
+    String accountSuffix = "liability:%:" + accountId;
+    try (Connection connection = connections.open();
+         PreparedStatement select = connection.prepareStatement(
+             "SELECT e.entry_id,j.journal_type,j.reference_id,e.asset_id,e.amount,e.created_at"
+                 + " FROM " + tables.entries() + " e JOIN " + tables.journals()
+                 + " j ON j.journal_id=e.journal_id"
+                 + " WHERE e.account_code LIKE ?"
+                 + " ORDER BY e.created_at DESC,e.entry_id DESC LIMIT ? OFFSET ?")) {
+      select.setString(1, accountSuffix);
+      select.setInt(2, limit);
+      select.setInt(3, offset);
+      try (ResultSet result = select.executeQuery()) {
+        List<AccountLedgerEntry> entries = new ArrayList<>();
+        while (result.next()) {
+          entries.add(new AccountLedgerEntry(UUID.fromString(result.getString("entry_id")),
+              result.getString("journal_type"),
+              UUID.fromString(result.getString("reference_id")), result.getString("asset_id"),
+              new BigDecimal(result.getString("amount")),
+              Instant.ofEpochMilli(result.getLong("created_at"))));
+        }
+        return List.copyOf(entries);
+      }
     }
   }
 
@@ -356,6 +522,11 @@ public final class JdbcExchangeRepository
     }
 
     @Override
+    public Optional<TransferRecord> transfer(UUID transferId) throws SQLException {
+      return findTransfer(Objects.requireNonNull(transferId, "transferId"));
+    }
+
+    @Override
     public TransferRecord completeTransfer(UUID transferId, long expectedVersion)
         throws SQLException {
       return transitionTransfer(transferId, expectedVersion, TransferStatus.PROCESSING,
@@ -367,6 +538,17 @@ public final class JdbcExchangeRepository
         throws SQLException {
       return transitionTransfer(transferId, expectedVersion, TransferStatus.PROCESSING,
           TransferStatus.FAILED, reason);
+    }
+
+    @Override
+    public TransferRecord resolveReviewedTransfer(
+        UUID transferId, long expectedVersion, TransferStatus targetStatus, String reason)
+        throws SQLException {
+      if (targetStatus != TransferStatus.COMPLETED && targetStatus != TransferStatus.FAILED) {
+        throw new IllegalArgumentException("reviewed transfer must resolve to a terminal status");
+      }
+      return transitionTransfer(transferId, expectedVersion, TransferStatus.REVIEW_REQUIRED,
+          targetStatus, reason);
     }
 
     private Optional<TransferRecord> findTransfer(UUID transferId) throws SQLException {
@@ -1118,7 +1300,8 @@ public final class JdbcExchangeRepository
       }
     }
 
-    private ReconciliationReport reconcile() throws SQLException {
+    @Override
+    public ReconciliationReport reconcile() throws SQLException {
       Map<String, BigDecimal> ledgerDifferences = nonZeroTotals(readExactTotals(
           "SELECT asset_id,amount FROM " + tables.entries(), "amount"));
       Map<String, BigDecimal> custody = readExactTotals(

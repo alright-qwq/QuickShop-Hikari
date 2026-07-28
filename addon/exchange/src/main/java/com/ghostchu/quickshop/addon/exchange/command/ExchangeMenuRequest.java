@@ -8,7 +8,7 @@ import java.util.UUID;
 
 /** Typed state passed from a command into the exchange GUI. */
 public record ExchangeMenuRequest(
-    String menuName, int page, UUID requestId, String marketId, UUID orderId,
+    String menuName, int page, UUID requestId, UUID accountId, String marketId, UUID orderId,
     OrderDraft order, TransferDraft transfer) {
   public ExchangeMenuRequest {
     if (menuName == null || menuName.isBlank() || page < 1) {
@@ -27,32 +27,34 @@ public record ExchangeMenuRequest(
   }
 
   public static ExchangeMenuRequest page(String menuName, int page) {
-    return new ExchangeMenuRequest(menuName, Math.max(1, page), null, null, null, null, null);
+    return new ExchangeMenuRequest(menuName, Math.max(1, page), null, null, null, null, null, null);
   }
 
   public static ExchangeMenuRequest market(String marketId) {
     if (marketId == null || marketId.isBlank()) {
       throw new IllegalArgumentException("marketId is required");
     }
-    return new ExchangeMenuRequest("market-detail", 1, null, marketId, null, null, null);
+    return new ExchangeMenuRequest("market-detail", 1, null, null, marketId, null, null, null);
   }
 
   public static ExchangeMenuRequest order(OrderDraft order) {
     Objects.requireNonNull(order, "order");
-    return new ExchangeMenuRequest("order-confirm", 1, order.requestId(), order.marketId(),
-        null, order, null);
+    return new ExchangeMenuRequest("order-confirm", 1, order.requestId(), order.accountId(),
+        order.marketId(), null, order, null);
   }
 
-  public static ExchangeMenuRequest cancel(UUID requestId, UUID orderId) {
+  public static ExchangeMenuRequest cancel(UUID requestId, UUID accountId, UUID orderId) {
     Objects.requireNonNull(requestId, "requestId");
+    Objects.requireNonNull(accountId, "accountId");
     Objects.requireNonNull(orderId, "orderId");
-    return new ExchangeMenuRequest("cancel-confirm", 1, requestId, null, orderId, null, null);
+    return new ExchangeMenuRequest("cancel-confirm", 1, requestId, accountId, null, orderId,
+        null, null);
   }
 
   public static ExchangeMenuRequest transfer(TransferDraft transfer) {
     Objects.requireNonNull(transfer, "transfer");
     return new ExchangeMenuRequest("transfer-confirm", 1, transfer.requestId(),
-        transfer.marketId(), null, null, transfer);
+        transfer.accountId(), transfer.marketId(), null, null, transfer);
   }
 
   public record OrderDraft(UUID requestId, UUID accountId, String marketId, OrderSide side,

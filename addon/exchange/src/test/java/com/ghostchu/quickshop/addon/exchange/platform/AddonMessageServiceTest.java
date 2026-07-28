@@ -27,5 +27,15 @@ class AddonMessageServiceTest {
 
     assertThat(messages.message("permission-denied", Locale.forLanguageTag("zh-CN")))
         .isEqualTo("你没有执行此交易所操作的权限。");
+    assertThat(messages.message("ui-history-trade-title", Locale.forLanguageTag("zh-CN"),
+        "diamond/default", "100.00")).isEqualTo("diamond/default 成交 @ 100.00");
+    assertThat(messages.message("ui-confirm-order-title", Locale.forLanguageTag("zh-CN"),
+        "LIMIT")).isEqualTo("确认 LIMIT 订单");
+    assertThat(messages.message("ui-confirm-request", Locale.US, "abc-123"))
+        .isEqualTo("Request: abc-123");
+    assertThat(messages.message("ui-confirm-submit-failed", Locale.forLanguageTag("zh-CN")))
+        .isEqualTo("交易请求提交失败，请稍后重试。");
+    assertThat(messages.message("ui-confirm-submit-result", Locale.US, "ACCEPTED", "order-1"))
+        .isEqualTo("Exchange ACCEPTED: order-1");
   }
 }
