@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FoliaInventoryGatewayTest {
   private static ServerMock server;
@@ -67,6 +68,23 @@ class FoliaInventoryGatewayTest {
         UUID.randomUUID(), new ItemStack(Material.DIAMOND), 1, UUID.randomUUID()).join();
 
     assertThat(result).isEqualTo(InventoryResult.OFFLINE);
+    assertThat(schedulerCalls).hasValue(0);
+  }
+
+  @Test
+  void offlinePlayerCannotBeReportedAsHavingZeroMarkedItems() {
+    AtomicInteger schedulerCalls = new AtomicInteger();
+    FoliaInventoryGateway gateway = new FoliaInventoryGateway(
+        ignored -> null,
+        (player, action) -> schedulerCalls.incrementAndGet(),
+        ItemStack::isSimilar,
+        FoliaInventoryGatewayTest::encode,
+        new NamespacedKey("exchange", "transfer"));
+
+    assertThatThrownBy(() -> gateway.markedQuantity(
+        UUID.randomUUID(), UUID.randomUUID()).join())
+        .hasRootCauseInstanceOf(IllegalStateException.class)
+        .hasRootCauseMessage("player inventory is unavailable for marker observation");
     assertThat(schedulerCalls).hasValue(0);
   }
 

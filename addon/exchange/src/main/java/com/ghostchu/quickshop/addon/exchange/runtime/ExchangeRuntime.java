@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.runtime;
 
 import com.ghostchu.quickshop.addon.exchange.core.service.MarketDispatcher;
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
+import com.ghostchu.quickshop.addon.exchange.operations.TransferReviewCoordinator;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferRecoveryService;
 import com.ghostchu.quickshop.addon.exchange.service.ExchangeActionService;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeViewService;
@@ -24,7 +25,11 @@ public final class ExchangeRuntime implements AutoCloseable {
   private final ExchangeViewService views;
   private final AdminExchangeService administration;
   private final ExchangeActionService actions;
+  private final TransferReviewCoordinator transferReviews;
   private final AtomicBoolean acceptingWrites = new AtomicBoolean();
+  private boolean dispatcherClosed;
+  private boolean operationalDataFlushed;
+  private boolean writerClosed;
 
   public ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
                          TransferRecoveryService transfers, MarketDispatcher dispatcher) {
@@ -53,7 +58,7 @@ public final class ExchangeRuntime implements AutoCloseable {
                   CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
                   ExchangeViewService views) {
     this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
-        views, null, null);
+        views, null, null, null);
   }
 
   ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
@@ -61,7 +66,7 @@ public final class ExchangeRuntime implements AutoCloseable {
                   CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
                   ExchangeViewService views, AdminExchangeService administration) {
     this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
-        views, administration, null);
+        views, administration, null, null);
   }
 
   ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
@@ -69,6 +74,15 @@ public final class ExchangeRuntime implements AutoCloseable {
                   CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
                   ExchangeViewService views, AdminExchangeService administration,
                   ExchangeActionService actions) {
+    this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
+        views, administration, actions, null);
+  }
+
+  ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
+                  CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
+                  CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
+                  ExchangeViewService views, AdminExchangeService administration,
+                  ExchangeActionService actions, TransferReviewCoordinator transferReviews) {
     this.writer = Objects.requireNonNull(writer, "writer");
     this.recoverBooks = Objects.requireNonNull(recoverBooks, "recoverBooks");
     this.recoverTransfers = Objects.requireNonNull(recoverTransfers, "recoverTransfers");
@@ -79,6 +93,7 @@ public final class ExchangeRuntime implements AutoCloseable {
     this.views = views;
     this.administration = administration;
     this.actions = actions;
+    this.transferReviews = transferReviews;
     writer.onLockLost(this::fenceAfterLockLoss);
   }
 
@@ -124,6 +139,13 @@ public final class ExchangeRuntime implements AutoCloseable {
       throw new IllegalStateException("runtime actions are not configured");
     }
     return actions;
+  }
+
+  public TransferReviewCoordinator transferReviews() {
+    if (transferReviews == null) {
+      throw new IllegalStateException("runtime transfer reviews are not configured");
+    }
+    return transferReviews;
   }
 
   /** Executes a command mutation while writer ownership remains fenced. */
@@ -190,12 +212,25 @@ public final class ExchangeRuntime implements AutoCloseable {
     }
   }
 
+  public synchronized boolean closed() {
+    return writerClosed;
+  }
+
   @Override
-  public void close() throws Exception {
+  public synchronized void close() throws Exception {
     acceptingWrites.set(false);
-    dispatcher.close();
-    afterDispatcherClosed.run();
-    writer.close();
+    if (!dispatcherClosed) {
+      dispatcher.close();
+      dispatcherClosed = true;
+    }
+    if (!operationalDataFlushed) {
+      afterDispatcherClosed.run();
+      operationalDataFlushed = true;
+    }
+    if (!writerClosed) {
+      writer.close();
+      writerClosed = true;
+    }
   }
 
   @FunctionalInterface

@@ -59,15 +59,27 @@ public final class Main extends JavaPlugin {
 
   @Override
   public void onDisable() {
-    unregisterPlayerEntrypoints();
-    if (runtime == null) {
-      return;
+    ExchangeRuntime closingRuntime = runtime;
+    ExchangeShutdown.RuntimeHandle runtimeHandle = closingRuntime == null ? null
+        : new ExchangeShutdown.RuntimeHandle() {
+          @Override
+          public void close() throws Exception {
+            closingRuntime.close();
+          }
+
+          @Override
+          public boolean closed() {
+            return closingRuntime.closed();
+          }
+        };
+    ExchangeShutdown.Result result = ExchangeShutdown.close(runtimeHandle,
+        this::unregisterCommands,
+        this::closeMenus,
+        this::unregisterMenuListener);
+    if (result.failure() != null) {
+      getLogger().log(Level.SEVERE, "Exchange shutdown failed", result.failure());
     }
-    try {
-      runtime.close();
-    } catch (Exception failure) {
-      getLogger().log(Level.SEVERE, "Exchange shutdown failed", failure);
-    } finally {
+    if (result.runtimeClosed()) {
       runtime = null;
     }
   }
@@ -82,7 +94,7 @@ public final class Main extends JavaPlugin {
     Bukkit.getPluginManager().registerEvents(menuListener, this);
     ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID,
         new AdminCommandRouter(runtime.administration(), UUID::randomUUID,
-            work -> runtime.runWhileWriting(work::run)), rollout);
+            work -> runtime.runWhileWriting(work::run), runtime.transferReviews()), rollout);
     var actors = (java.util.function.Function<org.bukkit.entity.Player,
         com.ghostchu.quickshop.addon.exchange.command.CommandActor>) player ->
         new BukkitCommandActor(player, messages, player.locale(),
@@ -125,7 +137,7 @@ public final class Main extends JavaPlugin {
     return new RolloutPolicy(enabled, allowed);
   }
 
-  private void unregisterPlayerEntrypoints() {
+  private void unregisterCommands() {
     if (exchangeCommand != null) {
       QuickShop.getInstance().getCommandManager().unregisterCmd(exchangeCommand);
       exchangeCommand = null;
@@ -135,10 +147,17 @@ public final class Main extends JavaPlugin {
       qseCommand.setTabCompleter(null);
       qseCommand = null;
     }
+  }
+
+  private void closeMenus() {
     if (menus != null) {
-      menus.close();
+      ExchangeMenuService closingMenus = menus;
+      closingMenus.close();
       menus = null;
     }
+  }
+
+  private void unregisterMenuListener() {
     if (menuListener != null) {
       HandlerList.unregisterAll(menuListener);
       menuListener = null;

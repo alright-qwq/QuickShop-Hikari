@@ -22,8 +22,9 @@ class MigrationRunnerTest {
     runner.migrate();
 
     try (Connection connection = connections.open()) {
-      assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(14);
-      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(3);
+      assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(15);
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(4);
+      assertThat(rowCount(connection, names.writerEpoch())).isEqualTo(1);
       assertThat(triggerExists(connection, names.prefix() + "exchange_audit_records_no_update"))
           .isTrue();
       assertThat(triggerExists(connection, names.prefix() + "exchange_audit_records_no_delete"))

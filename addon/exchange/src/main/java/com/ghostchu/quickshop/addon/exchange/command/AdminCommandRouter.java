@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.command;
 
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.operations.ReviewDecision;
+import com.ghostchu.quickshop.addon.exchange.operations.TransferReviewCoordinator;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import java.util.Objects;
 import java.util.UUID;
@@ -12,6 +13,7 @@ public final class AdminCommandRouter {
   private final AdminExchangeService administration;
   private final Supplier<UUID> requestIds;
   private final WriteExecutor writes;
+  private final TransferReviewCoordinator itemReviews;
 
   public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds) {
     this(administration, requestIds, work -> {
@@ -22,9 +24,15 @@ public final class AdminCommandRouter {
 
   public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds,
                             WriteExecutor writes) {
+    this(administration, requestIds, writes, null);
+  }
+
+  public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds,
+                            WriteExecutor writes, TransferReviewCoordinator itemReviews) {
     this.administration = Objects.requireNonNull(administration, "administration");
     this.requestIds = Objects.requireNonNull(requestIds, "requestIds");
     this.writes = Objects.requireNonNull(writes, "writes");
+    this.itemReviews = itemReviews;
   }
 
   public void execute(CommandActor actor, String[] args) {
@@ -131,8 +139,18 @@ public final class AdminCommandRouter {
           default -> throw new IllegalArgumentException("unknown review decision");
         };
         String evidence = String.join(" ", java.util.Arrays.copyOfRange(args, 5, args.length));
-        executeWrite(actor, () -> administration.resolveReview(
-            actor.accountId(), requestIds.get(), transferId, decision, evidence));
+        TransferRecord review = administration.transferReview(transferId);
+        boolean machineVerifiedItemReview = review.type()
+            == com.ghostchu.quickshop.addon.exchange.transfer.model.TransferType.ITEM_WITHDRAWAL
+            || review.type()
+            == com.ghostchu.quickshop.addon.exchange.transfer.model.TransferType.ITEM_DEPOSIT
+            && decision == ReviewDecision.CONFIRM_EXTERNAL_FAILURE;
+        if (machineVerifiedItemReview) {
+          executeItemReview(actor, transferId, decision, evidence);
+        } else {
+          executeWrite(actor, () -> administration.resolveReview(
+              actor.accountId(), requestIds.get(), transferId, decision, evidence));
+        }
         return;
       }
       actor.message("admin-command-invalid");
@@ -141,6 +159,25 @@ public final class AdminCommandRouter {
     } catch (Exception failure) {
       actor.message("admin-command-failed");
     }
+  }
+
+  private void executeItemReview(
+      CommandActor actor, UUID transferId, ReviewDecision decision, String evidence) {
+    if (itemReviews == null) {
+      actor.message("admin-command-failed");
+      return;
+    }
+    actor.message("request-accepted");
+    itemReviews.resolve(actor.accountId(), requestIds.get(), transferId, decision, evidence)
+        .whenComplete((resolved, failure) -> {
+          try {
+            actor.dispatchCompletion(() -> actor.message(
+                failure == null && resolved != null
+                    ? "request-accepted" : "admin-command-failed"));
+          } catch (RuntimeException ignored) {
+            // The actor became unavailable before completion could be reported.
+          }
+        });
   }
 
   private static String transferSummary(TransferRecord transfer) {

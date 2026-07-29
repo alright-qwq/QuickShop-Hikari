@@ -2,6 +2,10 @@ package com.ghostchu.quickshop.addon.exchange.command;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
+import com.ghostchu.quickshop.addon.exchange.operations.TransferReviewCoordinator;
+import com.ghostchu.quickshop.addon.exchange.transfer.InventoryGateway;
+import com.ghostchu.quickshop.addon.exchange.transfer.InventoryResult;
+import com.ghostchu.quickshop.addon.exchange.transfer.TransferJournals;
 import com.ghostchu.quickshop.addon.exchange.service.ExchangeServiceFixture;
 import com.ghostchu.quickshop.addon.exchange.service.OrderReceipt;
 import com.ghostchu.quickshop.addon.exchange.service.OrderRequest;
@@ -15,6 +19,8 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import org.bukkit.inventory.ItemStack;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -175,6 +181,103 @@ class AdminCommandRouterTest {
   }
 
   @Test
+  void resolvesItemWithdrawalFailureThroughMachineVerifiedCoordinator() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID account = fixture.accountWithItems(3);
+    TransferRecord reviewed = reviewedItemWithdrawal(fixture, account);
+    AdminExchangeService administration = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
+    java.util.concurrent.atomic.AtomicInteger markerObservations =
+        new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger writes = new java.util.concurrent.atomic.AtomicInteger();
+    TransferReviewCoordinator coordinator = new TransferReviewCoordinator(
+        administration, markedQuantity(markerObservations, 0L), work -> {
+          writes.incrementAndGet();
+          return CompletableFuture.completedFuture(work.get());
+        });
+    AdminCommandRouter router = new AdminCommandRouter(administration, UUID::randomUUID,
+        work -> {
+          writes.incrementAndGet();
+          work.run();
+          return true;
+        }, coordinator);
+    Actor actor = new Actor("quickshop.exchange.admin.recovery");
+
+    router.execute(actor, new String[] {"transfer", "review", "resolve",
+        reviewed.transferId().toString(), "failure", "operator", "ticket-001"});
+
+    assertThat(actor.message).isEqualTo("request-accepted");
+    assertThat(markerObservations).hasValue(1);
+    assertThat(writes).hasValue(1);
+    assertThat(fixture.repository().find(reviewed.transferId()).orElseThrow().status())
+        .isEqualTo(TransferStatus.FAILED);
+    assertThat(fixture.availableItems(account)).isEqualTo(3);
+    assertThat(fixture.frozenItems(account)).isZero();
+  }
+
+  @Test
+  void resolvesItemWithdrawalSuccessThroughMarkerCleanupCoordinator() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID account = fixture.accountWithItems(3);
+    TransferRecord reviewed = reviewedItemWithdrawal(fixture, account);
+    AdminExchangeService administration = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
+    java.util.concurrent.atomic.AtomicInteger writes = new java.util.concurrent.atomic.AtomicInteger();
+    TransferReviewCoordinator coordinator = new TransferReviewCoordinator(
+        administration, cleanupInventory(2L, 0L), work -> {
+          writes.incrementAndGet();
+          return CompletableFuture.completedFuture(work.get());
+        });
+    AdminCommandRouter router = new AdminCommandRouter(administration, UUID::randomUUID,
+        work -> {
+          writes.incrementAndGet();
+          work.run();
+          return true;
+        }, coordinator);
+    Actor actor = new Actor("quickshop.exchange.admin.recovery");
+
+    router.execute(actor, new String[] {"transfer", "review", "resolve",
+        reviewed.transferId().toString(), "success", "operator", "ticket-002"});
+
+    assertThat(actor.message).isEqualTo("request-accepted");
+    assertThat(writes).hasValue(1);
+    assertThat(fixture.repository().find(reviewed.transferId()).orElseThrow().status())
+        .isEqualTo(TransferStatus.COMPLETED);
+    assertThat(fixture.availableItems(account)).isEqualTo(1);
+    assertThat(fixture.frozenItems(account)).isZero();
+  }
+
+  @Test
+  void reportsItemWithdrawalReviewFailureOnTheActorCompletionDispatcher() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID account = fixture.accountWithItems(3);
+    TransferRecord reviewed = reviewedItemWithdrawal(fixture, account);
+    AdminExchangeService administration = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
+    CompletableFuture<Long> observation = new CompletableFuture<>();
+    TransferReviewCoordinator coordinator = new TransferReviewCoordinator(
+        administration, markedQuantity(observation),
+        work -> CompletableFuture.completedFuture(work.get()));
+    AdminCommandRouter router = new AdminCommandRouter(administration, UUID::randomUUID,
+        work -> {
+          work.run();
+          return true;
+        }, coordinator);
+    Actor actor = new Actor("quickshop.exchange.admin.recovery");
+
+    router.execute(actor, new String[] {"transfer", "review", "resolve",
+        reviewed.transferId().toString(), "failure", "operator", "ticket-001"});
+    assertThat(actor.message).isEqualTo("request-accepted");
+
+    observation.completeExceptionally(new IllegalStateException("player offline"));
+
+    assertThat(actor.message).isEqualTo("admin-command-failed");
+    assertThat(actor.completionDispatches).hasValue(1);
+    assertThat(fixture.repository().find(reviewed.transferId()).orElseThrow().status())
+        .isEqualTo(TransferStatus.REVIEW_REQUIRED);
+  }
+
+  @Test
   void deniesTransferReviewWithoutRecoveryPermission() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     TransferRecord reviewed = reviewedMoneyDeposit(fixture);
@@ -186,6 +289,87 @@ class AdminCommandRouterTest {
         reviewed.transferId().toString()});
 
     assertThat(actor.message).isEqualTo("permission-denied");
+  }
+
+  private static TransferRecord reviewedItemWithdrawal(
+      ExchangeServiceFixture fixture, UUID account) throws Exception {
+    BigDecimal quantity = BigDecimal.valueOf(2);
+    TransferRecord candidate = TransferRecord.prepared(
+        UUID.randomUUID(), UUID.randomUUID(), account, TransferType.ITEM_WITHDRAWAL,
+        fixture.rules().marketId(), quantity, Instant.EPOCH);
+    TransferRecord prepared = fixture.repository().inTransaction(tx -> {
+      TransferRecord persisted = tx.createTransfer(candidate);
+      tx.freezeItems(account, fixture.rules().marketId(), quantity.longValueExact());
+      tx.appendJournal(TransferJournals.freezeItemWithdrawal(candidate, Instant.EPOCH));
+      return persisted;
+    });
+    TransferRecord processing = fixture.repository().transition(
+        prepared.transferId(), prepared.version(), TransferStatus.PREPARED,
+        TransferStatus.PROCESSING, null);
+    return fixture.repository().transition(processing.transferId(), processing.version(),
+        TransferStatus.PROCESSING, TransferStatus.REVIEW_REQUIRED, "external result unknown");
+  }
+
+  private static InventoryGateway cleanupInventory(long beforeCleanup, long afterCleanup) {
+    java.util.concurrent.atomic.AtomicInteger observations =
+        new java.util.concurrent.atomic.AtomicInteger();
+    return new InventoryGateway() {
+      @Override public CompletableFuture<InventoryResult> markForDeposit(
+          UUID playerId, ItemStack template, long amount, UUID transferId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+      }
+      @Override public CompletableFuture<InventoryResult> removeMarked(
+          UUID playerId, UUID transferId, long amount) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+      }
+      @Override public CompletableFuture<InventoryResult> deliverMarked(
+          UUID playerId, ItemStack template, long amount, UUID transferId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+      }
+      @Override public CompletableFuture<Long> markedQuantity(UUID playerId, UUID transferId) {
+        return CompletableFuture.completedFuture(
+            observations.getAndIncrement() == 0 ? beforeCleanup : afterCleanup);
+      }
+      @Override public CompletableFuture<InventoryResult> clearMarker(
+          UUID playerId, UUID transferId) {
+        return CompletableFuture.completedFuture(InventoryResult.SUCCESS);
+      }
+    };
+  }
+
+  private static InventoryGateway markedQuantity(
+      java.util.concurrent.atomic.AtomicInteger observations, long quantity) {
+    return markedQuantity(CompletableFuture.completedFuture(quantity), observations);
+  }
+
+  private static InventoryGateway markedQuantity(CompletableFuture<Long> quantity) {
+    return markedQuantity(quantity, new java.util.concurrent.atomic.AtomicInteger());
+  }
+
+  private static InventoryGateway markedQuantity(
+      CompletableFuture<Long> quantity, java.util.concurrent.atomic.AtomicInteger observations) {
+    return new InventoryGateway() {
+      @Override public CompletableFuture<InventoryResult> markForDeposit(
+          UUID playerId, ItemStack template, long amount, UUID transferId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+      }
+      @Override public CompletableFuture<InventoryResult> removeMarked(
+          UUID playerId, UUID transferId, long amount) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+      }
+      @Override public CompletableFuture<InventoryResult> deliverMarked(
+          UUID playerId, ItemStack template, long amount, UUID transferId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+      }
+      @Override public CompletableFuture<Long> markedQuantity(UUID playerId, UUID transferId) {
+        observations.incrementAndGet();
+        return quantity;
+      }
+      @Override public CompletableFuture<InventoryResult> clearMarker(
+          UUID playerId, UUID transferId) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException());
+      }
+    };
   }
 
   private static TransferRecord reviewedMoneyDeposit(ExchangeServiceFixture fixture)
@@ -206,6 +390,8 @@ class AdminCommandRouterTest {
     private final Set<String> permissions = new HashSet<>();
     private String message;
     private Object[] arguments = new Object[0];
+    private final java.util.concurrent.atomic.AtomicInteger completionDispatches =
+        new java.util.concurrent.atomic.AtomicInteger();
 
     private Actor(String... permissions) {
       this.permissions.addAll(Set.of(permissions));
@@ -216,6 +402,10 @@ class AdminCommandRouterTest {
     @Override public void message(String key, Object... arguments) {
       message = key;
       this.arguments = arguments;
+    }
+    @Override public void dispatchCompletion(Runnable completion) {
+      completionDispatches.incrementAndGet();
+      completion.run();
     }
     @Override public void openMenu(String menuName, int page) { }
   }

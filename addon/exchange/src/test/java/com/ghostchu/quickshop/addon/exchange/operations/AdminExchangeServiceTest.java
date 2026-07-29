@@ -131,6 +131,27 @@ class AdminExchangeServiceTest {
   }
 
   @Test
+  void duplicateReconciliationReturnsTheOriginalStoredReport() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminExchangeService admin = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
+    UUID actor = UUID.randomUUID();
+    UUID requestId = UUID.randomUUID();
+
+    var original = admin.reconcile(actor, requestId);
+    fixture.repository().inTransaction(tx -> {
+      tx.creditAvailableCurrency(UUID.randomUUID(), fixture.rules().currencyId(),
+          new BigDecimal("1.00"));
+      return null;
+    });
+    var duplicate = admin.reconcile(actor, requestId);
+
+    assertThat(original.balanced()).isTrue();
+    assertThat(duplicate).isEqualTo(original);
+    assertThat(admin.reconcile().balanced()).isFalse();
+  }
+
+  @Test
   void pausesAffectedMarketAndAppendsAuditWhenReconciliationFindsACurrencyDifference()
       throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
@@ -279,7 +300,7 @@ class AdminExchangeServiceTest {
   }
 
   @Test
-  void releasesReviewedItemWithdrawalWhenDeliveryDidNotOccur() throws Exception {
+  void rejectsFreeTextFailureForReviewedItemWithdrawal() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID account = fixture.accountWithItems(3);
     TransferRecord reviewed = reviewedWithdrawal(fixture, account, TransferType.ITEM_WITHDRAWAL,
@@ -287,13 +308,17 @@ class AdminExchangeServiceTest {
     AdminExchangeService admin = new AdminExchangeService(
         Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
 
-    TransferRecord resolved = admin.resolveReview(UUID.randomUUID(), UUID.randomUUID(),
-        reviewed.transferId(), ReviewDecision.CONFIRM_EXTERNAL_FAILURE,
-        "inventory snapshot confirms no marked items were delivered");
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> admin.resolveReview(
+        UUID.randomUUID(), UUID.randomUUID(), reviewed.transferId(),
+        ReviewDecision.CONFIRM_EXTERNAL_FAILURE,
+        "inventory snapshot claims no marked items were delivered"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("machine marker verification");
 
-    assertThat(resolved.status()).isEqualTo(TransferStatus.FAILED);
-    assertThat(fixture.availableItems(account)).isEqualTo(3);
-    assertThat(fixture.frozenItems(account)).isZero();
+    assertThat(fixture.repository().find(reviewed.transferId()).orElseThrow().status())
+        .isEqualTo(TransferStatus.REVIEW_REQUIRED);
+    assertThat(fixture.availableItems(account)).isEqualTo(1);
+    assertThat(fixture.frozenItems(account)).isEqualTo(2);
   }
 
   @Test

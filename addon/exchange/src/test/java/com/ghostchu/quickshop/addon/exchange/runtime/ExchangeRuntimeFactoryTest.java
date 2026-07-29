@@ -4,6 +4,8 @@ import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
@@ -32,8 +34,9 @@ class ExchangeRuntimeFactoryTest {
         .isEqualTo(dataFolder.resolve("audit").toAbsolutePath());
     assertThatIllegalArgumentException().isThrownBy(() ->
         ExchangeRuntimeFactory.requireAuditDirectory(dataFolder, "../outside"));
+    Path absoluteOutside = dataFolder.resolveSibling("outside-audit").toAbsolutePath();
     assertThatIllegalArgumentException().isThrownBy(() ->
-        ExchangeRuntimeFactory.requireAuditDirectory(dataFolder, "C:/outside"));
+        ExchangeRuntimeFactory.requireAuditDirectory(dataFolder, absoluteOutside.toString()));
   }
 
   @Test
@@ -87,6 +90,26 @@ class ExchangeRuntimeFactoryTest {
     completed.set(true);
 
     assertThat(completed).isTrue();
+  }
+
+  @Test
+  void startupRollbackClosesResourcesInReverseOrderAndSuppressesLaterFailures() {
+    List<String> closes = new ArrayList<>();
+    Exception startupFailure = new Exception("startup failed");
+    AutoCloseable first = () -> closes.add("first");
+    AutoCloseable second = () -> {
+      closes.add("second");
+      throw new IllegalStateException("second close failed");
+    };
+    AutoCloseable third = () -> closes.add("third");
+
+    ExchangeRuntimeFactory.closeOnStartupFailure(
+        startupFailure, List.of(first, second, third));
+
+    assertThat(closes).containsExactly("third", "second", "first");
+    assertThat(startupFailure.getSuppressed())
+        .extracting(Throwable::getMessage)
+        .containsExactly("second close failed");
   }
 
   @Test

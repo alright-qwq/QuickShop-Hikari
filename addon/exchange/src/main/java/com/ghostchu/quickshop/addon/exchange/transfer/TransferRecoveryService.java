@@ -97,15 +97,15 @@ public final class TransferRecoveryService {
     if (transfer.status() != TransferStatus.PROCESSING) {
       return transfer;
     }
-    if (markedQuantity(transfer) >= transfer.amount().longValueExact()) {
-      clearMarker(transfer);
+    if (markedQuantity(transfer) == transfer.amount().longValueExact()
+        && markerCleanupConfirmed(transfer)) {
       return transfers.transition(transfer.transferId(), transfer.version(),
           TransferStatus.PROCESSING, TransferStatus.FAILED,
           "interrupted item deposit was not removed");
     }
     return transfers.transition(transfer.transferId(), transfer.version(),
         TransferStatus.PROCESSING, TransferStatus.REVIEW_REQUIRED,
-        "interrupted item deposit marker is uncertain");
+        "interrupted item deposit marker cleanup is uncertain");
   }
 
   private TransferRecord recoverItemWithdrawal(TransferRecord transfer) throws SQLException {
@@ -116,19 +116,18 @@ public final class TransferRecoveryService {
     if (transfer.status() != TransferStatus.PROCESSING) {
       return transfer;
     }
-    if (markedQuantity(transfer) < transfer.amount().longValueExact()) {
+    if (markedQuantity(transfer) != transfer.amount().longValueExact()
+        || !markerCleanupConfirmed(transfer)) {
       return transfers.transition(transfer.transferId(), transfer.version(),
           TransferStatus.PROCESSING, TransferStatus.REVIEW_REQUIRED,
-          "interrupted item withdrawal marker is uncertain");
+          "interrupted item withdrawal marker cleanup is uncertain");
     }
-    TransferRecord completed = repository.inTransaction(transaction -> {
+    return repository.inTransaction(transaction -> {
       transaction.consumeFrozenItems(transfer.accountId(), transfer.assetId(),
           transfer.amount().longValueExact());
       transaction.appendJournal(TransferJournals.itemWithdrawal(transfer, transfer.updatedAt()));
       return transaction.completeTransfer(transfer.transferId(), transfer.version());
     });
-    clearMarker(completed);
-    return completed;
   }
 
   private long markedQuantity(TransferRecord transfer) {
@@ -136,6 +135,16 @@ public final class TransferRecoveryService {
       return inventory.markedQuantity(transfer.accountId(), transfer.transferId()).join();
     } catch (RuntimeException failure) {
       return -1;
+    }
+  }
+
+  private boolean markerCleanupConfirmed(TransferRecord transfer) {
+    try {
+      return inventory.clearMarker(transfer.accountId(), transfer.transferId()).join()
+          == InventoryResult.SUCCESS
+          && inventory.markedQuantity(transfer.accountId(), transfer.transferId()).join() == 0;
+    } catch (RuntimeException failure) {
+      return false;
     }
   }
 

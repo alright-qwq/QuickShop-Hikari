@@ -20,4 +20,5 @@ public record TableNames(String prefix) {
   public String candles1m() { return prefix + "exchange_candles_1m"; }
   public String auditAlerts() { return prefix + "exchange_audit_alerts"; }
   public String auditRecords() { return prefix + "exchange_audit_records"; }
+  public String writerEpoch() { return prefix + "exchange_writer_epoch"; }
 }

@@ -1,5 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.runtime;
 
+import com.ghostchu.quickshop.addon.exchange.persistence.TableNames;
+import com.ghostchu.quickshop.addon.exchange.persistence.TransactionFence;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -30,6 +32,19 @@ class MySqlSingleWriterGuardTest {
     }
     assertThat(fenced).isTrue();
     assertThat(guard.held()).isFalse();
+    guard.close();
+  }
+
+  @Test
+  void activatesTheDatabaseEpochOnItsDedicatedLockConnection() throws Exception {
+    AtomicBoolean valid = new AtomicBoolean(true);
+    MySqlSingleWriterGuard guard = new MySqlSingleWriterGuard(
+        () -> lockConnection(valid), "qs_", Duration.ofSeconds(1));
+    guard.acquire();
+
+    TransactionFence fence = guard.activateTransactionFence(new TableNames("qs_"));
+
+    assertThat(fence).isNotNull();
     guard.close();
   }
 
@@ -74,6 +89,8 @@ class MySqlSingleWriterGuardTest {
         MySqlSingleWriterGuardTest.class.getClassLoader(), new Class<?>[] {Connection.class},
         (proxy, method, arguments) -> switch (method.getName()) {
           case "prepareStatement" -> statement();
+          case "getAutoCommit" -> true;
+          case "setAutoCommit", "commit", "rollback" -> null;
           case "isValid" -> valid.get();
           case "isClosed" -> !valid.get();
           case "close" -> null;
@@ -87,8 +104,10 @@ class MySqlSingleWriterGuardTest {
     return (PreparedStatement) Proxy.newProxyInstance(
         MySqlSingleWriterGuardTest.class.getClassLoader(), new Class<?>[] {PreparedStatement.class},
         (proxy, method, arguments) -> switch (method.getName()) {
-          case "setString", "close", "execute" -> null;
+          case "setString", "setLong", "close" -> null;
+          case "execute" -> true;
           case "executeQuery" -> resultSet();
+          case "executeUpdate" -> 1;
           case "unwrap" -> null;
           case "isWrapperFor" -> false;
           default -> throw new UnsupportedOperationException(method.getName());
@@ -101,7 +120,9 @@ class MySqlSingleWriterGuardTest {
         MySqlSingleWriterGuardTest.class.getClassLoader(), new Class<?>[] {ResultSet.class},
         (proxy, method, arguments) -> switch (method.getName()) {
           case "next" -> first.getAndSet(false);
+          case "getBoolean" -> true;
           case "getInt" -> 1;
+          case "getLong" -> 0L;
           case "close" -> null;
           case "unwrap" -> null;
           case "isWrapperFor" -> false;

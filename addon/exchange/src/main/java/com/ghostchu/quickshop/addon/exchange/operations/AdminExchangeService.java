@@ -14,9 +14,13 @@ import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferStatus;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferType;
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -79,12 +83,12 @@ public final class AdminExchangeService {
         if (!RECONCILE_OPERATION.equals(stored.operation())) {
           throw new IllegalStateException("request id belongs to another operation");
         }
-        return tx.reconcile();
+        return reconciliationReport(stored.payload());
       }
       ReconciliationReport report = tx.reconcile();
       protectAffectedMarkets(tx, actorId, report);
       tx.putRequestResult(new StoredRequestResult(
-          actorId, requestId, RECONCILE_OPERATION, reconciliationPayload(report)));
+          actorId, requestId, RECONCILE_OPERATION, reconciliationStoredPayload(report)));
       return report;
     });
   }
@@ -131,6 +135,49 @@ public final class AdminExchangeService {
   public TransferRecord resolveReview(
       UUID actorId, UUID requestId, UUID transferId, ReviewDecision decision, String evidence)
       throws SQLException {
+    return resolveReview(actorId, requestId, transferId, decision, evidence, false);
+  }
+
+  TransferRecord resolvedReviewRequest(
+      UUID actorId, UUID requestId, UUID transferId, ReviewDecision decision) throws SQLException {
+    Objects.requireNonNull(actorId, "actorId");
+    Objects.requireNonNull(requestId, "requestId");
+    Objects.requireNonNull(transferId, "transferId");
+    Objects.requireNonNull(decision, "decision");
+    ExchangeRepository store = requireRepository();
+    return store.inTransaction(tx -> {
+      StoredRequestResult stored = tx.requestResult(actorId, requestId).orElse(null);
+      return stored == null ? null : resolvedReviewResult(tx, stored, transferId, decision);
+    });
+  }
+
+  TransferRecord resolveVerifiedItemWithdrawalFailure(
+      UUID actorId, UUID requestId, UUID transferId, long markedQuantity, String operatorEvidence)
+      throws SQLException {
+    if (markedQuantity != 0) {
+      throw new IllegalStateException("marked item delivery still exists");
+    }
+    String evidence = "machine-marker-observation:transfer=" + transferId
+        + ";marked=0;operator=" + normalizeReviewEvidence(operatorEvidence);
+    return resolveReview(actorId, requestId, transferId,
+        ReviewDecision.CONFIRM_EXTERNAL_FAILURE, evidence, true);
+  }
+
+  TransferRecord resolveVerifiedItemMarkerCleanup(
+      UUID actorId, UUID requestId, UUID transferId, ReviewDecision decision,
+      long markedBefore, long markedAfter, String operatorEvidence) throws SQLException {
+    if (markedAfter != 0) {
+      throw new IllegalStateException("marked items remain after cleanup");
+    }
+    String evidence = "machine-marker-cleanup:transfer=" + transferId
+        + ";before=" + markedBefore + ";after=0;operator="
+        + normalizeReviewEvidence(operatorEvidence);
+    return resolveReview(actorId, requestId, transferId, decision, evidence, true);
+  }
+
+  private TransferRecord resolveReview(
+      UUID actorId, UUID requestId, UUID transferId, ReviewDecision decision, String evidence,
+      boolean machineVerifiedItemReview) throws SQLException {
     Objects.requireNonNull(actorId, "actorId");
     Objects.requireNonNull(requestId, "requestId");
     Objects.requireNonNull(transferId, "transferId");
@@ -150,7 +197,7 @@ public final class AdminExchangeService {
       }
       TransferRecord review = tx.transfer(transferId)
           .orElseThrow(() -> new IllegalArgumentException("unknown transfer: " + transferId));
-      requireReviewDecision(review, decision);
+      requireReviewDecision(review, decision, machineVerifiedItemReview);
       applyReviewSettlement(tx, review, decision, resolvedAt);
       TransferStatus target = decision == ReviewDecision.CONFIRM_EXTERNAL_SUCCESS
           ? TransferStatus.COMPLETED : TransferStatus.FAILED;
@@ -258,6 +305,60 @@ public final class AdminExchangeService {
         + ";underReservedOrders=" + report.underReservedOrders();
   }
 
+  private static String reconciliationStoredPayload(ReconciliationReport report) {
+    return "v1|" + report.underReservedOrders()
+        + "|" + differencePayload(report.ledgerDifferences())
+        + "|" + differencePayload(report.custodyDifferences());
+  }
+
+  private static String differencePayload(Map<String, BigDecimal> differences) {
+    Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+    return differences.entrySet().stream()
+        .sorted(Map.Entry.comparingByKey())
+        .map(entry -> encoder.encodeToString(entry.getKey().getBytes(StandardCharsets.UTF_8))
+            + ":" + entry.getValue().toPlainString())
+        .collect(java.util.stream.Collectors.joining(","));
+  }
+
+  private static ReconciliationReport reconciliationReport(String payload) {
+    if (payload == null || !payload.startsWith("v1|")) {
+      throw new IllegalStateException("stored reconciliation result is invalid");
+    }
+    String[] fields = payload.split("\\|", -1);
+    if (fields.length != 4) {
+      throw new IllegalStateException("stored reconciliation result is invalid");
+    }
+    try {
+      return new ReconciliationReport(
+          parseDifferences(fields[2]),
+          parseDifferences(fields[3]),
+          Integer.parseInt(fields[1]));
+    } catch (IllegalArgumentException failure) {
+      throw new IllegalStateException("stored reconciliation result is invalid", failure);
+    }
+  }
+
+  private static Map<String, BigDecimal> parseDifferences(String payload) {
+    Map<String, BigDecimal> differences = new LinkedHashMap<>();
+    if (payload.isEmpty()) {
+      return differences;
+    }
+    Base64.Decoder decoder = Base64.getUrlDecoder();
+    for (String entry : payload.split(",", -1)) {
+      int separator = entry.indexOf(':');
+      if (separator <= 0 || separator == entry.length() - 1) {
+        throw new IllegalArgumentException("invalid reconciliation difference");
+      }
+      String assetId = new String(
+          decoder.decode(entry.substring(0, separator)), StandardCharsets.UTF_8);
+      BigDecimal difference = new BigDecimal(entry.substring(separator + 1));
+      if (assetId.isBlank() || differences.putIfAbsent(assetId, difference) != null) {
+        throw new IllegalArgumentException("invalid reconciliation asset");
+      }
+    }
+    return differences;
+  }
+
   private static void applyReviewSettlement(
       ExchangeTransaction tx, TransferRecord transfer, ReviewDecision decision, Instant at)
       throws SQLException {
@@ -299,7 +400,9 @@ public final class AdminExchangeService {
     }
   }
 
-  private static void requireReviewDecision(TransferRecord transfer, ReviewDecision decision) {
+  private static void requireReviewDecision(
+      TransferRecord transfer, ReviewDecision decision,
+      boolean machineVerifiedItemReview) {
     if (transfer.status() != TransferStatus.REVIEW_REQUIRED) {
       throw new IllegalStateException("transfer is not awaiting review: " + transfer.status());
     }
@@ -310,12 +413,20 @@ public final class AdminExchangeService {
           "item deposit success requires evidence that the marked items were removed");
     }
     if (transfer.type() == TransferType.ITEM_DEPOSIT
-        && decision == ReviewDecision.CONFIRM_EXTERNAL_FAILURE) {
+        && decision == ReviewDecision.CONFIRM_EXTERNAL_FAILURE
+        && !machineVerifiedItemReview) {
       throw new IllegalStateException(
           "item deposit failure requires marker cleanup before terminal resolution");
     }
     if (transfer.type() == TransferType.ITEM_WITHDRAWAL
-        && decision == ReviewDecision.CONFIRM_EXTERNAL_SUCCESS) {
+        && decision == ReviewDecision.CONFIRM_EXTERNAL_FAILURE
+        && !machineVerifiedItemReview) {
+      throw new IllegalStateException(
+          "item withdrawal failure requires machine marker verification before releasing custody");
+    }
+    if (transfer.type() == TransferType.ITEM_WITHDRAWAL
+        && decision == ReviewDecision.CONFIRM_EXTERNAL_SUCCESS
+        && !machineVerifiedItemReview) {
       throw new IllegalStateException(
           "item withdrawal success requires marker cleanup before terminal resolution");
     }

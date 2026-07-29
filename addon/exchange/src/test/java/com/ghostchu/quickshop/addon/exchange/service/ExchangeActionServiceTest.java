@@ -4,6 +4,8 @@ import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 import java.math.BigDecimal;
+import java.sql.SQLException;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -21,6 +23,18 @@ class ExchangeActionServiceTest {
     assertThatThrownBy(() -> actions.submitOrder(draft))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("unknown market");
+  }
+
+  @Test
+  void preservesTheFirstDatabaseFailureAcrossMarketCancellationLookup() {
+    SQLException first = new SQLException("first database failure");
+    SQLException second = new SQLException("second database failure");
+
+    SQLException combined = ExchangeActionService.firstCancellationFailure(
+        List.of(first, second));
+
+    org.assertj.core.api.Assertions.assertThat((Object) combined).isSameAs(first);
+    org.assertj.core.api.Assertions.assertThat(combined.getSuppressed()).containsExactly(second);
   }
 
   private static ExchangeActionService.TransferActions transfers() {

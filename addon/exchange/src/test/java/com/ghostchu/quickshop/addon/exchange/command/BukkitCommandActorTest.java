@@ -6,6 +6,7 @@ import be.seeseemelk.mockbukkit.ServerMock;
 import be.seeseemelk.mockbukkit.entity.PlayerMock;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -24,6 +25,25 @@ class BukkitCommandActorTest {
   @AfterAll
   static void stopServer() {
     MockBukkit.unmock();
+  }
+
+  @Test
+  void dispatchesAsynchronousCompletionThroughThePlayerEntityScheduler() {
+    PlayerMock player = server.addPlayer();
+    AtomicInteger scheduled = new AtomicInteger();
+    AtomicInteger completed = new AtomicInteger();
+    AddonMessageService messages = new AddonMessageService(Map.of());
+    BukkitCommandActor actor = new BukkitCommandActor(player, messages, Locale.US,
+        (menu, page) -> {}, (scheduledPlayer, completion) -> {
+          assertThat(scheduledPlayer).isSameAs(player);
+          scheduled.incrementAndGet();
+          completion.run();
+        });
+
+    actor.dispatchCompletion(completed::incrementAndGet);
+
+    assertThat(scheduled).hasValue(1);
+    assertThat(completed).hasValue(1);
   }
 
   @Test

@@ -59,12 +59,20 @@ public final class JdbcExchangeRepository
   private final ConnectionProvider connections;
   private final SqlDialect dialect;
   private final TableNames tables;
+  private final TransactionFence transactionFence;
 
   public JdbcExchangeRepository(
       ConnectionProvider connections, SqlDialect dialect, TableNames tables) {
+    this(connections, dialect, tables, TransactionFence.NONE);
+  }
+
+  public JdbcExchangeRepository(
+      ConnectionProvider connections, SqlDialect dialect, TableNames tables,
+      TransactionFence transactionFence) {
     this.connections = Objects.requireNonNull(connections, "connections");
     this.dialect = Objects.requireNonNull(dialect, "dialect");
     this.tables = Objects.requireNonNull(tables, "tables");
+    this.transactionFence = Objects.requireNonNull(transactionFence, "transactionFence");
   }
 
   /** Replaces the persisted schedule only when every existing version remains unchanged. */
@@ -416,6 +424,7 @@ public final class JdbcExchangeRepository
         connection.setAutoCommit(false);
       }
       try {
+        transactionFence.acquire(connection);
         T result = work.apply(new JdbcTransaction(connection, dialect, tables));
         if (dialect == SqlDialect.SQLITE) {
           try (Statement commit = connection.createStatement()) {

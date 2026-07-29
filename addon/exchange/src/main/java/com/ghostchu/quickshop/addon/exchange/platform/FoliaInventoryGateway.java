@@ -87,9 +87,31 @@ public final class FoliaInventoryGateway implements InventoryGateway {
   @Override
   public CompletableFuture<Long> markedQuantity(UUID playerId, UUID transferId) {
     if (transferId == null) {
-      return CompletableFuture.completedFuture(0L);
+      return CompletableFuture.failedFuture(new IllegalArgumentException("transferId is required"));
     }
-    return atPlayer(playerId, player -> markedQuantity(player.getInventory(), transferId), 0L);
+    Player player = playerLookup.apply(playerId);
+    if (player == null || !player.isOnline()) {
+      return CompletableFuture.failedFuture(new IllegalStateException(
+          "player inventory is unavailable for marker observation"));
+    }
+    CompletableFuture<Long> future = new CompletableFuture<>();
+    try {
+      entityScheduler.accept(player, () -> {
+        if (!player.isOnline()) {
+          future.completeExceptionally(new IllegalStateException(
+              "player inventory is unavailable for marker observation"));
+          return;
+        }
+        try {
+          future.complete(markedQuantity(player.getInventory(), transferId));
+        } catch (RuntimeException failure) {
+          future.completeExceptionally(failure);
+        }
+      });
+    } catch (RuntimeException failure) {
+      future.completeExceptionally(failure);
+    }
+    return future;
   }
 
   @Override

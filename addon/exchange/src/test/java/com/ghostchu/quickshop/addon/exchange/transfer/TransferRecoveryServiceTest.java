@@ -55,6 +55,69 @@ class TransferRecoveryServiceTest {
     }
   }
 
+  @org.junit.jupiter.api.Test
+  void keepsInterruptedDepositInReviewWhenMarkerCleanupFails() throws Exception {
+    try (Fixture fixture = Fixture.interrupted(TransferType.ITEM_DEPOSIT)) {
+      fixture.gateway().markedQuantity = 2;
+      fixture.gateway().clearResult = InventoryResult.UNKNOWN;
+
+      TransferRecord recovered = fixture.recovery().recover(fixture.transfer()).join();
+
+      assertThat(recovered.status()).isEqualTo(TransferStatus.REVIEW_REQUIRED);
+      assertThat(fixture.gateway().markedQuantity).isEqualTo(2);
+    }
+  }
+
+  @org.junit.jupiter.api.Test
+  void keepsInterruptedWithdrawalInReviewWhenMarkerCleanupFails() throws Exception {
+    try (Fixture fixture = Fixture.interrupted(TransferType.ITEM_WITHDRAWAL)) {
+      fixture.gateway().markedQuantity = 2;
+      fixture.gateway().clearResult = InventoryResult.OFFLINE;
+
+      TransferRecord recovered = fixture.recovery().recover(fixture.transfer()).join();
+
+      assertThat(recovered.status()).isEqualTo(TransferStatus.REVIEW_REQUIRED);
+      assertThat(fixture.gateway().markedQuantity).isEqualTo(2);
+    }
+  }
+
+  @org.junit.jupiter.api.Test
+  void keepsInterruptedDepositInReviewWhenMarkerCustodyIsExcessive() throws Exception {
+    try (Fixture fixture = Fixture.interrupted(TransferType.ITEM_DEPOSIT)) {
+      fixture.gateway().markedQuantity = 3;
+
+      TransferRecord recovered = fixture.recovery().recover(fixture.transfer()).join();
+
+      assertThat(recovered.status()).isEqualTo(TransferStatus.REVIEW_REQUIRED);
+      assertThat(fixture.gateway().markedQuantity).isEqualTo(3);
+    }
+  }
+
+  @org.junit.jupiter.api.Test
+  void keepsInterruptedWithdrawalInReviewWhenMarkerCustodyIsExcessive() throws Exception {
+    try (Fixture fixture = Fixture.interrupted(TransferType.ITEM_WITHDRAWAL)) {
+      fixture.gateway().markedQuantity = 3;
+
+      TransferRecord recovered = fixture.recovery().recover(fixture.transfer()).join();
+
+      assertThat(recovered.status()).isEqualTo(TransferStatus.REVIEW_REQUIRED);
+      assertThat(fixture.gateway().markedQuantity).isEqualTo(3);
+    }
+  }
+
+  @org.junit.jupiter.api.Test
+  void keepsInterruptedWithdrawalInReviewWhenCleanupLeavesMarkedItems() throws Exception {
+    try (Fixture fixture = Fixture.interrupted(TransferType.ITEM_WITHDRAWAL)) {
+      fixture.gateway().markedQuantity = 2;
+      fixture.gateway().clearRemovesMarkers = false;
+
+      TransferRecord recovered = fixture.recovery().recover(fixture.transfer()).join();
+
+      assertThat(recovered.status()).isEqualTo(TransferStatus.REVIEW_REQUIRED);
+      assertThat(fixture.gateway().markedQuantity).isEqualTo(2);
+    }
+  }
+
   private static final class Fixture implements AutoCloseable {
     private final JdbcExchangeRepository repository;
     private final TransferRecord transfer;
@@ -114,6 +177,8 @@ class TransferRecoveryServiceTest {
 
   private static final class FakeInventoryGateway implements InventoryGateway {
     private long markedQuantity;
+    private InventoryResult clearResult = InventoryResult.SUCCESS;
+    private boolean clearRemovesMarkers = true;
 
     @Override
     public CompletableFuture<InventoryResult> markForDeposit(
@@ -140,8 +205,10 @@ class TransferRecoveryServiceTest {
 
     @Override
     public CompletableFuture<InventoryResult> clearMarker(UUID playerId, UUID transferId) {
-      markedQuantity = 0;
-      return CompletableFuture.completedFuture(InventoryResult.SUCCESS);
+      if (clearResult == InventoryResult.SUCCESS && clearRemovesMarkers) {
+        markedQuantity = 0;
+      }
+      return CompletableFuture.completedFuture(clearResult);
     }
   }
 }

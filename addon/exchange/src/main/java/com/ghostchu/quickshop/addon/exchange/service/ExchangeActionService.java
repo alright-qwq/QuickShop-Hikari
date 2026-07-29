@@ -5,6 +5,8 @@ import com.ghostchu.quickshop.addon.exchange.transfer.ItemTransferService;
 import com.ghostchu.quickshop.addon.exchange.transfer.MoneyTransferService;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -60,20 +62,34 @@ public final class ExchangeActionService {
     Objects.requireNonNull(accountId, "accountId");
     Objects.requireNonNull(requestId, "requestId");
     Objects.requireNonNull(orderId, "orderId");
-    SQLException lastFailure = null;
+    List<SQLException> databaseFailures = new ArrayList<>();
     for (PersistentOrderService market : markets.values()) {
       try {
         return market.cancel(accountId, requestId, orderId);
       } catch (IllegalArgumentException failure) {
-        lastFailure = null;
+        // The order may belong to a later configured market.
       } catch (SQLException failure) {
-        lastFailure = failure;
+        databaseFailures.add(failure);
       }
     }
-    if (lastFailure != null) {
-      throw lastFailure;
+    if (!databaseFailures.isEmpty()) {
+      throw firstCancellationFailure(databaseFailures);
     }
     throw new IllegalArgumentException("order is not open: " + orderId);
+  }
+
+  static SQLException firstCancellationFailure(List<SQLException> failures) {
+    if (failures == null || failures.isEmpty()) {
+      throw new IllegalArgumentException("at least one cancellation failure is required");
+    }
+    SQLException first = failures.getFirst();
+    for (int index = 1; index < failures.size(); index++) {
+      SQLException later = failures.get(index);
+      if (later != first) {
+        first.addSuppressed(later);
+      }
+    }
+    return first;
   }
 
   public CompletableFuture<TransferRecord> submitTransfer(

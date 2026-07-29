@@ -97,20 +97,62 @@ class ExchangeRuntimeTest {
   }
 
   @Test
-  void keepsWriterHeldWhenOperationalDrainFails() throws Exception {
+  void retriesOperationalDrainBeforeReleasingWriter() throws Exception {
     AtomicBoolean dispatcherClosed = new AtomicBoolean();
+    java.util.concurrent.atomic.AtomicInteger drainAttempts =
+        new java.util.concurrent.atomic.AtomicInteger();
     TrackingGuard writer = new TrackingGuard(dispatcherClosed);
     ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {},
-        () -> dispatcherClosed.set(true), () -> {},
-        () -> { throw new IllegalStateException("drain failed"); });
+        () -> dispatcherClosed.set(true), () -> {}, () -> {
+          if (drainAttempts.incrementAndGet() == 1) {
+            throw new IllegalStateException("drain failed");
+          }
+        });
     runtime.start();
 
     assertThatThrownBy(runtime::close)
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("drain failed");
-
     assertThat(runtime.acceptingWrites()).isFalse();
+    assertThat(runtime.closed()).isFalse();
     assertThat(writer.held()).isTrue();
+
+    runtime.close();
+
+    assertThat(drainAttempts).hasValue(2);
+    assertThat(runtime.closed()).isTrue();
+    assertThat(writer.held()).isFalse();
+    assertThat(writer.closeCalls()).isEqualTo(1);
+  }
+
+  @Test
+  void retriesDispatcherDrainBeforeRunningLaterShutdownPhases() throws Exception {
+    AtomicBoolean dispatcherClosed = new AtomicBoolean();
+    java.util.concurrent.atomic.AtomicInteger dispatcherAttempts =
+        new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger finalFlushes =
+        new java.util.concurrent.atomic.AtomicInteger();
+    TrackingGuard writer = new TrackingGuard(dispatcherClosed);
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {}, () -> {
+      if (dispatcherAttempts.incrementAndGet() == 1) {
+        throw new IllegalStateException("dispatcher drain failed");
+      }
+      dispatcherClosed.set(true);
+    }, () -> {}, finalFlushes::incrementAndGet);
+    runtime.start();
+
+    assertThatThrownBy(runtime::close)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("dispatcher drain failed");
+    assertThat(finalFlushes).hasValue(0);
+    assertThat(writer.held()).isTrue();
+
+    runtime.close();
+
+    assertThat(dispatcherAttempts).hasValue(2);
+    assertThat(finalFlushes).hasValue(1);
+    assertThat(runtime.closed()).isTrue();
+    assertThat(writer.closeCalls()).isEqualTo(1);
   }
 
   @Test
@@ -207,6 +249,7 @@ class ExchangeRuntimeTest {
     private boolean held;
     private boolean closedAfterDispatcher;
     private boolean runningGuardedWork;
+    private int closeCalls;
     private Runnable onLockLost = () -> {};
 
     private TrackingGuard(AtomicBoolean dispatcherClosed) {
@@ -242,6 +285,7 @@ class ExchangeRuntimeTest {
 
     @Override
     public void close() {
+      closeCalls++;
       closedAfterDispatcher = dispatcherClosed.get();
       held = false;
     }
@@ -258,6 +302,10 @@ class ExchangeRuntimeTest {
 
     private boolean closedAfterDispatcher() {
       return closedAfterDispatcher;
+    }
+
+    private int closeCalls() {
+      return closeCalls;
     }
 
     private boolean runningGuardedWork() {

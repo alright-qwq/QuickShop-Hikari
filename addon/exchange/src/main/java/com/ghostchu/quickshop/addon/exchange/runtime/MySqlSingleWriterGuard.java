@@ -1,5 +1,8 @@
 package com.ghostchu.quickshop.addon.exchange.runtime;
 
+import com.ghostchu.quickshop.addon.exchange.persistence.MySqlWriterEpoch;
+import com.ghostchu.quickshop.addon.exchange.persistence.TableNames;
+import com.ghostchu.quickshop.addon.exchange.persistence.TransactionFence;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -86,6 +89,22 @@ public final class MySqlSingleWriterGuard implements SingleWriterGuard {
       return true;
     } finally {
       fence.readLock().unlock();
+    }
+  }
+
+  /** Activates a durable epoch while this exact connection still owns the advisory lock. */
+  @Override
+  public TransactionFence activateTransactionFence(TableNames tables) throws Exception {
+    fence.writeLock().lock();
+    try {
+      synchronized (this) {
+        if (!held()) {
+          throw new IllegalStateException("exchange writer lock is unavailable");
+        }
+        return MySqlWriterEpoch.activate(connection, lockName, tables);
+      }
+    } finally {
+      fence.writeLock().unlock();
     }
   }
 
