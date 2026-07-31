@@ -23,6 +23,10 @@ public final class MarketChartRenderer {
     this.options = Objects.requireNonNull(options, "options");
   }
 
+  public String optionsFingerprint() {
+    return options.fingerprint();
+  }
+
   public MarketChartImage render(MarketChartSeries series, MarketChartMode mode,
                                  MarketChartDimensions dimensions) {
     BigDecimal latest = series.candles().isEmpty()

@@ -10,6 +10,7 @@ import com.ghostchu.quickshop.addon.exchange.core.trust.TradeInfluence;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceAdjustment;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceState;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
+import com.ghostchu.quickshop.addon.exchange.display.TrustedPricePoint;
 import com.ghostchu.quickshop.addon.exchange.repository.TrustedMarketSnapshot;
 import java.math.BigDecimal;
 import java.nio.file.Path;
@@ -17,6 +18,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.time.Instant;
 import java.util.ConcurrentModificationException;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -49,6 +51,25 @@ class JdbcTrustedMarketTest {
     assertThat(restored.state()).isEqualTo(nextState);
     assertThat(restored.influences()).containsExactly(influence);
     assertThat(restored.adjustments()).containsExactly(adjustment);
+  }
+
+  @Test
+  void loadsTrustedReferencePointsFromInfluencesAndAdjustmentsInStableOrder(@TempDir Path temp)
+      throws Exception {
+    Fixture fixture = fixture(temp);
+    fixture.repository.inTransaction(tx -> {
+      tx.insertTradeInfluence(influence());
+      tx.insertTrustedAdjustment(adjustment());
+      return null;
+    });
+
+    List<TrustedPricePoint> points = fixture.repository.loadTrustedPricePoints(
+        MARKET, NOW.minusSeconds(1), NOW.plusSeconds(2));
+
+    assertThat(points).extracting(TrustedPricePoint::at)
+        .containsExactly(NOW, NOW.plusSeconds(1));
+    assertThat(points).extracting(TrustedPricePoint::price)
+        .containsExactly(new BigDecimal("100.5000000000"), new BigDecimal("100.4000000000"));
   }
 
   @Test

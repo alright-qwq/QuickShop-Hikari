@@ -1,6 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.display;
 
 import java.time.Duration;
+import java.util.Arrays;
 
 public enum MarketChartInterval {
   FIVE_MINUTES("5m", Duration.ofMinutes(5)),
@@ -23,5 +24,15 @@ public enum MarketChartInterval {
 
   public Duration duration() {
     return duration;
+  }
+
+  public static MarketChartInterval parse(String value) {
+    if (value == null || value.isBlank() || value.trim().equalsIgnoreCase("auto")) {
+      return null;
+    }
+    return Arrays.stream(values())
+        .filter(interval -> interval.label.equalsIgnoreCase(value.trim()))
+        .findFirst()
+        .orElseThrow(() -> new IllegalArgumentException("unsupported chart interval: " + value));
   }
 }

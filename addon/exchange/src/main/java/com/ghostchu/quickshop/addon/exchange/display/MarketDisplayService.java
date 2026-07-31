@@ -50,11 +50,13 @@ public final class MarketDisplayService implements AutoCloseable {
   private CompletableFuture<Void> refreshMap(MapWallBinding binding) {
     return dataSource.snapshot(binding.marketId(), binding.period(), clock.instant())
         .thenCompose(snapshot -> {
-          int maximumPoints = Math.max(1, binding.dimensions().pixelWidth() / 3);
+          MarketChartSeries series = seriesBuilder.build(snapshot.candles(), snapshot.trustedPoints(),
+              binding.dimensions(), binding.period(), snapshot.liquidityTier());
           MarketChartCache.Key key = new MarketChartCache.Key(binding.marketId(), binding.mode(),
-              binding.period(), binding.dimensions(), snapshot.fingerprint());
+              binding.period(), binding.dimensions(), snapshot.fingerprint(),
+              renderer.optionsFingerprint(), snapshot.trustedStateVersion(), series.interval());
           MarketChartImage image = cache.getOrRender(key, () -> renderer.render(
-              seriesBuilder.build(snapshot.candles(), maximumPoints), binding.mode(),
+              series, binding.mode(),
               binding.dimensions(), snapshot.displayName(), binding.period(),
               snapshot.quote().lastPrice(), snapshot.quote().change24h()));
           List<MarketChartImage> slices = MarketChartSlices.slice(image, binding.dimensions());

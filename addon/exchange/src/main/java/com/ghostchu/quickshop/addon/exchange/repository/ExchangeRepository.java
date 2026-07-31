@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.repository;
 
 import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
+import com.ghostchu.quickshop.addon.exchange.display.TrustedPricePoint;
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -40,6 +41,11 @@ public interface ExchangeRepository {
   default List<Candle> loadCandles(String marketId, Instant fromInclusive, Instant toExclusive)
       throws SQLException {
     throw new UnsupportedOperationException("candle persistence is not supported by this repository");
+  }
+
+  default List<TrustedPricePoint> loadTrustedPricePoints(
+      String marketId, Instant fromInclusive, Instant toExclusive) throws SQLException {
+    throw new UnsupportedOperationException("trusted chart points are not supported by this repository");
   }
 
   default Optional<Candle> latestCandle(String marketId, Instant beforeExclusive)

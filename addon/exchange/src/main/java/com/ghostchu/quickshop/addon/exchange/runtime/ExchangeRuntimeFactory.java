@@ -15,6 +15,7 @@ import com.ghostchu.quickshop.addon.exchange.display.ExchangeMarketDisplayDataSo
 import com.ghostchu.quickshop.addon.exchange.display.FoliaDisplayScheduler;
 import com.ghostchu.quickshop.addon.exchange.display.MarketChartCache;
 import com.ghostchu.quickshop.addon.exchange.display.MarketChartOptions;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartInterval;
 import com.ghostchu.quickshop.addon.exchange.display.MarketChartRenderer;
 import com.ghostchu.quickshop.addon.exchange.display.MarketChartSeriesBuilder;
 import com.ghostchu.quickshop.addon.exchange.display.MarketDisplayAdministration;
@@ -181,13 +182,17 @@ public final class ExchangeRuntimeFactory {
               entry.getKey(), fromInclusive, toExclusive),
           (fromInclusive, toExclusive) -> chartOptions.includeLiveCandle()
               ? marketData.liveCandles(entry.getKey(), fromInclusive, toExclusive)
-              : List.of()));
+              : List.of(),
+          (fromInclusive, toExclusive) -> repository.loadTrustedPricePoints(
+              entry.getKey(), fromInclusive, toExclusive),
+          entry.getValue()::trustedPriceState));
     }
     MarketDisplayRegistry displayRegistry = MarketDisplayRegistry.load(
         addon.getDataFolder().toPath().resolve("displays.yml"));
     MarketDisplayService displayService = new MarketDisplayService(
         new ExchangeMarketDisplayDataSource(displayMarkets, viewExecutor),
-        new MarketChartSeriesBuilder(), new MarketChartRenderer(chartOptions), new MarketChartCache(256),
+        new MarketChartSeriesBuilder(chartOptions.fixedInterval()),
+        new MarketChartRenderer(chartOptions), new MarketChartCache(256),
         new MarketSignFormatter(), new FoliaDisplayScheduler(), Clock.systemUTC());
     startupResources.add(displayService);
     DrainingExecutor displayPersistence = new DrainingExecutor(
@@ -316,7 +321,14 @@ public final class ExchangeRuntimeFactory {
         config.getBoolean("displays.chart.professional-layout", true),
         config.getBoolean("displays.chart.include-live-candle", true),
         config.getBoolean("displays.chart.show-volume", true),
-        config.getBoolean("displays.chart.show-latest-price-line", true));
+        config.getBoolean("displays.chart.show-latest-price-line", true),
+        config.getBoolean("displays.chart.show-trusted-price-line", true),
+        config.getBoolean("displays.chart.show-gap-markers", true),
+        chartInterval(config.getString("displays.chart.interval", "auto")));
+  }
+
+  static MarketChartInterval chartInterval(String configured) {
+    return MarketChartInterval.parse(configured);
   }
 
   static void refreshDisplays(MarketDisplayRegistry registry, MarketDisplayService displays,

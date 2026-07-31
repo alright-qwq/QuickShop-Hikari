@@ -2,6 +2,8 @@ package com.ghostchu.quickshop.addon.exchange.display;
 
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote;
+import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceState;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,8 +43,30 @@ public final class ExchangeMarketDisplayDataSource implements MarketDisplayDataS
             .forEach(candle -> candlesByBucket.put(candle.bucketStart(), candle));
         market.liveCandles().load(fromInclusive, toExclusive)
             .forEach(candle -> candlesByBucket.put(candle.bucketStart(), candle));
+        List<TrustedPricePoint> trustedPoints = market.trustedPoints()
+            .load(fromInclusive, toExclusive);
+        TrustedPriceState trustedState = market.trustedState().get();
+        if (trustedState != null) {
+          Instant stateAt = trustedState.lastEvaluatedAt();
+          if (stateAt.isBefore(fromInclusive)) {
+            stateAt = fromInclusive;
+          } else if (!stateAt.isBefore(toExclusive)) {
+            stateAt = toExclusive.minusNanos(1);
+          }
+          TreeMap<Instant, TrustedPricePoint> byTime = new TreeMap<>();
+          trustedPoints.forEach(point -> byTime.put(point.at(), point));
+          if (byTime.isEmpty()
+              || byTime.lastEntry().getValue().price().compareTo(trustedState.trustedPrice()) != 0) {
+            byTime.putIfAbsent(stateAt, new TrustedPricePoint(stateAt, trustedState.trustedPrice()));
+          }
+          trustedPoints = List.copyOf(byTime.values());
+        }
+        LiquidityTier liquidityTier = trustedState == null
+            ? quote.liquidityTier() : trustedState.liquidityTier();
+        long trustedStateVersion = trustedState == null ? 0L : trustedState.stateVersion();
         return new MarketDisplaySnapshot(marketId, market.displayName(), quote,
-            List.copyOf(candlesByBucket.values()), fromInclusive, toExclusive);
+            List.copyOf(candlesByBucket.values()), trustedPoints, liquidityTier,
+            trustedStateVersion, fromInclusive, toExclusive);
       } catch (RuntimeException failure) {
         throw failure;
       } catch (Exception failure) {
@@ -54,10 +78,18 @@ public final class ExchangeMarketDisplayDataSource implements MarketDisplayDataS
 
   public record MarketAccess(String displayName, CheckedQuoteSupplier quote,
                              CheckedCandleReader persistedCandles,
-                             CheckedCandleReader liveCandles) {
+                             CheckedCandleReader liveCandles,
+                             CheckedTrustedPointReader trustedPoints,
+                             CheckedTrustedStateSupplier trustedState) {
     public MarketAccess(String displayName, CheckedQuoteSupplier quote,
                         CheckedCandleReader persistedCandles) {
       this(displayName, quote, persistedCandles, (fromInclusive, toExclusive) -> List.of());
+    }
+
+    public MarketAccess(String displayName, CheckedQuoteSupplier quote,
+                        CheckedCandleReader persistedCandles, CheckedCandleReader liveCandles) {
+      this(displayName, quote, persistedCandles, liveCandles,
+          (fromInclusive, toExclusive) -> List.of(), () -> null);
     }
 
     public MarketAccess {
@@ -67,6 +99,12 @@ public final class ExchangeMarketDisplayDataSource implements MarketDisplayDataS
       Objects.requireNonNull(quote, "quote");
       Objects.requireNonNull(persistedCandles, "persistedCandles");
       Objects.requireNonNull(liveCandles, "liveCandles");
+      if (trustedPoints == null) {
+        trustedPoints = (fromInclusive, toExclusive) -> List.of();
+      }
+      if (trustedState == null) {
+        trustedState = () -> null;
+      }
     }
   }
 
@@ -78,6 +116,16 @@ public final class ExchangeMarketDisplayDataSource implements MarketDisplayDataS
   @FunctionalInterface
   public interface CheckedCandleReader {
     List<Candle> load(Instant fromInclusive, Instant toExclusive) throws Exception;
+  }
+
+  @FunctionalInterface
+  public interface CheckedTrustedPointReader {
+    List<TrustedPricePoint> load(Instant fromInclusive, Instant toExclusive) throws Exception;
+  }
+
+  @FunctionalInterface
+  public interface CheckedTrustedStateSupplier {
+    TrustedPriceState get() throws Exception;
   }
 
   private static final class MarketDisplayReadException extends RuntimeException {

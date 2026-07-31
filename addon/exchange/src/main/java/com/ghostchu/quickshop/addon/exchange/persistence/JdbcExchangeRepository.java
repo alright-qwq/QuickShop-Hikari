@@ -19,6 +19,7 @@ import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
+import com.ghostchu.quickshop.addon.exchange.display.TrustedPricePoint;
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import com.ghostchu.quickshop.addon.exchange.repository.CurrencyBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountAssetBalance;
@@ -486,6 +487,19 @@ public final class JdbcExchangeRepository
     try (Connection connection = connections.open()) {
       return new JdbcTransaction(connection, dialect, tables)
           .loadCandles(marketId, fromInclusive, toExclusive);
+    }
+  }
+
+  @Override
+  public List<TrustedPricePoint> loadTrustedPricePoints(
+      String marketId, Instant fromInclusive, Instant toExclusive) throws SQLException {
+    if (marketId == null || marketId.isBlank() || fromInclusive == null || toExclusive == null
+        || !fromInclusive.isBefore(toExclusive)) {
+      throw new IllegalArgumentException("invalid trusted price range");
+    }
+    try (Connection connection = connections.open()) {
+      return new JdbcTransaction(connection, dialect, tables)
+          .loadTrustedPricePoints(marketId, fromInclusive, toExclusive);
     }
   }
 
@@ -1720,6 +1734,36 @@ public final class JdbcExchangeRepository
                 result.getLong("volume"), readDecimal(result, "notional")));
           }
           return List.copyOf(candles);
+        }
+      }
+    }
+
+    private List<TrustedPricePoint> loadTrustedPricePoints(
+        String marketId, Instant fromInclusive, Instant toExclusive) throws SQLException {
+      String sql = "SELECT point_at,point_price FROM ("
+          + "SELECT executed_at AS point_at,reference_after AS point_price,"
+          + "0 AS source_order,match_sequence AS sequence_value,NULL AS adjustment_id FROM "
+          + tables.trustedMarketInfluence()
+          + " WHERE market_id=? AND executed_at>=? AND executed_at<?"
+          + " UNION ALL SELECT adjusted_at AS point_at,trusted_price_after AS point_price,"
+          + "1 AS source_order,0 AS sequence_value,adjustment_id FROM "
+          + tables.trustedMarketAdjustment()
+          + " WHERE market_id=? AND adjusted_at>=? AND adjusted_at<?"
+          + ") ORDER BY point_at ASC,source_order ASC,sequence_value ASC,adjustment_id ASC";
+      try (PreparedStatement query = connection.prepareStatement(sql)) {
+        query.setString(1, marketId);
+        query.setLong(2, fromInclusive.toEpochMilli());
+        query.setLong(3, toExclusive.toEpochMilli());
+        query.setString(4, marketId);
+        query.setLong(5, fromInclusive.toEpochMilli());
+        query.setLong(6, toExclusive.toEpochMilli());
+        try (ResultSet result = query.executeQuery()) {
+          List<TrustedPricePoint> points = new ArrayList<>();
+          while (result.next()) {
+            points.add(new TrustedPricePoint(Instant.ofEpochMilli(result.getLong("point_at")),
+                readDecimal(result, "point_price")));
+          }
+          return List.copyOf(points);
         }
       }
     }

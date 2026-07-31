@@ -14,13 +14,24 @@ import java.util.TreeMap;
 
 public final class MarketChartSeriesBuilder {
   private final AdaptiveChartIntervalSelector intervalSelector;
+  private final MarketChartInterval fixedInterval;
 
   public MarketChartSeriesBuilder() {
-    this(new AdaptiveChartIntervalSelector());
+    this(new AdaptiveChartIntervalSelector(), null);
+  }
+
+  public MarketChartSeriesBuilder(MarketChartInterval fixedInterval) {
+    this(new AdaptiveChartIntervalSelector(), fixedInterval);
   }
 
   MarketChartSeriesBuilder(AdaptiveChartIntervalSelector intervalSelector) {
+    this(intervalSelector, null);
+  }
+
+  private MarketChartSeriesBuilder(AdaptiveChartIntervalSelector intervalSelector,
+                                   MarketChartInterval fixedInterval) {
     this.intervalSelector = Objects.requireNonNull(intervalSelector, "intervalSelector");
+    this.fixedInterval = fixedInterval;
   }
 
   public MarketChartSeries build(List<Candle> rawCandles, List<TrustedPricePoint> trustedPoints,
@@ -32,8 +43,10 @@ public final class MarketChartSeriesBuilder {
     Objects.requireNonNull(period, "period");
     Objects.requireNonNull(liquidityTier, "liquidityTier");
 
-    AdaptiveChartIntervalSelector.Selection selected = intervalSelector.select(
-        deduplicateRawMinutes(rawCandles), dimensions);
+    List<Candle> deduplicated = deduplicateRawMinutes(rawCandles);
+    AdaptiveChartIntervalSelector.Selection selected = fixedInterval == null
+        ? intervalSelector.select(deduplicated, dimensions)
+        : intervalSelector.select(deduplicated, dimensions, fixedInterval);
     List<ChartCandle> candles = selected.candles().stream()
         .map(MarketChartSeriesBuilder::toChartCandle)
         .toList();

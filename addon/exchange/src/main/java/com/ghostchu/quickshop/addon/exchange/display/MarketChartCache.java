@@ -48,7 +48,15 @@ public final class MarketChartCache implements AutoCloseable {
   }
 
   public record Key(String marketId, MarketChartMode mode, MarketChartPeriod period,
-                    MarketChartDimensions dimensions, String fingerprint) {
+                    MarketChartDimensions dimensions, String fingerprint,
+                    String chartOptionsFingerprint, long trustedStateVersion,
+                    MarketChartInterval selectedInterval) {
+    public Key(String marketId, MarketChartMode mode, MarketChartPeriod period,
+               MarketChartDimensions dimensions, String fingerprint) {
+      this(marketId, mode, period, dimensions, fingerprint, "legacy", 0L,
+          MarketChartInterval.FIVE_MINUTES);
+    }
+
     public Key {
       if (marketId == null || marketId.isBlank() || fingerprint == null
           || fingerprint.isBlank()) {
@@ -57,6 +65,11 @@ public final class MarketChartCache implements AutoCloseable {
       Objects.requireNonNull(mode, "mode");
       Objects.requireNonNull(period, "period");
       Objects.requireNonNull(dimensions, "dimensions");
+      if (chartOptionsFingerprint == null || chartOptionsFingerprint.isBlank()
+          || trustedStateVersion < 0) {
+        throw new IllegalArgumentException("complete chart cache version is required");
+      }
+      Objects.requireNonNull(selectedInterval, "selectedInterval");
     }
   }
 }

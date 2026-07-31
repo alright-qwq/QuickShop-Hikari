@@ -158,6 +158,14 @@ class ExchangeRuntimeFactoryTest {
   }
 
   @Test
+  void parsesAutomaticAndFixedChartIntervals() {
+    assertThat(ExchangeRuntimeFactory.chartInterval(null)).isNull();
+    assertThat(ExchangeRuntimeFactory.chartInterval(" auto ")).isNull();
+    assertThat(ExchangeRuntimeFactory.chartInterval("15m"))
+        .isEqualTo(com.ghostchu.quickshop.addon.exchange.display.MarketChartInterval.FIFTEEN_MINUTES);
+  }
+
+  @Test
   void mapsConfiguredAccountRiskLimitsIntoTheProductionService() {
     MarketDefinition.RiskRules rules = new MarketDefinition.RiskRules(
         new BigDecimal("0.001"), new BigDecimal("0.002"), new BigDecimal("0.20"),

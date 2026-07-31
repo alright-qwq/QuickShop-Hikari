@@ -13,6 +13,21 @@ class MarketChartSeriesBuilderV2Test {
   private final MarketChartSeriesBuilder builder = new MarketChartSeriesBuilder();
 
   @Test
+  void honorsAnExplicitFixedIntervalInsteadOfAdaptiveSelection() {
+    Instant start = Instant.parse("2026-07-31T00:00:00Z");
+    List<Candle> candles = java.util.stream.IntStream.range(0, 13)
+        .mapToObj(index -> candle(start.plusSeconds(index * 300L), "10", "10", "10", "10", 1))
+        .toList();
+
+    MarketChartSeries result = new MarketChartSeriesBuilder(MarketChartInterval.FIVE_MINUTES)
+        .build(candles, List.of(), new MarketChartDimensions(1, 1),
+            MarketChartPeriod.ONE_DAY, LiquidityTier.LOW);
+
+    assertThat(result.interval()).isEqualTo(MarketChartInterval.FIVE_MINUTES);
+    assertThat(result.candles()).hasSizeLessThanOrEqualTo(12);
+  }
+
+  @Test
   void preservesRawExtremesAndAddsTrustedLine() {
     Instant start = Instant.parse("2026-07-31T00:00:00Z");
     List<Candle> raw = List.of(
@@ -95,6 +110,11 @@ class MarketChartSeriesBuilderV2Test {
                                long volume, String notional) {
     return new Candle("minecraft_diamond/default", start, bd(open), bd(high), bd(low), bd(close),
         volume, bd(notional));
+  }
+
+  private static Candle candle(Instant start, String open, String high, String low, String close,
+                               long volume) {
+    return candle(start, open, high, low, close, volume, close);
   }
 
   private static BigDecimal bd(String value) {

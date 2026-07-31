@@ -41,6 +41,28 @@ class MarketChartCacheTest {
   }
 
   @Test
+  void redrawsWhenTrustedStateOrChartOptionsChange() {
+    MarketChartCache cache = new MarketChartCache(4);
+    AtomicInteger renders = new AtomicInteger();
+
+    MarketChartCache.Key base = new MarketChartCache.Key("diamond", MarketChartMode.KLINE,
+        MarketChartPeriod.ONE_DAY, new MarketChartDimensions(2, 1), "fingerprint-1",
+        "options-1", 3L, MarketChartInterval.FIVE_MINUTES);
+    MarketChartCache.Key trustedChanged = new MarketChartCache.Key("diamond",
+        MarketChartMode.KLINE, MarketChartPeriod.ONE_DAY, new MarketChartDimensions(2, 1),
+        "fingerprint-1", "options-1", 4L, MarketChartInterval.FIVE_MINUTES);
+    MarketChartCache.Key optionsChanged = new MarketChartCache.Key("diamond",
+        MarketChartMode.KLINE, MarketChartPeriod.ONE_DAY, new MarketChartDimensions(2, 1),
+        "fingerprint-1", "options-2", 4L, MarketChartInterval.FIFTEEN_MINUTES);
+
+    cache.getOrRender(base, () -> image((byte) renders.incrementAndGet()));
+    cache.getOrRender(trustedChanged, () -> image((byte) renders.incrementAndGet()));
+    cache.getOrRender(optionsChanged, () -> image((byte) renders.incrementAndGet()));
+
+    assertThat(renders).hasValue(3);
+  }
+
+  @Test
   void evictsLeastRecentlyUsedEntryAtCapacity() {
     MarketChartCache cache = new MarketChartCache(2);
     AtomicInteger renders = new AtomicInteger();

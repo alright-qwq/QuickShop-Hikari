@@ -640,6 +640,13 @@ public final class PersistentOrderService {
     }
   }
 
+  /** Returns the latest committed trusted state for display readers. */
+  public TrustedPriceState trustedPriceState() {
+    synchronized (runtimeState) {
+      return runtimeState.trustedPriceState;
+    }
+  }
+
   public void recoverFromDatabase() throws SQLException {
     synchronized (runtimeState) {
       RecoveredMarket recovered = marketRecovery.recover(rules.marketId(), now.get());

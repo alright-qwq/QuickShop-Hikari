@@ -69,6 +69,9 @@ displays:
     include-live-candle: true
     show-volume: true
     show-latest-price-line: true
+    show-trusted-price-line: true
+    show-gap-markers: true
+    interval: auto
 rollout:
   whitelist-enabled: true
   allowed-players: []

@@ -40,6 +40,19 @@ public final class AdaptiveChartIntervalSelector {
     throw new IllegalStateException("no chart interval available");
   }
 
+  public Selection select(List<Candle> source, MarketChartDimensions dimensions,
+                          MarketChartInterval fixedInterval) {
+    Objects.requireNonNull(source, "source");
+    Objects.requireNonNull(dimensions, "dimensions");
+    Objects.requireNonNull(fixedInterval, "fixedInterval");
+    List<Candle> aggregated = aggregator.aggregate(source, fixedInterval);
+    int target = Math.multiplyExact(Math.multiplyExact(dimensions.columns(), dimensions.rows()),
+        CANDLES_PER_FRAME);
+    List<ChartGap> gaps = gaps(aggregated, fixedInterval);
+    return new Selection(fixedInterval, aggregated.size() <= target
+        ? aggregated : downsample(aggregated, target, fixedInterval), gaps);
+  }
+
   private static List<ChartGap> gaps(List<Candle> candles, MarketChartInterval interval) {
     List<ChartGap> gaps = new ArrayList<>();
     for (int index = 1; index < candles.size(); index++) {
