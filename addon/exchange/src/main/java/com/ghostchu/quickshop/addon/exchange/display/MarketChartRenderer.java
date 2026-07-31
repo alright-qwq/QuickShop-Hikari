@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.display;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
@@ -44,44 +45,75 @@ public final class MarketChartRenderer {
     Canvas canvas = new Canvas(dimensions.pixelWidth(), dimensions.pixelHeight());
     canvas.fill(MarketChartPalette.BACKGROUND);
     MarketChartLayout layout = MarketChartLayout.forDimensions(dimensions);
+    BigDecimal primaryLatest = series.trustedPoints().isEmpty()
+        ? latestPrice : series.latestTrustedPrice();
     if (options.professionalLayout()) {
-      drawHeader(canvas, layout, displayName, mode, period, latestPrice, change);
+      drawHeader(canvas, layout, displayName, mode, period, series.interval(), primaryLatest,
+          change);
     }
     drawFrameAndGrid(canvas, layout);
-    if (series.candles().isEmpty()) {
+    if (!series.hasData()) {
       drawNoData(canvas, layout.plot());
       return canvas.image();
     }
-    if (options.showLatestPriceLine()) {
-      drawLatestPrice(canvas, layout, series, latestPrice);
+    int[] positions = candlePositions(layout.plot(), series.candles(), series.gaps());
+    if (options.showGapMarkers()) {
+      drawGapMarkers(canvas, layout.plot(), series, positions);
     }
-    if (mode == MarketChartMode.KLINE) {
-      drawCandles(canvas, layout.plot(), series);
-    } else {
-      drawLine(canvas, layout.plot(), series);
+    if (!series.candles().isEmpty()) {
+      if (mode == MarketChartMode.KLINE) {
+        drawCandles(canvas, layout.plot(), series, positions);
+      } else {
+        drawLine(canvas, layout.plot(), series, positions);
+      }
+    }
+    if (options.showTrustedPriceLine() && !series.trustedPoints().isEmpty()) {
+      drawTrustedReference(canvas, layout.plot(), series, positions);
+    }
+    if (options.showLatestPriceLine()) {
+      if (series.trustedPoints().isEmpty()) {
+        drawLatestPrice(canvas, layout, series, latestPrice);
+      } else {
+        drawPriceLabel(canvas, layout, series, series.latestTrustedPrice(),
+            MarketChartPalette.TRUSTED_REFERENCE);
+        if (!series.candles().isEmpty()) {
+          drawRawLatestMarker(canvas, layout, series);
+        }
+      }
     }
     if (options.professionalLayout()) {
       layout.priceAxis().ifPresent(axis -> drawPriceAxis(canvas, layout.plot(), axis, series));
-      layout.timeAxis().ifPresent(axis -> drawTimeAxis(canvas, axis, series.candles()));
+      if (!series.candles().isEmpty()) {
+        layout.timeAxis().ifPresent(axis -> drawTimeAxis(canvas, axis, series.candles()));
+      }
+      drawLegendAndConfidence(canvas, layout, series);
     }
     if (options.showVolume()) {
-      layout.volume().ifPresent(area -> drawVolume(canvas, area, series.candles()));
+      layout.volume().ifPresent(
+          area -> drawVolume(canvas, area, layout.plot(), series.candles(), positions));
     }
     return canvas.image();
   }
 
   private static void drawHeader(Canvas canvas, MarketChartLayout layout, String displayName,
                                  MarketChartMode mode, MarketChartPeriod period,
+                                 MarketChartInterval interval,
                                  BigDecimal latestPrice, BigDecimal change) {
     String market = compactText(displayName, layout.density() == MarketChartLayout.Density.COMPACT
         ? 8 : 16);
     PixelFont.draw(canvas::set, market, layout.header().left(), layout.header().top(),
         MarketChartPalette.AXIS_TEXT);
-    String modeAndPeriod = (mode == MarketChartMode.KLINE ? "K" : "LINE") + " " + period.token();
+    String modeAndPeriod = layout.density() == MarketChartLayout.Density.COMPACT
+        ? (mode == MarketChartMode.KLINE ? "K" : "L") + " " + interval.label()
+        : (mode == MarketChartMode.KLINE ? "K" : "LINE") + " " + interval.label()
+            + " " + period.token();
     int rightX = layout.header().right() - PixelFont.width(modeAndPeriod) + 1;
     PixelFont.draw(canvas::set, modeAndPeriod, Math.max(layout.header().left(), rightX),
         layout.header().top(), MarketChartPalette.AXIS_TEXT);
-    if (layout.density() == MarketChartLayout.Density.FULL) {
+    if (layout.density() == MarketChartLayout.Density.COMPACT) {
+      PixelFont.draw(canvas::set, compactPrice(latestPrice), layout.header().left(),
+          layout.header().top() + 6, MarketChartPalette.HIGHLIGHT);
+    } else if (layout.density() == MarketChartLayout.Density.FULL) {
       String summary = compactPrice(latestPrice) + " " + percent(change);
       PixelFont.draw(canvas::set, summary, layout.header().left(), layout.header().top() + 7,
           change.signum() > 0 ? MarketChartPalette.RISE
@@ -110,15 +142,14 @@ public final class MarketChartRenderer {
   }
 
   private static void drawCandles(Canvas canvas, MarketChartLayout.Rect plot,
-                                  MarketChartSeries series) {
+                                  MarketChartSeries series, int[] positions) {
     List<ChartCandle> candles = series.candles();
-    int plotLeft = plot.left() + 2;
-    int plotRight = plot.right() - 2;
-    double step = (double) (plotRight - plotLeft + 1) / candles.size();
-    int bodyHalfWidth = Math.max(1, Math.min(3, (int) Math.floor(step / 3.0)));
+    int effectiveSlots = candles.size() + matchingGapCount(candles, series.gaps());
+    int bodyWidth = Math.min(7, Math.max(1, (plot.width() - 4) / effectiveSlots - 2));
+    int bodyHalfWidth = bodyWidth / 2;
     for (int index = 0; index < candles.size(); index++) {
       ChartCandle candle = candles.get(index);
-      int x = Math.min(plotRight, plotLeft + (int) Math.floor((index + 0.5) * step));
+      int x = positions[index];
       byte color = directionColor(candle.open(), candle.close());
       canvas.vertical(x, priceToY(plot, series, candle.high()),
           priceToY(plot, series, candle.low()), color);
@@ -134,27 +165,25 @@ public final class MarketChartRenderer {
         }
       }
     }
+    if (series.singleCandle()) {
+      drawPointMarker(canvas, positions[0], priceToY(plot, series, candles.getFirst().close()),
+          MarketChartPalette.HIGHLIGHT);
+    }
   }
 
   private static void drawLine(Canvas canvas, MarketChartLayout.Rect plot,
-                               MarketChartSeries series) {
+                               MarketChartSeries series, int[] positions) {
     List<ChartCandle> candles = series.candles();
-    int plotLeft = plot.left() + 2;
-    int plotRight = plot.right() - 2;
     if (candles.size() == 1) {
-      int x = (plotLeft + plotRight) / 2;
+      int x = positions[0];
       int y = priceToY(plot, series, candles.getFirst().close());
-      canvas.set(x, y, MarketChartPalette.HIGHLIGHT);
-      canvas.set(x - 1, y, MarketChartPalette.HIGHLIGHT);
-      canvas.set(x + 1, y, MarketChartPalette.HIGHLIGHT);
-      canvas.set(x, y - 1, MarketChartPalette.HIGHLIGHT);
-      canvas.set(x, y + 1, MarketChartPalette.HIGHLIGHT);
+      drawPointMarker(canvas, x, y, MarketChartPalette.HIGHLIGHT);
       return;
     }
-    int previousX = plotLeft;
+    int previousX = positions[0];
     int previousY = priceToY(plot, series, candles.getFirst().close());
     for (int index = 1; index < candles.size(); index++) {
-      int x = plotLeft + index * (plotRight - plotLeft) / (candles.size() - 1);
+      int x = positions[index];
       int y = priceToY(plot, series, candles.get(index).close());
       byte color = directionColor(candles.get(index - 1).close(), candles.get(index).close());
       canvas.line(previousX, previousY, x, y, color);
@@ -169,12 +198,7 @@ public final class MarketChartRenderer {
     int y = priceToY(layout.plot(), series, latestPrice);
     canvas.dashedHorizontal(layout.plot().left() + 1, layout.plot().right() - 1, y,
         MarketChartPalette.LATEST_PRICE, 3);
-    layout.priceAxis().ifPresent(axis -> {
-      String label = compactPrice(latestPrice);
-      int labelY = Math.max(axis.top(), Math.min(axis.bottom() - 4, y - 2));
-      PixelFont.draw(canvas::set, trimToPixels(label, axis.width()), axis.left() + 1, labelY,
-          MarketChartPalette.LATEST_PRICE);
-    });
+    drawPriceLabel(canvas, layout, series, latestPrice, MarketChartPalette.LATEST_PRICE);
   }
 
   private static void drawPriceAxis(Canvas canvas, MarketChartLayout.Rect plot,
@@ -192,18 +216,18 @@ public final class MarketChartRenderer {
   }
 
   private static void drawVolume(Canvas canvas, MarketChartLayout.Rect area,
-                                 List<ChartCandle> candles) {
+                                 MarketChartLayout.Rect plot, List<ChartCandle> candles,
+                                 int[] positions) {
     canvas.rectangle(area, MarketChartPalette.BORDER);
     long maximum = candles.stream().mapToLong(ChartCandle::volume).max().orElse(0L);
     if (maximum <= 0) {
       return;
     }
-    double step = (double) Math.max(1, area.width() - 4) / candles.size();
-    int barHalfWidth = Math.max(1, Math.min(3, (int) Math.floor(step / 3.0)));
+    int barHalfWidth = Math.max(1, Math.min(3, (area.width() - 4) / candles.size() / 3));
     for (int index = 0; index < candles.size(); index++) {
       ChartCandle candle = candles.get(index);
-      int x = Math.min(area.right() - 2,
-          area.left() + 2 + (int) Math.floor((index + 0.5) * step));
+      int x = area.left() + 2 + (positions[index] - plot.left() - 2)
+          * Math.max(1, area.width() - 4) / Math.max(1, plot.width() - 4);
       int barHeight = Math.max(1, (int) Math.round(
           (double) candle.volume() / maximum * Math.max(1, area.height() - 3)));
       byte color = candle.close().compareTo(candle.open()) >= 0
@@ -224,6 +248,171 @@ public final class MarketChartRenderer {
     PixelFont.draw(canvas::set, right,
         Math.max(area.left(), area.right() - PixelFont.width(right) + 1), area.top() + 2,
         MarketChartPalette.AXIS_TEXT);
+  }
+
+  private static int[] candlePositions(MarketChartLayout.Rect plot, List<ChartCandle> candles,
+                                       List<ChartGap> gaps) {
+    int[] positions = new int[candles.size()];
+    if (candles.isEmpty()) {
+      return positions;
+    }
+    int slots = candles.size() + matchingGapCount(candles, gaps);
+    int left = plot.left() + 2;
+    int usable = Math.max(1, plot.width() - 4);
+    int slot = 0;
+    for (int index = 0; index < candles.size(); index++) {
+      if (index > 0 && hasGap(candles.get(index - 1), candles.get(index), gaps)) {
+        slot++;
+      }
+      positions[index] = Math.min(plot.right() - 2,
+          left + (int) Math.floor((slot + 0.5) * usable / slots));
+      slot++;
+    }
+    return positions;
+  }
+
+  private static int matchingGapCount(List<ChartCandle> candles, List<ChartGap> gaps) {
+    int result = 0;
+    for (int index = 1; index < candles.size(); index++) {
+      if (hasGap(candles.get(index - 1), candles.get(index), gaps)) {
+        result++;
+      }
+    }
+    return result;
+  }
+
+  private static boolean hasGap(ChartCandle previous, ChartCandle next, List<ChartGap> gaps) {
+    return gaps.stream().anyMatch(gap -> !gap.previousBucketStart().isBefore(previous.bucketStart())
+        && !gap.nextBucketStart().isAfter(next.bucketStart()));
+  }
+
+  private static void drawGapMarkers(Canvas canvas, MarketChartLayout.Rect plot,
+                                     MarketChartSeries series, int[] positions) {
+    for (int index = 1; index < series.candles().size(); index++) {
+      if (hasGap(series.candles().get(index - 1), series.candles().get(index), series.gaps())) {
+        int x = (positions[index - 1] + positions[index]) / 2;
+        canvas.dashedVertical(x, plot.top() + 2, plot.bottom() - 2,
+            MarketChartPalette.GAP_MARKER, 2);
+      }
+    }
+  }
+
+  private static void drawTrustedReference(Canvas canvas, MarketChartLayout.Rect plot,
+                                           MarketChartSeries series, int[] candlePositions) {
+    List<TrustedPricePoint> points = series.trustedPoints();
+    if (points.size() == 1) {
+      int y = priceToY(plot, series, points.getFirst().price());
+      canvas.dashedHorizontal(plot.left() + 2, plot.right() - 2, y,
+          MarketChartPalette.TRUSTED_REFERENCE, 2);
+      return;
+    }
+    int previousX = trustedX(points.getFirst().at(), series, candlePositions, plot);
+    int previousY = priceToY(plot, series, points.getFirst().price());
+    drawPointMarker(canvas, previousX, previousY, MarketChartPalette.TRUSTED_REFERENCE);
+    for (int index = 1; index < points.size(); index++) {
+      TrustedPricePoint point = points.get(index);
+      int x = trustedX(point.at(), series, candlePositions, plot);
+      int y = priceToY(plot, series, point.price());
+      canvas.line(previousX, previousY, x, y, MarketChartPalette.TRUSTED_REFERENCE);
+      previousX = x;
+      previousY = y;
+    }
+    drawPointMarker(canvas, previousX, previousY, MarketChartPalette.TRUSTED_REFERENCE);
+  }
+
+  private static int trustedX(Instant at, MarketChartSeries series, int[] positions,
+                              MarketChartLayout.Rect plot) {
+    List<ChartCandle> candles = series.candles();
+    if (candles.isEmpty()) {
+      List<TrustedPricePoint> points = series.trustedPoints();
+      if (points.size() == 1) {
+        return plot.left() + plot.width() / 2;
+      }
+      Instant first = points.getFirst().at();
+      Instant last = points.getLast().at();
+      return interpolateTime(at, first, last, plot.left() + 2, plot.right() - 2);
+    }
+    if (!at.isAfter(candles.getFirst().bucketStart())) {
+      return positions[0];
+    }
+    if (!at.isBefore(candles.getLast().bucketStart())) {
+      return positions[positions.length - 1];
+    }
+    for (int index = 1; index < candles.size(); index++) {
+      Instant right = candles.get(index).bucketStart();
+      if (!at.isAfter(right)) {
+        return interpolateTime(at, candles.get(index - 1).bucketStart(), right,
+            positions[index - 1], positions[index]);
+      }
+    }
+    return positions[positions.length - 1];
+  }
+
+  private static int interpolateTime(Instant value, Instant from, Instant to,
+                                     int fromX, int toX) {
+    long duration = to.toEpochMilli() - from.toEpochMilli();
+    if (duration <= 0) {
+      return fromX;
+    }
+    double ratio = (double) (value.toEpochMilli() - from.toEpochMilli()) / duration;
+    ratio = Math.max(0.0, Math.min(1.0, ratio));
+    return fromX + (int) Math.round((toX - fromX) * ratio);
+  }
+
+  private static void drawRawLatestMarker(Canvas canvas, MarketChartLayout layout,
+                                          MarketChartSeries series) {
+    int rawY = priceToY(layout.plot(), series, series.latestRawPrice());
+    canvas.horizontal(layout.plot().right() - 4, layout.plot().right() - 1, rawY,
+        MarketChartPalette.HIGHLIGHT);
+    layout.priceAxis().ifPresent(axis -> {
+      int labelY = labelY(axis, rawY);
+      int trustedLabelY = labelY(axis,
+          priceToY(layout.plot(), series, series.latestTrustedPrice()));
+      if (Math.abs(labelY - trustedLabelY) < 5) {
+        labelY = labelY(axis, rawY <= trustedLabelY ? rawY - 6 : rawY + 6);
+      }
+      PixelFont.draw(canvas::set, trimToPixels(compactPrice(series.latestRawPrice()), axis.width()),
+          axis.left() + 1, labelY, MarketChartPalette.HIGHLIGHT);
+    });
+  }
+
+  private static void drawPriceLabel(Canvas canvas, MarketChartLayout layout,
+                                     MarketChartSeries series, BigDecimal price, byte color) {
+    int y = priceToY(layout.plot(), series, price);
+    layout.priceAxis().ifPresent(axis -> {
+      PixelFont.draw(canvas::set, trimToPixels(compactPrice(price), axis.width()),
+          axis.left() + 1, labelY(axis, y), color);
+    });
+  }
+
+  private static int labelY(MarketChartLayout.Rect axis, int priceY) {
+    return Math.max(axis.top(), Math.min(axis.bottom() - 4, priceY - 2));
+  }
+
+  private static void drawLegendAndConfidence(Canvas canvas, MarketChartLayout layout,
+                                              MarketChartSeries series) {
+    layout.legend().ifPresent(area -> {
+      PixelFont.draw(canvas::set, "RAW", area.left(), area.top() + 2, MarketChartPalette.RISE);
+      if (!series.trustedPoints().isEmpty()) {
+        PixelFont.draw(canvas::set, "REF", area.left() + 22, area.top() + 2,
+            MarketChartPalette.TRUSTED_REFERENCE);
+      }
+    });
+    layout.confidence().ifPresent(area -> PixelFont.draw(canvas::set,
+        compactText(series.liquidityTier().name(), 8), area.left(), area.top() + 2,
+        MarketChartPalette.CONFIDENCE));
+  }
+
+  private static void drawPointMarker(Canvas canvas, int x, int y, byte color) {
+    canvas.set(x, y, color);
+    canvas.set(x - 1, y, color);
+    canvas.set(x + 1, y, color);
+    canvas.set(x, y - 1, color);
+    canvas.set(x, y + 1, color);
+    canvas.set(x - 1, y - 1, color);
+    canvas.set(x + 1, y - 1, color);
+    canvas.set(x - 1, y + 1, color);
+    canvas.set(x + 1, y + 1, color);
   }
 
   private static int priceToY(MarketChartLayout.Rect plot, MarketChartSeries series,

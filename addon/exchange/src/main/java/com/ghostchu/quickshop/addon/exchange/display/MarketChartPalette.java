@@ -13,6 +13,9 @@ public final class MarketChartPalette {
   public static final byte VOLUME_RISE = 17;
   public static final byte VOLUME_FALL = 29;
   public static final byte HIGHLIGHT = 115;
+  public static final byte TRUSTED_REFERENCE = 122;
+  public static final byte GAP_MARKER = 87;
+  public static final byte CONFIDENCE = 114;
 
   private MarketChartPalette() {}
 }
