@@ -109,6 +109,18 @@ public final class ExchangeServiceFixture {
         RecoveryHandler.NO_OP, limits);
   }
 
+  PersistentOrderService serviceWithRiskLimits(
+      com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits limits) {
+    return new PersistentOrderService(
+        repository, rules, limits, RecoveryHandler.NO_OP);
+  }
+
+  PersistentOrderService serviceWithRiskLimits(
+      com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits limits,
+      SettlementObserver observer, RecoveryHandler recovery) {
+    return new PersistentOrderService(repository, rules, limits, recovery, observer);
+  }
+
   PersistentOrderService independentMysqlService() {
     return new PersistentOrderService(
         new JdbcExchangeRepository(connections, SqlDialect.MYSQL, tables), rules,
@@ -350,6 +362,10 @@ public final class ExchangeServiceFixture {
     return rowCount(tables.orders());
   }
 
+  long journalCount() throws SQLException {
+    return rowCount(tables.journals());
+  }
+
   long orderCountForRequest(UUID requestId) throws SQLException {
     return rowCountFor(tables.orders(), "request_id", requestId);
   }
@@ -566,13 +582,33 @@ public final class ExchangeServiceFixture {
     return marketValue("circuit_breaker_level");
   }
 
-  void clearMarketRiskMetadata() throws SQLException {
-    try (Connection connection = connections.open();
-         PreparedStatement update = connection.prepareStatement(
-             "UPDATE " + tables.marketState()
-                 + " SET discovery_quantity=NULL,circuit_breaker_level=NULL WHERE market_id=?")) {
-      update.setString(1, rules.marketId());
-      update.executeUpdate();
+  void resetToLegacyRiskMetadata(BigDecimal legacyReferencePrice) throws SQLException {
+    try (Connection connection = connections.open()) {
+      connection.setAutoCommit(false);
+      try (PreparedStatement deleteInfluences = connection.prepareStatement(
+               "DELETE FROM " + tables.trustedMarketInfluence() + " WHERE market_id=?");
+           PreparedStatement deleteAdjustments = connection.prepareStatement(
+               "DELETE FROM " + tables.trustedMarketAdjustment() + " WHERE market_id=?");
+           PreparedStatement deleteState = connection.prepareStatement(
+               "DELETE FROM " + tables.trustedMarketState() + " WHERE market_id=?");
+           PreparedStatement update = connection.prepareStatement(
+               "UPDATE " + tables.marketState()
+                   + " SET reference_price=?,discovery_quantity=NULL,circuit_breaker_level=NULL"
+                   + " WHERE market_id=?")) {
+        deleteInfluences.setString(1, rules.marketId());
+        deleteInfluences.executeUpdate();
+        deleteAdjustments.setString(1, rules.marketId());
+        deleteAdjustments.executeUpdate();
+        deleteState.setString(1, rules.marketId());
+        deleteState.executeUpdate();
+        update.setString(1, legacyReferencePrice.toPlainString());
+        update.setString(2, rules.marketId());
+        update.executeUpdate();
+        connection.commit();
+      } catch (SQLException failure) {
+        connection.rollback();
+        throw failure;
+      }
     }
   }
 

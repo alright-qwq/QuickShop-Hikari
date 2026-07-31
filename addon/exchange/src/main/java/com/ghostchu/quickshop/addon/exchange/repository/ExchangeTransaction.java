@@ -68,6 +68,9 @@ public interface ExchangeTransaction {
       throws SQLException {
     throw new UnsupportedOperationException("trusted market state is not supported");
   }
+  default void recordTradeCandle(Candle candle) throws SQLException {
+    throw new UnsupportedOperationException("trusted market trade candles are not supported");
+  }
   void upsertCandle(Candle candle) throws SQLException;
   void appendJournal(LedgerJournal journal) throws SQLException;
   default ReconciliationReport reconcile() throws SQLException {

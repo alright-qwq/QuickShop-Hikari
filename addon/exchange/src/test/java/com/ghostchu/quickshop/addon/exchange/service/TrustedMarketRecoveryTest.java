@@ -3,12 +3,16 @@ package com.ghostchu.quickshop.addon.exchange.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
 import com.ghostchu.quickshop.addon.exchange.core.trust.LimitReason;
+import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceEngine;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPricePolicy;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceState;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +49,32 @@ class TrustedMarketRecoveryTest {
         trade(A, B, "115.00", 3, NOW.plusSeconds(4)), second.recentInfluences(), 100, 2);
     assertThat(next.influence().acceptedMove()).isZero();
     assertThat(next.influence().reasons()).contains(LimitReason.LIMITED_BY_PAIR);
+  }
+
+  @Test
+  void trustedReplayUsesConfiguredDiscoveryQuantity() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    Trade persisted = trade(A, B, "115.00", 1, NOW);
+    fixture.repository().inTransaction(tx -> {
+      MarketState state = tx.marketState("diamond-usd");
+      tx.insertTrade(persisted);
+      tx.updateMarketState(new MarketState(
+          state.marketId(), state.status(), state.prioritySequence(), 1,
+          new BigDecimal("100.00"), persisted.price(), state.haltedUntil(),
+          5L, state.circuitBreakerLevel(), state.version() + 1), state.version());
+      return null;
+    });
+    TrustedPriceState seed = new TrustedPriceState(
+        "diamond-usd", new BigDecimal("100.00"), new BigDecimal("100.00"),
+        NOW, LiquidityTier.LOW, 1, 0, 0);
+    TrustedPriceState expected = new TrustedPriceEngine().evaluate(
+        seed, TrustedPricePolicy.defaults(), persisted, List.of(), 200L, 2).state();
+
+    RecoveredMarket recovered = new OrderBookRecoveryService(
+        fixture.repository(), fixture.rules(), RiskLimits.defaults(), 200L)
+        .recover("diamond-usd", NOW.plusSeconds(1));
+
+    assertThat(recovered.trustedPriceState()).isEqualTo(expected);
   }
 
   private static Trade trade(

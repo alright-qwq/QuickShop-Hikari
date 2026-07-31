@@ -119,7 +119,7 @@ class OrderBookRecoveryServiceTest {
     fixture.service().place(new OrderRequest(UUID.randomUUID(), buyer, "diamond-usd",
         OrderSide.BUY, "LIMIT", new BigDecimal("105.00"), null, 50));
     long beforeVersion = fixture.marketVersion();
-    fixture.clearMarketRiskMetadata();
+    fixture.resetToLegacyRiskMetadata(new BigDecimal("102.50"));
 
     AtomicInteger fullHistoryVisits = new AtomicInteger();
     OrderBookRecoveryService recovery = new OrderBookRecoveryService(

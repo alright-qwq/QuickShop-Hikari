@@ -43,15 +43,26 @@ public final class OrderBookRecoveryService {
   private final ExchangeRepository repository;
   private final MarketRules rules;
   private final RiskLimits riskLimits;
+  private final long discoveryQuantity;
   private final TrustedPricePolicy trustedPolicy;
   private final LiquidityClassifier liquidityClassifier;
   private final TrustedPriceEngine trustedPriceEngine;
 
   public OrderBookRecoveryService(
       ExchangeRepository repository, MarketRules rules, RiskLimits riskLimits) {
+    this(repository, rules, riskLimits, DISCOVERY_QUANTITY);
+  }
+
+  public OrderBookRecoveryService(
+      ExchangeRepository repository, MarketRules rules, RiskLimits riskLimits,
+      long discoveryQuantity) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.rules = Objects.requireNonNull(rules, "rules");
     this.riskLimits = Objects.requireNonNull(riskLimits, "riskLimits");
+    if (discoveryQuantity < 10L) {
+      throw new IllegalArgumentException("recovery discovery quantity must be at least 10");
+    }
+    this.discoveryQuantity = discoveryQuantity;
     this.trustedPolicy = TrustedPricePolicy.defaults();
     this.liquidityClassifier = new LiquidityClassifier(trustedPolicy);
     this.trustedPriceEngine = new TrustedPriceEngine();
@@ -120,7 +131,7 @@ public final class OrderBookRecoveryService {
           .map(sample -> new PriceSample(sample.price(), sample.quantity(), sample.executedAt()))
           .toList();
       referencePrices = ReferencePriceTracker.restored(
-          rules.basePrice(), DISCOVERY_QUANTITY, REFERENCE_WINDOW, rules.priceScale(),
+          rules.basePrice(), discoveryQuantity, REFERENCE_WINDOW, rules.priceScale(),
           state.discoveryQuantity(), samples);
       circuitBreaker = CircuitBreaker.restored(
           riskLimits, state.circuitBreakerLevel(), state.haltedUntil());
@@ -181,14 +192,14 @@ public final class OrderBookRecoveryService {
       tx.insertTrustedPriceState(trustedState);
     }
     ArrayList<TradeInfluence> influences = new ArrayList<>();
-    long lot = Math.max(1L, Math.ceilDiv(DISCOVERY_QUANTITY, 20L));
+    long lot = Math.max(1L, Math.ceilDiv(discoveryQuantity, 20L));
     for (MarketTradeSample sample : history) {
       pruneExpiredInfluences(influences, sample.executedAt());
       trustedState = trustedState.withLiquidityTier(
           liquidityClassifier.classify(influences, sample.executedAt(), lot).tier());
       TrustedPriceEngine.Result evaluated = trustedPriceEngine.evaluate(
           trustedState, trustedPolicy, replayTrade(state.marketId(), sample), influences,
-          DISCOVERY_QUANTITY, rules.priceScale());
+          discoveryQuantity, rules.priceScale());
       tx.insertTradeInfluence(evaluated.influence());
       tx.updateTrustedPriceState(evaluated.state(), trustedState.stateVersion());
       influences.add(evaluated.influence());
@@ -320,7 +331,7 @@ public final class OrderBookRecoveryService {
       ExchangeTransaction tx, MarketState state, MarketSnapshot snapshot, Instant recoveredAt)
       throws SQLException {
     ReferencePriceTracker prices = new ReferencePriceTracker(
-        rules.basePrice(), DISCOVERY_QUANTITY, REFERENCE_WINDOW, rules.priceScale());
+        rules.basePrice(), discoveryQuantity, REFERENCE_WINDOW, rules.priceScale());
     CircuitBreaker breaker = new CircuitBreaker(riskLimits);
     ReplayCursor cursor = new ReplayCursor(rules.basePrice());
     ArrayList<MarketTradeSample> history = new ArrayList<>();

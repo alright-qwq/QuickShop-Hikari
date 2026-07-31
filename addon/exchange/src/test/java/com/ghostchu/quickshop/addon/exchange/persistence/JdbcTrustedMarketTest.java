@@ -9,6 +9,7 @@ import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TradeInfluence;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceAdjustment;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceState;
+import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
 import com.ghostchu.quickshop.addon.exchange.repository.TrustedMarketSnapshot;
 import java.math.BigDecimal;
 import java.nio.file.Path;
@@ -94,6 +95,31 @@ class JdbcTrustedMarketTest {
     assertThat(restored.state()).isEqualTo(initialState());
     assertThat(restored.influences()).isEmpty();
     assertThat(restored.adjustments()).isEmpty();
+  }
+
+  @Test
+  void tradeCandleMergePreservesExactSQLiteDecimals(@TempDir Path temp) throws Exception {
+    Fixture fixture = fixture(temp);
+    BigDecimal first = new BigDecimal("9007199254740993.0000000001");
+    BigDecimal second = new BigDecimal("9007199254740993.0000000002");
+
+    fixture.repository.inTransaction(tx -> {
+      tx.recordTradeCandle(new Candle(
+          MARKET, NOW, first, first, first, first, 1L, first));
+      tx.recordTradeCandle(new Candle(
+          MARKET, NOW, second, second, second, second, 1L, second));
+      return null;
+    });
+
+    assertThat(fixture.repository.loadCandles(MARKET, NOW, NOW.plusSeconds(60)))
+        .singleElement().satisfies(candle -> {
+          assertThat(candle.open()).isEqualByComparingTo(first);
+          assertThat(candle.high()).isEqualByComparingTo(second);
+          assertThat(candle.low()).isEqualByComparingTo(first);
+          assertThat(candle.close()).isEqualByComparingTo(second);
+          assertThat(candle.volume()).isEqualTo(2L);
+          assertThat(candle.notional()).isEqualByComparingTo(first.add(second));
+        });
   }
 
   private static Fixture fixture(Path temp) throws Exception {

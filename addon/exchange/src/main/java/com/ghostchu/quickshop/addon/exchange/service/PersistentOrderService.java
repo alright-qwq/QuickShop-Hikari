@@ -24,10 +24,17 @@ import com.ghostchu.quickshop.addon.exchange.core.risk.OrderRateLimiter;
 import com.ghostchu.quickshop.addon.exchange.core.risk.OrderRiskService;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
 import com.ghostchu.quickshop.addon.exchange.core.risk.TradePermission;
+import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityClassifier;
+import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TradeInfluence;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceEngine;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPricePolicy;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceState;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote;
+import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
@@ -40,6 +47,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -81,6 +89,10 @@ public final class PersistentOrderService {
   private final SettlementObserver observer;
   private final MarketDataService marketData;
   private final OrderBookRecoveryService marketRecovery;
+  private final long discoveryQuantity;
+  private final TrustedPricePolicy trustedPolicy;
+  private final LiquidityClassifier liquidityClassifier;
+  private final TrustedPriceEngine trustedPriceEngine;
   private final MarketRuntimeState runtimeState;
 
   public MarketRules marketRules() {
@@ -116,9 +128,17 @@ public final class PersistentOrderService {
   public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
                                 RiskLimits riskLimits, RecoveryHandler recovery,
                                 AccountOrderLimits accountLimits, MarketDataService marketData) {
+    this(repository, rules, riskLimits, recovery, accountLimits, marketData,
+        REFERENCE_DISCOVERY_QUANTITY);
+  }
+
+  public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                                RiskLimits riskLimits, RecoveryHandler recovery,
+                                AccountOrderLimits accountLimits, MarketDataService marketData,
+                                long discoveryQuantity) {
     this(repository, rules, riskLimits, recovery, SettlementObserver.NONE,
         new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
-        accountLimits, marketData);
+        accountLimits, marketData, discoveryQuantity);
   }
 
   PersistentOrderService(ExchangeRepository repository, MarketRules rules,
@@ -149,7 +169,8 @@ public final class PersistentOrderService {
                          SettlementObserver observer,
                          TimeOrderedIdGenerator ids, Supplier<Instant> now,
                          AccountOrderLimits accountLimits) {
-    this(repository, rules, riskLimits, recovery, observer, ids, now, accountLimits, null);
+    this(repository, rules, riskLimits, recovery, observer, ids, now, accountLimits, null,
+        REFERENCE_DISCOVERY_QUANTITY);
   }
 
   PersistentOrderService(ExchangeRepository repository, MarketRules rules,
@@ -157,6 +178,16 @@ public final class PersistentOrderService {
                          SettlementObserver observer,
                          TimeOrderedIdGenerator ids, Supplier<Instant> now,
                          AccountOrderLimits accountLimits, MarketDataService marketData) {
+    this(repository, rules, riskLimits, recovery, observer, ids, now, accountLimits, marketData,
+        REFERENCE_DISCOVERY_QUANTITY);
+  }
+
+  PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                         RiskLimits riskLimits, RecoveryHandler recovery,
+                         SettlementObserver observer,
+                         TimeOrderedIdGenerator ids, Supplier<Instant> now,
+                         AccountOrderLimits accountLimits, MarketDataService marketData,
+                         long discoveryQuantity) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.rules = Objects.requireNonNull(rules, "rules");
     this.riskLimits = Objects.requireNonNull(riskLimits, "riskLimits");
@@ -166,19 +197,30 @@ public final class PersistentOrderService {
     this.recovery = Objects.requireNonNull(recovery, "recovery");
     this.observer = Objects.requireNonNull(observer, "observer");
     this.marketData = marketData;
+    if (discoveryQuantity <= 0) {
+      throw new IllegalArgumentException("trusted discovery quantity must be positive");
+    }
+    this.discoveryQuantity = discoveryQuantity;
+    this.trustedPolicy = TrustedPricePolicy.defaults();
+    this.liquidityClassifier = new LiquidityClassifier(trustedPolicy);
+    this.trustedPriceEngine = new TrustedPriceEngine();
     this.ids = Objects.requireNonNull(ids, "ids");
     this.now = Objects.requireNonNull(now, "now");
     this.fees = new FeeCalculator(rules.priceScale());
     this.reservations = new ReservationCalculator(fees);
-    this.marketRecovery = new OrderBookRecoveryService(repository, rules, riskLimits);
+    this.marketRecovery = new OrderBookRecoveryService(
+        repository, rules, riskLimits, discoveryQuantity);
     MarketCoordinationKey coordinationKey = new MarketCoordinationKey(
         Objects.requireNonNull(repository.coordinationKey(), "repository coordination key"),
         rules.marketId());
     this.runtimeState = MARKET_RUNTIMES.computeIfAbsent(coordinationKey, ignored ->
         new MarketRuntimeState(
             new OrderBook(),
-            new ReferencePriceTracker(rules.basePrice(), REFERENCE_DISCOVERY_QUANTITY,
+            new ReferencePriceTracker(rules.basePrice(), discoveryQuantity,
                 REFERENCE_WINDOW, rules.priceScale()),
+            new TrustedPriceState(rules.marketId(), rules.basePrice(), rules.basePrice(),
+                Instant.EPOCH, LiquidityTier.LOW, 1, 0, 0),
+            List.of(),
             new CircuitBreaker(riskLimits),
             Long.MIN_VALUE));
   }
@@ -280,12 +322,14 @@ public final class PersistentOrderService {
     }
     runtimeState.committedBook = outcome.book();
     runtimeState.referencePrices = outcome.referencePrices();
+    runtimeState.trustedPriceState = outcome.trustedPriceState();
+    runtimeState.recentInfluences = outcome.recentInfluences();
     runtimeState.circuitBreaker = outcome.circuitBreaker();
     runtimeState.committedMarketVersion = outcome.marketVersion();
     if (marketData != null) {
       for (Trade trade : outcome.plan().trades()) {
         try {
-          marketData.recordTrade(trade.marketId(), trade.price(), trade.quantity(),
+          marketData.acceptCommitted(trade.marketId(), trade.price(), trade.quantity(),
               trade.executedAt());
         } catch (RuntimeException ignored) {
           // Market data must never turn an already committed order into a failed request.
@@ -358,9 +402,10 @@ public final class PersistentOrderService {
     Instant evaluatedAt = now.get();
     RuntimeRiskSnapshot runtimeRisk = runtimeRisk(tx, lockedState, evaluatedAt);
     MarketState beforeState = runtimeRisk.state();
+    BigDecimal trustedReference = runtimeRisk.trustedPriceState().trustedPrice();
     if (parseType(request.type()) == OrderType.MARKET) {
       OrderRiskService.RejectReason rejection = orderRisks.checkMarketSlippage(
-          request.slippageBoundary(), beforeState.referencePrice(), riskLimits.maximumSlippage());
+          request.slippageBoundary(), trustedReference, riskLimits.maximumSlippage());
       if (rejection != null) {
         throw new IllegalStateException(rejection.name());
       }
@@ -385,16 +430,16 @@ public final class PersistentOrderService {
     }
 
     if (incoming.type() == OrderType.LIMIT
-        && !riskLimits.insideCage(incoming.limitPrice(), beforeState.referencePrice())) {
+        && !riskLimits.insideCage(incoming.limitPrice(), trustedReference)) {
       reject(OrderRiskService.RejectReason.PRICE_OUTSIDE_CAGE);
     }
-    if (wouldSelfTrade(request, transactionBook, beforeState.referencePrice())) {
+    if (wouldSelfTrade(request, transactionBook, trustedReference)) {
       reject(OrderRiskService.RejectReason.SELF_TRADE);
     }
 
     Reservation reservation = incoming.type() == OrderType.MARKET
         ? reservations.reserve(incoming, incomingRules, transactionBook,
-            price -> riskLimits.insideCage(price, beforeState.referencePrice()))
+            price -> riskLimits.insideCage(price, trustedReference))
         : reservations.reserve(incoming, incomingRules);
 
     long holding = tx.existingInventory(request.accountId(), rules.marketId())
@@ -416,10 +461,13 @@ public final class PersistentOrderService {
 
     AtomicLong matchSequence = new AtomicLong(beforeState.matchSequence());
     ReferencePriceTracker transactionPrices = runtimeRisk.referencePrices();
+    TrustedPriceState transactionTrusted = runtimeRisk.trustedPriceState();
+    ArrayList<TradeInfluence> transactionInfluences =
+        new ArrayList<>(runtimeRisk.recentInfluences());
     CircuitBreaker transactionBreaker = runtimeRisk.circuitBreaker();
     MatchingEngine engine = new MatchingEngine(transactionBook, rules, fees,
         matchSequence::incrementAndGet, now, ids,
-        price -> riskLimits.insideCage(price, beforeState.referencePrice()),
+        price -> riskLimits.insideCage(price, trustedReference),
         order -> feeSchedule.rates(order.feeVersion()));
     MatchResult match = engine.submit(incoming);
     Order taker = match.selfTradeRejected()
@@ -472,10 +520,12 @@ public final class PersistentOrderService {
     }
     reached(SettlementStage.AFTER_LEDGER_INSERT);
 
-    MarketState afterState = updateRiskState(
+    RiskUpdate riskUpdate = updateRiskState(
         tx, beforeState, prioritySequence, matchSequence.get(), match.trades(),
-        transactionPrices, transactionBreaker);
+        transactionPrices, transactionTrusted, transactionInfluences, transactionBreaker);
+    MarketState afterState = riskUpdate.state();
     tx.updateMarketState(afterState, beforeState.version());
+    reached(SettlementStage.AFTER_RISK_UPDATE);
 
     SettlementPlan plan = new SettlementPlan(taker, match.changedMakers(), match.trades(),
         takerCurrencyRelease, takerItemRelease);
@@ -485,8 +535,8 @@ public final class PersistentOrderService {
         request.accountId(), request.requestId(), PLACE_OPERATION, encodeReceipt(receipt)));
     reached(SettlementStage.AFTER_REQUEST_RESULT);
     return TransactionOutcome.committed(
-        receipt, plan, transactionBook, transactionPrices, transactionBreaker,
-        afterState.version());
+        receipt, plan, transactionBook, transactionPrices, riskUpdate.trustedPriceState(),
+        riskUpdate.recentInfluences(), transactionBreaker, afterState.version());
   }
 
   private ForceCancelOutcome cancelOpenOrder(
@@ -563,6 +613,8 @@ public final class PersistentOrderService {
       RecoveredMarket recovered = marketRecovery.recover(rules.marketId(), now.get());
       runtimeState.committedBook = recovered.book();
       runtimeState.referencePrices = recovered.referencePrices().copy();
+      runtimeState.trustedPriceState = recovered.trustedPriceState();
+      runtimeState.recentInfluences = recovered.recentInfluences();
       runtimeState.circuitBreaker = recovered.circuitBreaker().copy();
       runtimeState.committedMarketVersion = recovered.marketVersion();
     }
@@ -575,28 +627,33 @@ public final class PersistentOrderService {
         transaction -> transaction.marketState(rules.marketId()).status());
     Instant asOf = now.get();
     BigDecimal reference;
+    LiquidityTier liquidityTier;
     BigDecimal bestBid;
     BigDecimal bestAsk;
     synchronized (runtimeState) {
-      reference = runtimeState.referencePrices.copy().referenceAt(asOf);
+      reference = runtimeState.trustedPriceState.trustedPrice();
+      liquidityTier = runtimeState.trustedPriceState.liquidityTier();
       bestBid = runtimeState.committedBook.bestExecutable(OrderSide.BUY,
           price -> riskLimits.insideCage(price, reference)).map(Order::limitPrice).orElse(null);
       bestAsk = runtimeState.committedBook.bestExecutable(OrderSide.SELL,
           price -> riskLimits.insideCage(price, reference)).map(Order::limitPrice).orElse(null);
     }
-    return data.quote(rules.marketId(), reference, bestBid, bestAsk, status, asOf);
+    return data.quote(
+        rules.marketId(), reference, liquidityTier, bestBid, bestAsk, status, asOf);
   }
 
   private RuntimeRiskSnapshot runtimeRisk(
       ExchangeTransaction tx, MarketState state, Instant recoveredAt) throws SQLException {
     if (runtimeState.committedMarketVersion == state.version()) {
       return new RuntimeRiskSnapshot(
-          state, runtimeState.referencePrices.copy(), runtimeState.circuitBreaker.copy());
+          state, runtimeState.referencePrices.copy(), runtimeState.trustedPriceState,
+          runtimeState.recentInfluences, runtimeState.circuitBreaker.copy());
     }
     try {
       RecoveredMarket recovered = marketRecovery.recover(tx, state, recoveredAt);
       return new RuntimeRiskSnapshot(
-          recovered.state(), recovered.referencePrices(), recovered.circuitBreaker());
+          recovered.state(), recovered.referencePrices(), recovered.trustedPriceState(),
+          recovered.recentInfluences(), recovered.circuitBreaker());
     } catch (RuntimeException failure) {
       throw new SQLException("market runtime recovery failed", failure);
     }
@@ -637,7 +694,7 @@ public final class PersistentOrderService {
       if (runtimeState.committedMarketVersion == Long.MIN_VALUE) {
         return null;
       }
-      BigDecimal reference = runtimeState.referencePrices.copy().referenceAt(now.get());
+      BigDecimal reference = runtimeState.trustedPriceState.trustedPrice();
       if (parseType(request.type()) == OrderType.LIMIT
           && !riskLimits.insideCage(request.price(), reference)) {
         return storedOrReject(request, OrderRiskService.RejectReason.PRICE_OUTSIDE_CAGE);
@@ -848,35 +905,88 @@ public final class PersistentOrderService {
     return new LedgerEntry(ids.get(), account, asset, amount, at);
   }
 
-  private MarketState updateRiskState(
+  private RiskUpdate updateRiskState(
       ExchangeTransaction tx, MarketState before, long prioritySequence, long matchSequence,
-      List<Trade> trades, ReferencePriceTracker prices, CircuitBreaker breaker)
-      throws SQLException {
+      List<Trade> trades, ReferencePriceTracker prices, TrustedPriceState trustedPriceState,
+      List<TradeInfluence> recentInfluences, CircuitBreaker breaker) throws SQLException {
     MarketStatus status = before.status();
-    BigDecimal reference = before.referencePrice();
     BigDecimal lastPrice = before.lastPrice();
     Instant haltedUntil = before.haltedUntil();
+    long lot = Math.max(1L, Math.ceilDiv(discoveryQuantity, 20L));
+    if (!trades.isEmpty()) {
+      ensureTrustedState(tx, trustedPriceState);
+    }
     for (Trade trade : trades) {
-      BigDecimal preTradeReference = reference;
-      TradePermission permission = breaker.onPrice(trade.price(), preTradeReference, trade.executedAt());
+      pruneExpiredInfluences(recentInfluences, trade.executedAt());
+      BigDecimal previousTrustedPrice = trustedPriceState.trustedPrice();
+      trustedPriceState = trustedPriceState.withLiquidityTier(
+          liquidityClassifier.classify(recentInfluences, trade.executedAt(), lot).tier());
+      TrustedPriceEngine.Result trusted = trustedPriceEngine.evaluate(
+          trustedPriceState, trustedPolicy, trade, recentInfluences,
+          discoveryQuantity, rules.priceScale());
+      tx.insertTradeInfluence(trusted.influence());
+      tx.updateTrustedPriceState(trusted.state(), trustedPriceState.stateVersion());
+      tx.recordTradeCandle(new Candle(
+          trade.marketId(), candleBucket(trade.executedAt()), trade.price(), trade.price(),
+          trade.price(), trade.price(), trade.quantity(),
+          trade.price().multiply(BigDecimal.valueOf(trade.quantity()))));
+      recentInfluences.add(trusted.influence());
+      trustedPriceState = trusted.state();
+
       prices.record(trade.price(), trade.quantity(), trade.executedAt());
       lastPrice = trade.price();
-      if (permission.allowed()) {
-        reference = prices.referenceAt(trade.executedAt());
-      } else {
+      TradePermission permission = breaker.onPrice(
+          trustedPriceState.trustedPrice(), previousTrustedPrice, trade.executedAt());
+      if (!permission.allowed()) {
         status = MarketStatus.HALTED;
         haltedUntil = permission.haltUntil().orElseThrow();
-        reference = preTradeReference;
         if (permission.level() == 2) {
           tx.insertHighAlert(ids.get(), rules.marketId(), "CIRCUIT_BREAKER_LEVEL_2",
-              encodeLevelTwoAlert(reference, trade.price()),
+              encodeLevelTwoAlert(previousTrustedPrice, trustedPriceState.trustedPrice()),
               trade.executedAt());
         }
       }
     }
-    return new MarketState(before.marketId(), status, prioritySequence, matchSequence,
-        reference, lastPrice, haltedUntil, prices.discoveryQuantity(), breaker.level(),
+    BigDecimal displayReference = displayTrustedPrice(trustedPriceState.trustedPrice());
+    MarketState state = new MarketState(
+        before.marketId(), status, prioritySequence, matchSequence,
+        displayReference, lastPrice, haltedUntil, prices.discoveryQuantity(), breaker.level(),
         before.version() + 1);
+    return new RiskUpdate(state, trustedPriceState, recentInfluences);
+  }
+
+  private void ensureTrustedState(
+      ExchangeTransaction tx, TrustedPriceState trustedPriceState) throws SQLException {
+    try {
+      tx.trustedMarketSnapshot(rules.marketId(), Instant.EPOCH, Instant.EPOCH);
+    } catch (UnsupportedOperationException unsupported) {
+      return;
+    } catch (SQLException missing) {
+      if (missing.getMessage() == null
+          || !missing.getMessage().startsWith("trusted market state does not exist:")) {
+        throw missing;
+      }
+      tx.insertTrustedPriceState(trustedPriceState);
+    }
+  }
+
+  private void pruneExpiredInfluences(
+      List<TradeInfluence> influences, Instant evaluatedAt) {
+    Instant budgetCutoff = evaluatedAt.minus(trustedPolicy.budgetWindow());
+    Instant confidenceCutoff = evaluatedAt.minus(trustedPolicy.confidenceWindow());
+    Instant cutoff = budgetCutoff.isBefore(confidenceCutoff)
+        ? budgetCutoff : confidenceCutoff;
+    influences.removeIf(influence -> influence.executedAt().isBefore(cutoff));
+  }
+
+  private static Instant candleBucket(Instant occurredAt) {
+    return Instant.ofEpochSecond(Math.floorDiv(occurredAt.getEpochSecond(), 60L) * 60L);
+  }
+
+  private BigDecimal displayTrustedPrice(BigDecimal trustedPrice) {
+    BigDecimal bounded = trustedPrice.max(rules.minPrice()).min(rules.maxPrice());
+    return bounded.divide(rules.tickSize(), 0, RoundingMode.HALF_UP)
+        .multiply(rules.tickSize()).setScale(rules.priceScale(), RoundingMode.HALF_UP);
   }
 
   private void reached(SettlementStage stage) {
@@ -982,7 +1092,20 @@ public final class PersistentOrderService {
 
   private record RuntimeRiskSnapshot(
       MarketState state, ReferencePriceTracker referencePrices,
-      CircuitBreaker circuitBreaker) {}
+      TrustedPriceState trustedPriceState, List<TradeInfluence> recentInfluences,
+      CircuitBreaker circuitBreaker) {
+    private RuntimeRiskSnapshot {
+      recentInfluences = List.copyOf(recentInfluences);
+    }
+  }
+
+  private record RiskUpdate(
+      MarketState state, TrustedPriceState trustedPriceState,
+      List<TradeInfluence> recentInfluences) {
+    private RiskUpdate {
+      recentInfluences = List.copyOf(recentInfluences);
+    }
+  }
 
   private record MarketCoordinationKey(Object repositoryKey, String marketId) {}
 
@@ -1002,14 +1125,19 @@ public final class PersistentOrderService {
   private static final class MarketRuntimeState {
     private OrderBook committedBook;
     private ReferencePriceTracker referencePrices;
+    private TrustedPriceState trustedPriceState;
+    private List<TradeInfluence> recentInfluences;
     private CircuitBreaker circuitBreaker;
     private long committedMarketVersion;
 
     private MarketRuntimeState(
         OrderBook committedBook, ReferencePriceTracker referencePrices,
+        TrustedPriceState trustedPriceState, List<TradeInfluence> recentInfluences,
         CircuitBreaker circuitBreaker, long committedMarketVersion) {
       this.committedBook = committedBook;
       this.referencePrices = referencePrices;
+      this.trustedPriceState = trustedPriceState;
+      this.recentInfluences = List.copyOf(recentInfluences);
       this.circuitBreaker = circuitBreaker;
       this.committedMarketVersion = committedMarketVersion;
     }
@@ -1017,18 +1145,24 @@ public final class PersistentOrderService {
 
   private record TransactionOutcome(
       OrderReceipt receipt, SettlementPlan plan, OrderBook book,
-      ReferencePriceTracker referencePrices, CircuitBreaker circuitBreaker,
+      ReferencePriceTracker referencePrices, TrustedPriceState trustedPriceState,
+      List<TradeInfluence> recentInfluences, CircuitBreaker circuitBreaker,
       long marketVersion, boolean duplicate) {
+    private TransactionOutcome {
+      recentInfluences = recentInfluences == null ? null : List.copyOf(recentInfluences);
+    }
+
     private static TransactionOutcome duplicate(OrderReceipt receipt) {
-      return new TransactionOutcome(receipt, null, null, null, null, Long.MIN_VALUE, true);
+      return new TransactionOutcome(
+          receipt, null, null, null, null, null, null, Long.MIN_VALUE, true);
     }
 
     private static TransactionOutcome committed(
         OrderReceipt receipt, SettlementPlan plan, OrderBook book,
-        ReferencePriceTracker referencePrices, CircuitBreaker circuitBreaker,
-        long marketVersion) {
-      return new TransactionOutcome(
-          receipt, plan, book, referencePrices, circuitBreaker, marketVersion, false);
+        ReferencePriceTracker referencePrices, TrustedPriceState trustedPriceState,
+        List<TradeInfluence> recentInfluences, CircuitBreaker circuitBreaker, long marketVersion) {
+      return new TransactionOutcome(receipt, plan, book, referencePrices, trustedPriceState,
+          recentInfluences, circuitBreaker, marketVersion, false);
     }
   }
 

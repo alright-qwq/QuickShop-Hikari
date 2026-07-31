@@ -489,6 +489,18 @@ public final class JdbcExchangeRepository
     }
   }
 
+  @Override
+  public Optional<Candle> latestCandle(String marketId, Instant beforeExclusive)
+      throws SQLException {
+    if (marketId == null || marketId.isBlank() || beforeExclusive == null) {
+      throw new IllegalArgumentException("invalid latest candle request");
+    }
+    try (Connection connection = connections.open()) {
+      return new JdbcTransaction(connection, dialect, tables)
+          .latestCandle(marketId, beforeExclusive);
+    }
+  }
+
   private static void requireCandle(Candle candle) {
     if (candle == null || candle.marketId() == null || candle.marketId().isBlank()
         || candle.bucketStart() == null || candle.open() == null || candle.high() == null
@@ -1308,6 +1320,22 @@ public final class JdbcExchangeRepository
       }
     }
 
+    @Override
+    public void recordTradeCandle(Candle candle) throws SQLException {
+      requireCandle(candle);
+      List<Candle> existing = loadCandles(
+          candle.marketId(), candle.bucketStart(), candle.bucketStart().plusSeconds(60));
+      Candle merged = existing.isEmpty() ? candle : mergeTradeCandle(existing.getFirst(), candle);
+      upsertCandle(merged);
+    }
+
+    private static Candle mergeTradeCandle(Candle existing, Candle delta) {
+      return new Candle(existing.marketId(), existing.bucketStart(), existing.open(),
+          existing.high().max(delta.high()), existing.low().min(delta.low()), delta.close(),
+          Math.addExact(existing.volume(), delta.volume()),
+          existing.notional().add(delta.notional()));
+    }
+
     private static String encodeReasons(Set<LimitReason> reasons) {
       return reasons.stream().map(Enum::name).sorted().collect(Collectors.joining(","));
     }
@@ -1674,6 +1702,27 @@ public final class JdbcExchangeRepository
                 result.getLong("volume"), readDecimal(result, "notional")));
           }
           return List.copyOf(candles);
+        }
+      }
+    }
+
+    private Optional<Candle> latestCandle(String marketId, Instant beforeExclusive)
+        throws SQLException {
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT market_id,bucket_start,open_price,high_price,low_price,close_price,volume,notional"
+              + " FROM " + tables.candles1m()
+              + " WHERE market_id=? AND bucket_start<? ORDER BY bucket_start DESC LIMIT 1")) {
+        query.setString(1, marketId);
+        query.setLong(2, beforeExclusive.toEpochMilli());
+        try (ResultSet result = query.executeQuery()) {
+          if (!result.next()) {
+            return Optional.empty();
+          }
+          return Optional.of(new Candle(result.getString("market_id"),
+              Instant.ofEpochMilli(result.getLong("bucket_start")),
+              readDecimal(result, "open_price"), readDecimal(result, "high_price"),
+              readDecimal(result, "low_price"), readDecimal(result, "close_price"),
+              result.getLong("volume"), readDecimal(result, "notional")));
         }
       }
     }

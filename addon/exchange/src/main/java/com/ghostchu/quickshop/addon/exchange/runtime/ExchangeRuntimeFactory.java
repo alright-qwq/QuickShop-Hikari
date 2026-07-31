@@ -102,7 +102,8 @@ public final class ExchangeRuntimeFactory {
       RiskLimits limits = limits(definition);
       markets.put(marketId, new PersistentOrderService(
           repository, rules, limits, RecoveryHandler.NO_OP,
-          accountLimits(definition.risk()), marketData));
+          accountLimits(definition.risk()), marketData,
+          definition.structural().discoveryQuantity()));
     }
 
     PlayerOperationSerialiser playerOperations = new PlayerOperationSerialiser();

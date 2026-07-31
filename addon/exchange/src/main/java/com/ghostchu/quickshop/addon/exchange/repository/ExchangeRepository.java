@@ -42,6 +42,12 @@ public interface ExchangeRepository {
     throw new UnsupportedOperationException("candle persistence is not supported by this repository");
   }
 
+  default Optional<Candle> latestCandle(String marketId, Instant beforeExclusive)
+      throws SQLException {
+    List<Candle> candles = loadCandles(marketId, Instant.EPOCH, beforeExclusive);
+    return candles.isEmpty() ? Optional.empty() : Optional.of(candles.getLast());
+  }
+
   default List<AuditRecord> auditRecords(Instant fromInclusive, Instant toExclusive)
       throws SQLException {
     throw new UnsupportedOperationException("audit records are not supported by this repository");

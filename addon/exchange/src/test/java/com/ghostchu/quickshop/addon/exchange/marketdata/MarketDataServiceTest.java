@@ -113,6 +113,60 @@ class MarketDataServiceTest {
   }
 
   @Test
+  void restoresRawLastPriceFromLatestPersistedCandleAfterRestart() {
+    RecordingRepository repository = new RecordingRepository();
+    Instant bucket = Instant.parse("2026-07-26T00:00:00Z");
+    repository.upsertCandle(new Candle("diamond-usd", bucket,
+        new BigDecimal("105.00"), new BigDecimal("112.00"), new BigDecimal("104.00"),
+        new BigDecimal("110.00"), 5L, new BigDecimal("540.00")));
+
+    MarketDataService restarted = new MarketDataService(new CandleAggregator(), repository);
+    MarketQuote quote = restarted.quote("diamond-usd", new BigDecimal("100.00"),
+        new BigDecimal("99.00"), new BigDecimal("111.00"), MarketStatus.OPEN,
+        bucket.plusSeconds(40));
+
+    assertThat(quote.lastPrice()).isEqualByComparingTo("110.00");
+    assertThat(quote.referencePrice()).isEqualByComparingTo("100.00");
+  }
+
+  @Test
+  void restoresRawLastPriceBeyondTheTickerWindow() {
+    RecordingRepository repository = new RecordingRepository();
+    Instant asOf = Instant.parse("2026-07-27T02:00:40Z");
+    Instant bucket = Instant.parse("2026-07-26T00:00:00Z");
+    repository.upsertCandle(new Candle("diamond-usd", bucket,
+        new BigDecimal("105.00"), new BigDecimal("112.00"), new BigDecimal("104.00"),
+        new BigDecimal("110.00"), 5L, new BigDecimal("540.00")));
+
+    MarketQuote quote = new MarketDataService(new CandleAggregator(), repository)
+        .quote("diamond-usd", new BigDecimal("100.00"),
+            new BigDecimal("99.00"), new BigDecimal("111.00"), MarketStatus.OPEN, asOf);
+
+    assertThat(quote.lastPrice()).isEqualByComparingTo("110.00");
+    assertThat(quote.volume24h()).isZero();
+  }
+
+  @Test
+  void committedTradeKeepsPersistedSameMinuteAggregateAfterRestart() {
+    RecordingRepository repository = new RecordingRepository();
+    Instant bucket = Instant.parse("2026-07-26T00:00:00Z");
+    repository.upsertCandle(new Candle("diamond-usd", bucket,
+        new BigDecimal("100.00"), new BigDecimal("110.00"), new BigDecimal("100.00"),
+        new BigDecimal("110.00"), 5L, new BigDecimal("530.00")));
+    MarketDataService restarted = new MarketDataService(new CandleAggregator(), repository);
+
+    restarted.acceptCommitted(
+        "diamond-usd", new BigDecimal("110.00"), 3L, bucket.plusSeconds(40));
+    MarketQuote quote = restarted.quote("diamond-usd", new BigDecimal("100.00"),
+        new BigDecimal("99.00"), new BigDecimal("111.00"), MarketStatus.OPEN,
+        bucket.plusSeconds(40));
+
+    assertThat(quote.lastPrice()).isEqualByComparingTo("110.00");
+    assertThat(quote.volume24h()).isEqualTo(5L);
+    assertThat(quote.notional24h()).isEqualByComparingTo("530.00");
+  }
+
+  @Test
   void doesNotExposeTickerWhileMinuteRolloverIsOnlyPartiallyPersisted() throws Exception {
     BlockingRepository repository = new BlockingRepository();
     MarketDataService data = new MarketDataService(new CandleAggregator(), repository);

@@ -1,6 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.service;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
+import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
 import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.util.UUID;
@@ -72,21 +73,27 @@ class SettlementFailureInjectionTest {
   @org.junit.jupiter.api.Test
   void rollsBackLevelTwoAlertInsertedBeforeTheLastStage() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
-    executeTrade(fixture, fixture.service(), "110.00");
+    RiskLimits defaults = RiskLimits.defaults();
+    RiskLimits alerting = new RiskLimits(
+        defaults.cageRatio(), defaults.defaultSlippage(), defaults.maximumSlippage(),
+        new BigDecimal("0.0005"), defaults.levelOneHalt(),
+        new BigDecimal("0.0008"), defaults.levelTwoHalt());
+    executeTrade(fixture, fixture.serviceWithRiskLimits(alerting), "110.00");
     fixture.resumeMarket();
-    executeTrade(fixture, fixture.service(), "100.00");
+    executeTrade(fixture, fixture.serviceWithRiskLimits(alerting), "100.00");
     UUID seller = fixture.accountWithItems(1);
     UUID buyer = fixture.accountWithCurrency("1000.00");
-    fixture.service().place(limitOrder(seller, OrderSide.SELL, "120.12"));
+    fixture.serviceWithRiskLimits(alerting)
+        .place(limitOrder(seller, OrderSide.SELL, "119.00"));
     ExchangeServiceFixture.DatabaseState before = fixture.databaseState();
     long versionBefore = fixture.marketVersion();
-    PersistentOrderService failing = fixture.service(stage -> {
+    PersistentOrderService failing = fixture.serviceWithRiskLimits(alerting, stage -> {
       if (stage == SettlementStage.AFTER_REQUEST_RESULT) {
         throw new InjectedFailure(stage.name());
       }
     }, RecoveryHandler.NO_OP);
 
-    assertThatThrownBy(() -> failing.place(limitOrder(buyer, OrderSide.BUY, "120.12")))
+    assertThatThrownBy(() -> failing.place(limitOrder(buyer, OrderSide.BUY, "119.00")))
         .isInstanceOf(InjectedFailure.class);
 
     assertThat(fixture.databaseState()).isEqualTo(before);

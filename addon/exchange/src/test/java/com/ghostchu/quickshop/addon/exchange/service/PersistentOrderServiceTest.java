@@ -392,12 +392,12 @@ class PersistentOrderServiceTest {
         OrderSide.BUY, "LIMIT", new BigDecimal("120.00"), null, 1));
 
     assertThat(fixture.tradeCount()).isEqualTo(1);
-    assertThat(fixture.marketStatus()).isEqualTo("HALTED");
-    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("100.00");
+    assertThat(fixture.marketStatus()).isEqualTo("OPEN");
+    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("100.10");
     assertThat(fixture.marketLastPrice()).isEqualByComparingTo("120.00");
-    assertThat(fixture.marketHaltedUntil()).isNotNull();
+    assertThat(fixture.marketHaltedUntil()).isNull();
     assertThat(fixture.marketDiscoveryQuantity()).isEqualTo("1");
-    assertThat(fixture.marketCircuitBreakerLevel()).isEqualTo("1");
+    assertThat(fixture.marketCircuitBreakerLevel()).isEqualTo("0");
   }
 
   @Test
@@ -544,7 +544,7 @@ class PersistentOrderServiceTest {
         OrderSide.BUY, "LIMIT", new BigDecimal("110.00"), null, 1));
 
     assertThat(fixture.marketStatus()).isEqualTo("OPEN");
-    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("100.15");
+    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("100.20");
   }
 
   @Test
@@ -566,8 +566,8 @@ class PersistentOrderServiceTest {
     restarted.place(new OrderRequest(UUID.randomUUID(), secondBuyer, "diamond-usd",
         OrderSide.BUY, "LIMIT", new BigDecimal("120.00"), null, 1));
 
-    assertThat(fixture.marketStatus()).isEqualTo("HALTED");
-    assertThat(fixture.highAlertCount()).isEqualTo(1);
+    assertThat(fixture.marketStatus()).isEqualTo("OPEN");
+    assertThat(fixture.highAlertCount()).isZero();
   }
 
   @Test
@@ -676,7 +676,7 @@ class PersistentOrderServiceTest {
     uncertain.place(new OrderRequest(UUID.randomUUID(), secondBuyer, "diamond-usd",
         OrderSide.BUY, "LIMIT", new BigDecimal("105.00"), null, 1));
 
-    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("102.55");
+    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("100.60");
   }
 
   @Test
@@ -697,7 +697,7 @@ class PersistentOrderServiceTest {
     secondService.place(new OrderRequest(UUID.randomUUID(), secondBuyer, "diamond-usd",
         OrderSide.BUY, "LIMIT", new BigDecimal("105.00"), null, 1));
 
-    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("102.55");
+    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("100.60");
   }
 
   @Test
@@ -718,7 +718,7 @@ class PersistentOrderServiceTest {
     restarted.place(new OrderRequest(UUID.randomUUID(), secondBuyer, "diamond-usd",
         OrderSide.BUY, "LIMIT", new BigDecimal("105.00"), null, 1));
 
-    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("102.55");
+    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("100.60");
   }
 
   @Test
@@ -729,11 +729,28 @@ class PersistentOrderServiceTest {
     trade(fixture, fixture.service(), "100.00", 1);
 
     PersistentOrderService restarted = fixture.isolatedRestartedService();
-    trade(fixture, restarted, "120.12", 1);
+    trade(fixture, restarted, "120.00", 1);
 
-    assertThat(fixture.marketStatus()).isEqualTo("HALTED");
-    assertThat(fixture.marketCircuitBreakerLevel()).isEqualTo("2");
-    assertThat(fixture.highAlertCount()).isEqualTo(1);
+    assertThat(fixture.marketStatus()).isEqualTo("OPEN");
+    assertThat(fixture.marketCircuitBreakerLevel()).isEqualTo("0");
+    assertThat(fixture.highAlertCount()).isZero();
+  }
+
+  @Test
+  void breakerUsesEachAcceptedTrustedMoveInsteadOfCumulativeDrift() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    RiskLimits defaults = RiskLimits.defaults();
+    PersistentOrderService service = fixture.serviceWithRiskLimits(new RiskLimits(
+        defaults.cageRatio(), defaults.defaultSlippage(), defaults.maximumSlippage(),
+        new BigDecimal("0.007"), defaults.levelOneHalt(),
+        new BigDecimal("0.02"), defaults.levelTwoHalt()));
+
+    trade(fixture, service, "115.00", 5);
+    trade(fixture, service, "115.00", 5);
+
+    assertThat(fixture.marketReferencePrice()).isEqualByComparingTo("101.00");
+    assertThat(fixture.marketStatus()).isEqualTo("OPEN");
+    assertThat(fixture.marketCircuitBreakerLevel()).isEqualTo("0");
   }
 
   private static void trade(
@@ -766,7 +783,7 @@ class PersistentOrderServiceTest {
     fixture.service().place(new OrderRequest(UUID.randomUUID(), buyer, "diamond-usd",
         OrderSide.BUY, "LIMIT", new BigDecimal("120.00"), null, 1));
 
-    assertThat(fixture.highAlertCount()).isEqualTo(1);
+    assertThat(fixture.highAlertCount()).isZero();
   }
 
   private static void await(CountDownLatch latch) {

@@ -5,6 +5,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.book.OrderBook;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
+import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -56,9 +57,22 @@ public final class MarketDataService {
     }
     candles.record(marketId, price, quantity, occurredAt);
     currentBuckets.put(marketId, bucket);
-    lastPrices.put(marketId, price);
-    changedMarkets.add(marketId);
-    TradeEvent event = new TradeEvent(marketId, price, quantity, occurredAt);
+    publishCommitted(new TradeEvent(marketId, price, quantity, occurredAt));
+  }
+
+  /** Publishes a trade whose Candle was already committed by the settlement transaction. */
+  public synchronized void acceptCommitted(
+      String marketId, BigDecimal price, long quantity, Instant occurredAt) {
+    if (repository == null) {
+      recordTrade(marketId, price, quantity, occurredAt);
+      return;
+    }
+    publishCommitted(new TradeEvent(marketId, price, quantity, occurredAt));
+  }
+
+  private void publishCommitted(TradeEvent event) {
+    lastPrices.put(event.marketId(), event.price());
+    changedMarkets.add(event.marketId());
     for (Consumer<TradeEvent> consumer : auditConsumers) {
       try {
         consumer.accept(event);
@@ -122,7 +136,15 @@ public final class MarketDataService {
 
   public MarketQuote quote(String marketId, BigDecimal referencePrice, BigDecimal bestBid,
                            BigDecimal bestAsk, MarketStatus status, Instant asOf) {
+    return quote(marketId, referencePrice, LiquidityTier.LOW,
+        bestBid, bestAsk, status, asOf);
+  }
+
+  public MarketQuote quote(
+      String marketId, BigDecimal referencePrice, LiquidityTier liquidityTier,
+      BigDecimal bestBid, BigDecimal bestAsk, MarketStatus status, Instant asOf) {
     requireQuoteArguments(marketId, referencePrice, status, asOf);
+    Objects.requireNonNull(liquidityTier, "liquidityTier");
     Instant from = asOf.minus(TICKER_WINDOW);
     Instant to = asOf.plusSeconds(60);
     Map<Instant, Candle> tickerByBucket = new TreeMap<>();
@@ -132,7 +154,12 @@ public final class MarketDataService {
         .forEach(candle -> tickerByBucket.put(candle.bucketStart(), candle));
     List<Candle> ticker = tickerByBucket.values().stream()
         .sorted(Comparator.comparing(Candle::bucketStart)).toList();
-    BigDecimal lastPrice = lastPrices.getOrDefault(marketId, referencePrice);
+    BigDecimal lastPrice = lastPrices.get(marketId);
+    if (lastPrice == null) {
+      lastPrice = ticker.isEmpty()
+          ? loadLatestCandle(marketId, to).map(Candle::close).orElse(referencePrice)
+          : ticker.getLast().close();
+    }
     long volume = ticker.stream().mapToLong(Candle::volume).reduce(0L, Math::addExact);
     BigDecimal notional = ticker.stream().map(Candle::notional)
         .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -140,8 +167,8 @@ public final class MarketDataService {
         .subtract(ticker.getFirst().open())
         .divide(ticker.getFirst().open(), 8, RoundingMode.HALF_UP)
         .stripTrailingZeros();
-    return new MarketQuote(marketId, lastPrice, referencePrice, bestBid, bestAsk, change,
-        volume, notional, status, asOf);
+    return new MarketQuote(marketId, lastPrice, referencePrice, liquidityTier,
+        bestBid, bestAsk, change, volume, notional, status, asOf);
   }
 
   public MarketQuote quote(String marketId, BigDecimal referencePrice, OrderBook book,
@@ -202,6 +229,17 @@ public final class MarketDataService {
       return repository.loadCandles(marketId, from, to);
     } catch (SQLException failure) {
       throw new IllegalStateException("failed to load market candles", failure);
+    }
+  }
+
+  private java.util.Optional<Candle> loadLatestCandle(String marketId, Instant beforeExclusive) {
+    if (repository == null) {
+      return java.util.Optional.empty();
+    }
+    try {
+      return repository.latestCandle(marketId, beforeExclusive);
+    } catch (SQLException failure) {
+      throw new IllegalStateException("failed to load latest market candle", failure);
     }
   }
 
