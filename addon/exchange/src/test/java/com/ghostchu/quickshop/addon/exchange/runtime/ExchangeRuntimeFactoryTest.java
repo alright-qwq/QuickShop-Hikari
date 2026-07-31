@@ -1,6 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.runtime;
 
 import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartOptions;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,6 +14,28 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 class ExchangeRuntimeFactoryTest {
+  @Test
+  void defaultsToLocalSQLiteWhenDatabaseModeIsMissing() {
+    assertThat(ExchangeRuntimeFactory.databaseMode(null)).isEqualTo("sqlite");
+    assertThat(ExchangeRuntimeFactory.databaseMode("   ")).isEqualTo("sqlite");
+  }
+
+  @Test
+  void retainsExplicitDatabaseModesCaseInsensitively() {
+    assertThat(ExchangeRuntimeFactory.databaseMode(" SQLITE ")).isEqualTo("sqlite");
+    assertThat(ExchangeRuntimeFactory.databaseMode(" QuickShop ")).isEqualTo("quickshop");
+  }
+
+  @Test
+  void explainsThatQuickShopH2RequiresLocalSQLite() {
+    assertThat(ExchangeRuntimeFactory.unsupportedQuickShopDatabase("H2").getMessage())
+        .contains("database.mode=quickshop")
+        .contains("H2")
+        .contains("database.mode: sqlite")
+        .contains("addon data folder")
+        .contains("exchange.sqlite");
+  }
+
   @Test
   void acceptsOnlyARegularSQLiteFileUnderTheAddonDataFolder() throws Exception {
     Path dataFolder = Files.createTempDirectory("quickshop-exchange-data-");
@@ -110,6 +133,28 @@ class ExchangeRuntimeFactoryTest {
     assertThat(startupFailure.getSuppressed())
         .extracting(Throwable::getMessage)
         .containsExactly("second close failed");
+  }
+
+  @Test
+  void requiresAPositiveDisplayRefreshIntervalAndNonNegativeLimits() {
+    assertThat(ExchangeRuntimeFactory.displayRefreshSeconds(5L)).isEqualTo(5L);
+    assertThatIllegalArgumentException().isThrownBy(() ->
+        ExchangeRuntimeFactory.displayRefreshSeconds(0L));
+    assertThatIllegalArgumentException().isThrownBy(() ->
+        ExchangeRuntimeFactory.displayRefreshSeconds(-1L));
+    assertThat(ExchangeRuntimeFactory.displayLimit(0, "displays.max-signs")).isZero();
+    assertThatIllegalArgumentException().isThrownBy(() ->
+        ExchangeRuntimeFactory.displayLimit(-1, "displays.max-signs"));
+  }
+
+  @Test
+  void chartOptionsDefaultToAllProfessionalFeaturesEnabled() {
+    MarketChartOptions options = MarketChartOptions.defaults();
+
+    assertThat(options.professionalLayout()).isTrue();
+    assertThat(options.includeLiveCandle()).isTrue();
+    assertThat(options.showVolume()).isTrue();
+    assertThat(options.showLatestPriceLine()).isTrue();
   }
 
   @Test

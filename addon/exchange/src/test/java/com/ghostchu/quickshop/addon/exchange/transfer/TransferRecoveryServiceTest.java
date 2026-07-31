@@ -20,6 +20,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TransferRecoveryServiceTest {
   @ParameterizedTest
@@ -118,6 +119,37 @@ class TransferRecoveryServiceTest {
     }
   }
 
+  @org.junit.jupiter.api.Test
+  void defaultRecoveryFailsClosedForPersistedItemReviewClaims() throws Exception {
+    try (Fixture fixture = Fixture.claimedWithdrawal()) {
+      TransferRecoveryService recovery = new TransferRecoveryService(
+          fixture.repository(), fixture.repository(), fixture.gateway(), Runnable::run);
+
+      assertThatThrownBy(() -> recovery.recover(fixture.transfer()).join())
+          .hasRootCauseInstanceOf(IllegalStateException.class)
+          .hasRootCauseMessage("claimed item review recovery is not configured");
+    }
+  }
+
+  @org.junit.jupiter.api.Test
+  void delegatesPersistedItemReviewClaimToMachineRecovery() throws Exception {
+    try (Fixture fixture = Fixture.claimedWithdrawal()) {
+      java.util.concurrent.atomic.AtomicReference<TransferRecord> delegated =
+          new java.util.concurrent.atomic.AtomicReference<>();
+      TransferRecoveryService recovery = new TransferRecoveryService(
+          fixture.repository(), fixture.repository(), fixture.gateway(), Runnable::run,
+          claimed -> {
+            delegated.set(claimed);
+            return CompletableFuture.completedFuture(claimed);
+          });
+
+      TransferRecord recovered = recovery.recover(fixture.transfer()).join();
+
+      assertThat(delegated).hasValue(fixture.transfer());
+      assertThat(recovered).isEqualTo(fixture.transfer());
+    }
+  }
+
   private static final class Fixture implements AutoCloseable {
     private final JdbcExchangeRepository repository;
     private final TransferRecord transfer;
@@ -152,6 +184,17 @@ class TransferRecoveryServiceTest {
       TransferRecord processing = repository.transition(prepared.transferId(), prepared.version(),
           TransferStatus.PREPARED, TransferStatus.PROCESSING, null);
       return new Fixture(repository, processing);
+    }
+
+    static Fixture claimedWithdrawal() throws Exception {
+      Fixture interrupted = interrupted(TransferType.ITEM_WITHDRAWAL);
+      TransferRecord reviewed = interrupted.repository.transition(
+          interrupted.transfer.transferId(), interrupted.transfer.version(),
+          TransferStatus.PROCESSING, TransferStatus.REVIEW_REQUIRED, "external result unknown");
+      TransferRecord claimed = interrupted.repository.inTransaction(transaction ->
+          transaction.claimReviewedTransfer(reviewed.transferId(), reviewed.version(),
+              "item-review-claim:test"));
+      return new Fixture(interrupted.repository, claimed);
     }
 
     JdbcExchangeRepository repository() {

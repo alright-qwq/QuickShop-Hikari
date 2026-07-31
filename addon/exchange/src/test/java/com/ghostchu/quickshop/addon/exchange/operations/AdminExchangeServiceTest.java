@@ -13,6 +13,7 @@ import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -283,7 +284,7 @@ class AdminExchangeServiceTest {
   }
 
   @Test
-  void confirmsRemovedItemDepositByCreditingInternalCustody() throws Exception {
+  void rejectsFreeTextSuccessForRemovedItemDeposit() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID account = UUID.randomUUID();
     TransferRecord reviewed = reviewedTransfer(fixture, account, TransferType.ITEM_DEPOSIT,
@@ -291,12 +292,16 @@ class AdminExchangeServiceTest {
     AdminExchangeService admin = new AdminExchangeService(
         Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
 
-    TransferRecord resolved = admin.resolveReview(UUID.randomUUID(), UUID.randomUUID(),
-        reviewed.transferId(), ReviewDecision.CONFIRM_EXTERNAL_SUCCESS,
-        "inventory log confirms two marked items were removed");
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> admin.resolveReview(
+        UUID.randomUUID(), UUID.randomUUID(), reviewed.transferId(),
+        ReviewDecision.CONFIRM_EXTERNAL_SUCCESS,
+        "inventory log confirms two marked items were removed"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("machine marker verification");
 
-    assertThat(resolved.status()).isEqualTo(TransferStatus.COMPLETED);
-    assertThat(fixture.availableItems(account)).isEqualTo(2);
+    assertThat(fixture.repository().find(reviewed.transferId()).orElseThrow().status())
+        .isEqualTo(TransferStatus.REVIEW_REQUIRED);
+    assertThat(fixture.availableItems(account)).isZero();
   }
 
   @Test
@@ -337,7 +342,7 @@ class AdminExchangeServiceTest {
         UUID.randomUUID(), UUID.randomUUID(), reviewed.transferId(),
         ReviewDecision.CONFIRM_EXTERNAL_SUCCESS, "operator only found an inventory marker"))
         .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("item deposit");
+        .hasMessageContaining("machine marker verification");
 
     assertThat(fixture.repository().find(reviewed.transferId()).orElseThrow().status())
         .isEqualTo(TransferStatus.REVIEW_REQUIRED);
@@ -358,7 +363,7 @@ class AdminExchangeServiceTest {
         ReviewDecision.CONFIRM_EXTERNAL_FAILURE,
         "inventory log says removal did not complete"))
         .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("marker cleanup");
+        .hasMessageContaining("machine marker verification");
   }
 
   @Test
@@ -375,7 +380,96 @@ class AdminExchangeServiceTest {
         ReviewDecision.CONFIRM_EXTERNAL_SUCCESS,
         "inventory log confirms marked delivery completed"))
         .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("marker cleanup");
+        .hasMessageContaining("machine marker verification");
+  }
+
+  @Test
+  void itemReviewClaimIsIdempotentWhenEveryClaimFieldMatches() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID account = fixture.accountWithItems(3);
+    TransferRecord reviewed = reviewedWithdrawal(fixture, account, TransferType.ITEM_WITHDRAWAL,
+        fixture.rules().marketId(), "2");
+    AdminExchangeService admin = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
+    UUID actor = UUID.randomUUID();
+    UUID requestId = UUID.randomUUID();
+    String evidence = "operator verified delivery ticket-claim-001";
+
+    TransferRecord first = admin.claimVerifiedItemMarkerCleanup(
+        actor, requestId, reviewed.transferId(), ReviewDecision.CONFIRM_EXTERNAL_SUCCESS,
+        2L, evidence);
+    TransferRecord duplicate = admin.claimVerifiedItemMarkerCleanup(
+        actor, requestId, reviewed.transferId(), ReviewDecision.CONFIRM_EXTERNAL_SUCCESS,
+        2L, evidence);
+
+    assertThat(duplicate).isEqualTo(first);
+    assertThat(duplicate.status()).isEqualTo(TransferStatus.REVIEW_PROCESSING);
+  }
+
+  @Test
+  void itemReviewClaimRejectsAnyConflictingAdministratorContext() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID account = fixture.accountWithItems(3);
+    TransferRecord reviewed = reviewedWithdrawal(fixture, account, TransferType.ITEM_WITHDRAWAL,
+        fixture.rules().marketId(), "2");
+    AdminExchangeService admin = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
+    UUID actor = UUID.randomUUID();
+    UUID requestId = UUID.randomUUID();
+    String evidence = "operator verified delivery ticket-claim-002";
+    admin.claimVerifiedItemMarkerCleanup(
+        actor, requestId, reviewed.transferId(), ReviewDecision.CONFIRM_EXTERNAL_SUCCESS,
+        2L, evidence);
+
+    org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+        admin.claimVerifiedItemMarkerCleanup(
+            actor, UUID.randomUUID(), reviewed.transferId(),
+            ReviewDecision.CONFIRM_EXTERNAL_SUCCESS, 2L, evidence))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("already claimed by another request");
+    org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+        admin.claimVerifiedItemMarkerCleanup(
+            actor, requestId, reviewed.transferId(),
+            ReviewDecision.CONFIRM_EXTERNAL_FAILURE, 2L, evidence))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("already claimed by another request");
+    org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+        admin.claimVerifiedItemMarkerCleanup(
+            actor, requestId, reviewed.transferId(),
+            ReviewDecision.CONFIRM_EXTERNAL_SUCCESS, 2L,
+            "operator supplied conflicting evidence claim-002"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("already claimed by another request");
+  }
+
+  @Test
+  void malformedPersistedItemReviewClaimsFailClosed() {
+    AdminExchangeService admin = new AdminExchangeService(Map.of());
+    UUID transferId = UUID.randomUUID();
+    UUID requestId = UUID.randomUUID();
+    UUID accountId = UUID.randomUUID();
+    List<String> invalidClaims = List.of(
+        "legacy-review-processing",
+        "item-review-claim:actor=invalid;request=" + requestId
+            + ";decision=CONFIRM_EXTERNAL_SUCCESS;marked=2;evidence=dmFsaWQ",
+        "item-review-claim:actor=" + accountId + ";request=" + requestId
+            + ";decision=CONFIRM_EXTERNAL_SUCCESS;marked=-1;evidence=dmFsaWQ",
+        "item-review-claim:actor=" + accountId + ";request=" + requestId
+            + ";decision=CONFIRM_EXTERNAL_SUCCESS;marked=2;evidence=***",
+        "item-review-claim:actor=" + accountId + ";actor=" + UUID.randomUUID()
+            + ";request=" + requestId
+            + ";decision=CONFIRM_EXTERNAL_SUCCESS;marked=2;evidence=dmFsaWQ");
+
+    for (String invalidClaim : invalidClaims) {
+      TransferRecord malformed = new TransferRecord(
+          transferId, requestId, accountId, TransferType.ITEM_WITHDRAWAL,
+          "DIAMOND", BigDecimal.valueOf(2), TransferStatus.REVIEW_PROCESSING,
+          transferId.toString(), invalidClaim, Instant.EPOCH, Instant.EPOCH, 3L);
+
+      org.assertj.core.api.Assertions.assertThatThrownBy(() -> admin.claimedItemReview(malformed))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("claim is missing or invalid");
+    }
   }
 
   @Test

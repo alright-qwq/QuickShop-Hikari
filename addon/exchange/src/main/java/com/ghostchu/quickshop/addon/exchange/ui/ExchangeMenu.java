@@ -13,31 +13,40 @@ public final class ExchangeMenu extends Menu {
   public ExchangeMenu(ExchangeViewService views, ExchangeMenuContextStore contexts,
                       ExchangeRequestSubmitter submitter, RolloutPolicy rollout,
                       AddonMessageService messages) {
+    this(views, contexts, submitter, rollout, messages, ExchangeClockDisplay.disabled());
+  }
+
+  public ExchangeMenu(ExchangeViewService views, ExchangeMenuContextStore contexts,
+                      ExchangeRequestSubmitter submitter, RolloutPolicy rollout,
+                      AddonMessageService messages, ExchangeClockDisplay clock) {
     name = NAME;
     title = TITLE;
     rows = 6;
     addPage(page(ExchangeMenuPage.MARKETS,
-        new MarketListPage(views, contexts, messages)::open));
+        new MarketListPage(views, contexts, messages, clock)::open));
     addPage(page(ExchangeMenuPage.MARKET_DETAIL,
-        new MarketDetailPage(views, contexts, rollout, messages)::open));
+        new MarketDetailPage(views, contexts, rollout, messages, clock)::open));
     addPage(page(ExchangeMenuPage.ORDER_CONFIRM,
         new RequestSummaryPage(ExchangeMenuPage.ORDER_CONFIRM, contexts, submitter, rollout,
-            messages)::open));
+            messages, clock)::open));
     addPage(page(ExchangeMenuPage.CANCEL_CONFIRM,
         new RequestSummaryPage(ExchangeMenuPage.CANCEL_CONFIRM, contexts, submitter, rollout,
-            messages)::open));
+            messages, clock)::open));
     addPage(page(ExchangeMenuPage.TRANSFER_CONFIRM,
         new RequestSummaryPage(ExchangeMenuPage.TRANSFER_CONFIRM, contexts, submitter, rollout,
-            messages)::open));
-    addPage(page(ExchangeMenuPage.ORDERS, new MyOrdersPage(views, contexts, messages)::open));
-    addPage(page(ExchangeMenuPage.ASSETS, new AssetsPage(views, contexts, messages)::open));
-    addPage(page(ExchangeMenuPage.HISTORY, new HistoryPage(views, contexts, messages)::open));
-    addPage(page(ExchangeMenuPage.ADMIN, new AdminPage()::open));
+            messages, clock)::open));
+    addPage(page(ExchangeMenuPage.ORDERS,
+        new MyOrdersPage(views, contexts, messages, clock)::open));
+    addPage(page(ExchangeMenuPage.ASSETS,
+        new AssetsPage(views, contexts, messages, clock)::open));
+    addPage(page(ExchangeMenuPage.HISTORY,
+        new HistoryPage(views, contexts, messages, clock)::open));
+    addPage(page(ExchangeMenuPage.ADMIN, new AdminPage(contexts, messages, clock)::open));
   }
 
   private static PlayerInstancePage page(ExchangeMenuPage target,
                                          java.util.function.Consumer<net.tnemc.menu.core.callbacks.page.PageOpenCallback> open) {
-    PlayerInstancePage page = new PlayerInstancePage(target.page());
+    PlayerInstancePage page = ExchangePlayerPage.create(target.page());
     page.setOpen(open);
     return page;
   }

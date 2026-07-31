@@ -26,14 +26,22 @@ final class MarketDetailPage {
   private final OrderEntryPrompt prompts;
   private final OrderEntryAccess access;
   private final ExchangeUiMessages messages;
+  private final ExchangeMenuChrome chrome;
 
   MarketDetailPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
                    RolloutPolicy rollout, AddonMessageService messages) {
+    this(views, contexts, rollout, messages, ExchangeClockDisplay.disabled());
+  }
+
+  MarketDetailPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
+                   RolloutPolicy rollout, AddonMessageService messages,
+                   ExchangeClockDisplay clock) {
     this.views = views;
     this.contexts = contexts;
     this.prompts = new OrderEntryPrompt(contexts, UUID::randomUUID);
     this.access = new OrderEntryAccess(rollout);
     this.messages = new ExchangeUiMessages(messages);
+    this.chrome = new ExchangeMenuChrome(contexts, this.messages, clock);
   }
 
   void open(PageOpenCallback callback) {
@@ -46,11 +54,12 @@ final class MarketDetailPage {
       renderFailure(page, player, playerId, "ui-market-not-selected");
       return;
     }
-    views.marketRow(request.marketId()).whenComplete((row, failure) -> {
-      if (!contexts.isCurrent(playerId, request) || !player.isOnline()) return;
-      QuickShop.folia().getScheduler().runAtEntityLater(player,
-          () -> render(page, player, row, failure), 1L);
-    });
+    try {
+      MarketRow row = views.marketRow(request.marketId()).join();
+      render(page, player, row, null);
+    } catch (Exception failure) {
+      render(page, player, null, failure);
+    }
   }
 
   private void render(PlayerInstancePage page, Player player, MarketRow row, Throwable failure) {
@@ -59,8 +68,8 @@ final class MarketDetailPage {
       renderFailure(page, player, playerId, "ui-data-unavailable");
       return;
     }
-    page.getIcons(playerId).clear();
-    page.setLockEmptySlots(true);
+    chrome.prepare(page, player, ExchangeMenuPage.MARKET_DETAIL, "ui-guide-market-detail");
+    chrome.addBack(page, player, ExchangeMenuPage.MARKET_DETAIL, null);
     String bid = row.bestBid() == null ? "-" : row.bestBid().toPlainString();
     String ask = row.bestAsk() == null ? "-" : row.bestAsk().toPlainString();
     List<Component> lore = List.of(
@@ -70,8 +79,7 @@ final class MarketDetailPage {
         messages.component(player, "ui-market-change", row.change24h().toPlainString()),
         messages.component(player, "ui-market-volume", row.volume24h()),
         messages.component(player, "ui-market-status", row.status().name()));
-    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
-        .customName(Component.text(row.displayName())).lore(lore)).withSlot(22).build());
+    ExchangePageIcons.add(page, playerId, new IconBuilder(ItemStackCompat.of("BOOK", Component.text(row.displayName())).lore(lore)).withSlot(22).build());
     addOrderIcon(page, player, row, OrderSide.BUY, OrderType.LIMIT, "LIME_CONCRETE", 29,
         "ui-order-limit-buy", ActionType.LEFT_CLICK);
     addOrderIcon(page, player, row, OrderSide.SELL, OrderType.LIMIT, "RED_CONCRETE", 33,
@@ -80,18 +88,29 @@ final class MarketDetailPage {
         "ui-order-market-buy", ActionType.LEFT_CLICK);
     addOrderIcon(page, player, row, OrderSide.SELL, OrderType.MARKET, "ORANGE_CONCRETE", 42,
         "ui-order-market-sell", ActionType.LEFT_CLICK);
+    ExchangePageIcons.add(page, playerId, new IconBuilder(ItemStackCompat.of("ENDER_CHEST", messages.component(player, "ui-quick-assets"))
+        .lore(List.of(messages.component(player, "ui-quick-assets-lore"))))
+        .withActions(new RunnableAction(click -> {
+          ExchangeMenuChrome.playCancelSound(player);
+          contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.ASSETS.menuName()));
+          ExchangeMenuNavigator.open(click.player(), ExchangeMenuPage.ASSETS);
+        })).withSlot(40).build());
   }
 
   private void addOrderIcon(PlayerInstancePage page, Player player, MarketRow row,
                             OrderSide side, OrderType type, String material, int slot,
                             String title, ActionType actionType) {
+    String custodyKey = side == OrderSide.BUY ? "ui-order-buy-guide" : "ui-order-sell-guide";
     List<Component> lore = type == OrderType.LIMIT
-        ? List.of(messages.component(player, "ui-order-limit-format"),
-            messages.component(player, "ui-order-limit-example"))
-        : List.of(messages.component(player, "ui-order-market-format"),
-            messages.component(player, "ui-order-market-fixed-boundary"));
-    page.addIcon(player.getUniqueId(), new IconBuilder(QuickShop.getInstance().stack().of(material, 1)
-        .customName(messages.component(player, title)).lore(lore))
+        ? List.of(messages.component(player, custodyKey),
+            messages.component(player, "ui-order-limit-format"),
+            messages.component(player, "ui-order-limit-example"),
+            messages.component(player, "ui-order-click-chat"))
+        : List.of(messages.component(player, custodyKey),
+            messages.component(player, "ui-order-market-format"),
+            messages.component(player, "ui-order-market-fixed-boundary"),
+            messages.component(player, "ui-order-click-chat"));
+    ExchangePageIcons.add(page, player.getUniqueId(), new IconBuilder(ItemStackCompat.of(material, messages.component(player, title)).lore(lore))
         .withActions(new RunnableAction(click -> requestOrder(player, row, side, type), actionType))
         .withSlot(slot).build());
   }
@@ -117,10 +136,9 @@ final class MarketDetailPage {
   }
 
   private void renderFailure(PlayerInstancePage page, Player player, UUID playerId, String key) {
-    page.getIcons(playerId).clear();
-    page.setLockEmptySlots(true);
-    Component title = player == null ? Component.text(key) : messages.component(player, key);
-    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BARRIER", 1)
-        .customName(title)).withSlot(22).build());
+    if (player == null) return;
+    chrome.error(page, player, ExchangeMenuPage.MARKET_DETAIL,
+        "ui-guide-market-detail", key);
+    chrome.addBack(page, player, ExchangeMenuPage.MARKET_DETAIL, null);
   }
 }

@@ -7,6 +7,18 @@ import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
+import com.ghostchu.quickshop.addon.exchange.display.BukkitDisplayTargets;
+import com.ghostchu.quickshop.addon.exchange.display.ExchangeMarketDisplayDataSource;
+import com.ghostchu.quickshop.addon.exchange.display.FoliaDisplayScheduler;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartCache;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartOptions;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartRenderer;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartSeriesBuilder;
+import com.ghostchu.quickshop.addon.exchange.display.MarketDisplayAdministration;
+import com.ghostchu.quickshop.addon.exchange.display.MarketDisplayListener;
+import com.ghostchu.quickshop.addon.exchange.display.MarketDisplayRegistry;
+import com.ghostchu.quickshop.addon.exchange.display.MarketDisplayService;
+import com.ghostchu.quickshop.addon.exchange.display.MarketSignFormatter;
 import com.ghostchu.quickshop.addon.exchange.marketdata.CandleAggregator;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
 import com.ghostchu.quickshop.addon.exchange.persistence.ConnectionProvider;
@@ -20,6 +32,7 @@ import com.ghostchu.quickshop.addon.exchange.platform.FoliaInventoryGateway;
 import com.ghostchu.quickshop.addon.exchange.platform.ContainerShopPolicyListener;
 import com.ghostchu.quickshop.addon.exchange.platform.QuickShopEconomyGateway;
 import com.ghostchu.quickshop.addon.exchange.platform.TransferLoginListener;
+import com.ghostchu.quickshop.addon.exchange.platform.TransferMarkerListener;
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.operations.TransferReviewCoordinator;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
@@ -50,6 +63,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.bukkit.Bukkit;
@@ -126,14 +140,16 @@ public final class ExchangeRuntimeFactory {
     DrainingExecutor reviewFenceExecutor = new DrainingExecutor(
         "qs-exchange-review-fence-", Duration.ofSeconds(30));
     startupResources.add(reviewFenceExecutor);
-    TransferRecoveryService transfers = new TransferRecoveryService(
-        repository, repository, inventory, recoveryExecutor);
     Bukkit.getPluginManager().registerEvents(new ContainerShopPolicyListener(registry), addon);
+    Bukkit.getPluginManager().registerEvents(new TransferMarkerListener(marker), addon);
 
     AutoCloseable dispatcher = () -> {};
     ScheduledExecutorService maintenance = Executors.newSingleThreadScheduledExecutor(
         Thread.ofPlatform().daemon(true).name("qs-exchange-maintenance-", 0).factory());
     startupResources.add(() -> maintenance.shutdownNow());
+    ExecutorService viewExecutor = Executors.newFixedThreadPool(2,
+        Thread.ofPlatform().daemon(true).name("qs-exchange-view-", 0).factory());
+    startupResources.add(() -> viewExecutor.shutdownNow());
     Map<String, ExchangeViewService.MarketView> marketViews = new java.util.LinkedHashMap<>();
     Map<String, com.ghostchu.quickshop.addon.exchange.ui.TransferTarget> transferTargets =
         new java.util.LinkedHashMap<>();
@@ -148,8 +164,59 @@ public final class ExchangeRuntimeFactory {
           com.ghostchu.quickshop.addon.exchange.ui.TransferTarget.item(
               entry.getKey(), definition.displayName()));
     }
-    ExchangeViewService views = new ExchangeViewService(marketViews, marketData, maintenance,
+    ExchangeViewService views = new ExchangeViewService(marketViews, marketData, viewExecutor,
         repository, java.util.List.copyOf(transferTargets.values()));
+    MarketChartOptions chartOptions = chartOptions(addon.getConfig());
+    Map<String, ExchangeMarketDisplayDataSource.MarketAccess> displayMarkets =
+        new java.util.LinkedHashMap<>();
+    for (Map.Entry<String, PersistentOrderService> entry : markets.entrySet()) {
+      MarketDefinition definition = registry.require(entry.getKey());
+      displayMarkets.put(entry.getKey(), new ExchangeMarketDisplayDataSource.MarketAccess(
+          definition.displayName(), () -> entry.getValue().marketQuote(marketData),
+          (fromInclusive, toExclusive) -> repository.loadCandles(
+              entry.getKey(), fromInclusive, toExclusive),
+          (fromInclusive, toExclusive) -> chartOptions.includeLiveCandle()
+              ? marketData.liveCandles(entry.getKey(), fromInclusive, toExclusive)
+              : List.of()));
+    }
+    MarketDisplayRegistry displayRegistry = MarketDisplayRegistry.load(
+        addon.getDataFolder().toPath().resolve("displays.yml"));
+    MarketDisplayService displayService = new MarketDisplayService(
+        new ExchangeMarketDisplayDataSource(displayMarkets, viewExecutor),
+        new MarketChartSeriesBuilder(), new MarketChartRenderer(chartOptions), new MarketChartCache(256),
+        new MarketSignFormatter(), new FoliaDisplayScheduler(), Clock.systemUTC());
+    startupResources.add(displayService);
+    DrainingExecutor displayPersistence = new DrainingExecutor(
+        "qs-exchange-display-persistence-", Duration.ofSeconds(30));
+    startupResources.add(displayPersistence);
+    MarketDisplayAdministration displayAdministration = new MarketDisplayAdministration(
+        displayRegistry, marketId -> registry.marketIds().contains(marketId),
+        new BukkitDisplayTargets(), new MarketDisplayAdministration.Refresher() {
+          @Override
+          public java.util.concurrent.CompletableFuture<Void> refresh(
+              com.ghostchu.quickshop.addon.exchange.display.MapWallBinding binding) {
+            return displayService.refresh(binding);
+          }
+
+          @Override
+          public java.util.concurrent.CompletableFuture<Void> refresh(
+              com.ghostchu.quickshop.addon.exchange.display.MarketSignBinding binding) {
+            return displayService.refresh(binding);
+          }
+        }, displayRegistry::save, UUID::randomUUID,
+        displayLimit(addon.getConfig().getInt("displays.max-map-walls", 128),
+            "displays.max-map-walls"),
+        displayLimit(addon.getConfig().getInt("displays.max-signs", 256),
+            "displays.max-signs"), displayPersistence);
+    Bukkit.getPluginManager().registerEvents(
+        new MarketDisplayListener(displayRegistry, displayService), addon);
+    if (addon.getConfig().getBoolean("displays.enabled", true)) {
+      long refreshSeconds = displayRefreshSeconds(
+          addon.getConfig().getLong("displays.refresh-seconds", 5L));
+      maintenance.scheduleWithFixedDelay(
+          () -> refreshDisplays(displayRegistry, displayService, addon),
+          refreshSeconds, refreshSeconds, TimeUnit.SECONDS);
+    }
     java.nio.file.Path auditDirectory = requireAuditDirectory(
         addon.getDataFolder().toPath(),
         addon.getConfig().getString("operations.audit-export-directory", "audit"));
@@ -175,6 +242,8 @@ public final class ExchangeRuntimeFactory {
                   .orElseGet(() -> java.util.concurrent.CompletableFuture.failedFuture(
                       new IllegalStateException("exchange writer is unavailable"))));
         });
+    TransferRecoveryService transfers = new TransferRecoveryService(
+        repository, repository, inventory, recoveryExecutor, transferReviews::recoverClaimed);
     Runnable resumeHalted = () -> resumeExpiredHalts(repository, registry.marketIds(), database.writer());
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(() -> flushWhileOwned(
@@ -192,7 +261,18 @@ public final class ExchangeRuntimeFactory {
             recoveryExecutor.close();
             playerOperations.close();
             runWhileOwnedOrThrow(database.writer(), () -> marketData.flush(Instant.now()));
-          }, views, administration, actions, transferReviews);
+          }, views, administration, actions, transferReviews, displayService,
+          displayAdministration, () -> {
+            maintenance.shutdownNow();
+            displayAdministration.close();
+            displayPersistence.close();
+            displayService.close();
+            displayRegistry.save();
+            viewExecutor.shutdown();
+            if (!viewExecutor.awaitTermination(30L, TimeUnit.SECONDS)) {
+              throw new IllegalStateException("timed out draining exchange view executor");
+            }
+          });
       runtimeReference.set(runtime);
       Bukkit.getPluginManager().registerEvents(new TransferLoginListener(accountId ->
           runtime.callAsyncWhileWriting(() -> transfers.recoverPlayer(accountId),
@@ -207,6 +287,44 @@ public final class ExchangeRuntimeFactory {
       closeOnStartupFailure(failure, startupResources);
       throw failure;
     }
+  }
+
+  static long displayRefreshSeconds(long configured) {
+    if (configured <= 0L) {
+      throw new IllegalArgumentException("displays.refresh-seconds must be positive");
+    }
+    return configured;
+  }
+
+  static int displayLimit(int configured, String path) {
+    if (configured < 0) {
+      throw new IllegalArgumentException(path + " must not be negative");
+    }
+    return configured;
+  }
+
+  static MarketChartOptions chartOptions(FileConfiguration config) {
+    Objects.requireNonNull(config, "config");
+    return new MarketChartOptions(
+        config.getBoolean("displays.chart.professional-layout", true),
+        config.getBoolean("displays.chart.include-live-candle", true),
+        config.getBoolean("displays.chart.show-volume", true),
+        config.getBoolean("displays.chart.show-latest-price-line", true));
+  }
+
+  static void refreshDisplays(MarketDisplayRegistry registry, MarketDisplayService displays,
+                              JavaPlugin addon) {
+    registry.mapWalls().forEach(binding -> refreshDisplay(displays.refresh(binding), binding.bindingId(), addon));
+    registry.signs().forEach(binding -> refreshDisplay(displays.refresh(binding), binding.bindingId(), addon));
+  }
+
+  private static void refreshDisplay(java.util.concurrent.CompletableFuture<Void> refresh,
+                                     UUID bindingId, JavaPlugin addon) {
+    refresh.exceptionally(failure -> {
+      addon.getLogger().log(java.util.logging.Level.WARNING,
+          "Failed to refresh exchange market display " + bindingId, failure);
+      return null;
+    });
   }
 
   static void closeOnStartupFailure(Throwable failure, List<? extends AutoCloseable> resources) {
@@ -281,10 +399,25 @@ public final class ExchangeRuntimeFactory {
     return candidate;
   }
 
+  static String databaseMode(String configured) {
+    if (configured == null || configured.isBlank()) {
+      return "sqlite";
+    }
+    return configured.trim().toLowerCase(java.util.Locale.ROOT);
+  }
+
+  static IllegalStateException unsupportedQuickShopDatabase(String productName) {
+    String detected = productName == null || productName.isBlank() ? "unknown" : productName;
+    return new IllegalStateException(
+        "database.mode=quickshop can reuse only a MySQL QuickShop database; detected "
+            + detected + ". Set database.mode: sqlite to use the safe local exchange.sqlite "
+            + "database inside the Exchange addon data folder instead");
+  }
+
   private Database database() throws Exception {
     FileConfiguration config = addon.getConfig();
-    String mode = config.getString("database.mode", "quickshop");
-    if ("sqlite".equalsIgnoreCase(mode)) {
+    String mode = databaseMode(config.getString("database.mode"));
+    if ("sqlite".equals(mode)) {
       Path folder = addon.getDataFolder().toPath();
       Files.createDirectories(folder);
       String configured = config.getString("database.sqlite-jdbc-url",
@@ -294,14 +427,14 @@ public final class ExchangeRuntimeFactory {
           () -> java.sql.DriverManager.getConnection("jdbc:sqlite:" + databaseFile));
       return new Database(connections, SqlDialect.SQLITE, new LocalSingleWriterGuard(databaseFile));
     }
-    if (!"quickshop".equalsIgnoreCase(mode)) {
+    if (!"quickshop".equals(mode)) {
       throw new IllegalArgumentException("database.mode must be quickshop or sqlite");
     }
     ConnectionProvider connections = () -> quickShop.getSqlManager().getConnection();
     try (Connection connection = connections.open()) {
-      if (!"MySQL".equalsIgnoreCase(connection.getMetaData().getDatabaseProductName())) {
-        throw new IllegalStateException(
-            "QuickShop Exchange requires MySQL for database.mode=quickshop; use local sqlite otherwise");
+      String productName = connection.getMetaData().getDatabaseProductName();
+      if (!"MySQL".equalsIgnoreCase(productName)) {
+        throw unsupportedQuickShopDatabase(productName);
       }
     }
     return new Database(connections, SqlDialect.MYSQL,

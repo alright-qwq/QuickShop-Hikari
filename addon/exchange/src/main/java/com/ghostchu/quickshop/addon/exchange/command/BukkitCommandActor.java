@@ -15,23 +15,38 @@ public final class BukkitCommandActor implements CommandActor {
   private final Locale locale;
   private final MenuOpener menus;
   private final BiConsumer<Player, Runnable> completionScheduler;
+  private final Runnable handbookClaim;
 
   public BukkitCommandActor(
       Player player, AddonMessageService messages, Locale locale, MenuOpener menus) {
+    this(player, messages, locale, menus, () -> {});
+  }
+
+  public BukkitCommandActor(
+      Player player, AddonMessageService messages, Locale locale, MenuOpener menus,
+      Runnable handbookClaim) {
     this(player, messages, locale, menus,
         (owner, completion) -> QuickShop.folia().getScheduler()
-            .runAtEntityLater(owner, completion, 1L));
+            .runAtEntityLater(owner, completion, 1L),
+        handbookClaim);
   }
 
   BukkitCommandActor(
       Player player, AddonMessageService messages, Locale locale, MenuOpener menus,
       BiConsumer<Player, Runnable> completionScheduler) {
+    this(player, messages, locale, menus, completionScheduler, () -> {});
+  }
+
+  BukkitCommandActor(
+      Player player, AddonMessageService messages, Locale locale, MenuOpener menus,
+      BiConsumer<Player, Runnable> completionScheduler, Runnable handbookClaim) {
     this.player = Objects.requireNonNull(player, "player");
     this.messages = Objects.requireNonNull(messages, "messages");
     this.locale = Objects.requireNonNull(locale, "locale");
     this.menus = Objects.requireNonNull(menus, "menus");
     this.completionScheduler = Objects.requireNonNull(completionScheduler,
         "completionScheduler");
+    this.handbookClaim = Objects.requireNonNull(handbookClaim, "handbookClaim");
   }
 
   @Override
@@ -45,6 +60,16 @@ public final class BukkitCommandActor implements CommandActor {
   }
 
   @Override
+  public boolean isPlayer() {
+    return true;
+  }
+
+  /** Exposes the live player only to Bukkit platform adapters. */
+  public Player player() {
+    return player;
+  }
+
+  @Override
   public void message(String key, Object... arguments) {
     player.sendMessage(messages.message(key, locale, arguments));
   }
@@ -53,6 +78,11 @@ public final class BukkitCommandActor implements CommandActor {
   public void dispatchCompletion(Runnable completion) {
     Objects.requireNonNull(completion, "completion");
     completionScheduler.accept(player, completion);
+  }
+
+  @Override
+  public void claimHandbook() {
+    completionScheduler.accept(player, handbookClaim);
   }
 
   @Override

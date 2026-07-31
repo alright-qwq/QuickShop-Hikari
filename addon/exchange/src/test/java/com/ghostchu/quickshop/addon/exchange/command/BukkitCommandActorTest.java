@@ -47,6 +47,30 @@ class BukkitCommandActorTest {
   }
 
   @Test
+  void claimsHandbookThroughThePlayerEntityScheduler() {
+    PlayerMock player = server.addPlayer();
+    AtomicInteger scheduled = new AtomicInteger();
+    AtomicInteger claimed = new AtomicInteger();
+    AddonMessageService messages = new AddonMessageService(Map.of());
+    BukkitCommandActor actor = new BukkitCommandActor(
+        player,
+        messages,
+        Locale.US,
+        (menu, page) -> {},
+        (scheduledPlayer, completion) -> {
+          assertThat(scheduledPlayer).isSameAs(player);
+          scheduled.incrementAndGet();
+          completion.run();
+        },
+        claimed::incrementAndGet);
+
+    actor.claimHandbook();
+
+    assertThat(scheduled).hasValue(1);
+    assertThat(claimed).hasValue(1);
+  }
+
+  @Test
   void forwardsMessagesAndMenuOpeningToPlayerPorts() {
     PlayerMock player = server.addPlayer();
     AtomicReference<String> opened = new AtomicReference<>();

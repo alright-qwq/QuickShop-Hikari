@@ -22,6 +22,7 @@ final class RequestSummaryPage {
   private final ExchangeRequestSubmitter submitter;
   private final RolloutPolicy rollout;
   private final ExchangeUiMessages messages;
+  private final ExchangeMenuChrome chrome;
 
   RequestSummaryPage(ExchangeMenuPage expected, ExchangeMenuContextStore contexts,
                      ExchangeRequestSubmitter submitter, AddonMessageService messages) {
@@ -31,11 +32,18 @@ final class RequestSummaryPage {
   RequestSummaryPage(ExchangeMenuPage expected, ExchangeMenuContextStore contexts,
                      ExchangeRequestSubmitter submitter, RolloutPolicy rollout,
                      AddonMessageService messages) {
+    this(expected, contexts, submitter, rollout, messages, ExchangeClockDisplay.disabled());
+  }
+
+  RequestSummaryPage(ExchangeMenuPage expected, ExchangeMenuContextStore contexts,
+                     ExchangeRequestSubmitter submitter, RolloutPolicy rollout,
+                     AddonMessageService messages, ExchangeClockDisplay clock) {
     this.expected = expected;
     this.contexts = contexts;
     this.submitter = submitter;
     this.rollout = rollout;
     this.messages = new ExchangeUiMessages(messages);
+    this.chrome = new ExchangeMenuChrome(contexts, this.messages, clock);
   }
 
   void open(PageOpenCallback callback) {
@@ -43,28 +51,47 @@ final class RequestSummaryPage {
     UUID playerId = callback.getPlayer().identifier();
     Player player = Bukkit.getPlayer(playerId);
     if (player == null || !player.isOnline()) return;
-    page.getIcons(playerId).clear();
-    page.setLockEmptySlots(true);
+    chrome.prepare(page, player, expected, "ui-guide-confirm");
     ExchangeMenuRequest request = contexts.get(playerId).orElse(null);
     if (request == null || !expected.menuName().equals(request.menuName())) {
-      IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("BARRIER", 1)
-          .customName(messages.component(player, "ui-confirm-not-selected")))
+      IconBuilder icon = new IconBuilder(ItemStackCompat.of("BARRIER", messages.component(player, "ui-confirm-not-selected")))
           .withSlot(22);
-      page.addIcon(playerId, icon.build());
+      ExchangePageIcons.add(page, playerId, icon.build());
       return;
     }
-    List<Component> lore = summary(player, request);
-    IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
-        .customName(messages.component(player, titleKey(request), titleArgument(request)))
+    chrome.addBack(page, player, expected, request);
+    List<Component> lore = new ArrayList<>(summary(player, request));
+    lore.add(messages.component(player, "ui-confirm-warning"));
+    IconBuilder icon = new IconBuilder(ItemStackCompat.of("PAPER", messages.component(player, titleKey(request), titleArgument(request)))
         .lore(lore)).withSlot(22);
-    page.addIcon(playerId, icon.build());
+    ExchangePageIcons.add(page, playerId, icon.build());
     if (submitter != null && request.requestId() != null
         && (request.order() != null || request.orderId() != null || request.transfer() != null)) {
-      IconBuilder confirm = new IconBuilder(QuickShop.getInstance().stack().of("LIME_CONCRETE", 1)
-          .customName(messages.component(player, "ui-confirm-action")));
-      confirm.withActions(new RunnableAction(click -> submit(request, playerId))).withSlot(31);
-      page.addIcon(playerId, confirm.build());
+      IconBuilder confirm = new IconBuilder(ItemStackCompat.of("LIME_CONCRETE", messages.component(player, "ui-confirm-action")));
+      confirm.withActions(new RunnableAction(click -> {
+        ExchangeMenuChrome.playConfirmSound(player);
+        submit(request, playerId);
+      })).withSlot(31);
+      ExchangePageIcons.add(page, playerId, confirm.build());
+      ExchangeMenuPage destination = ExchangeMenuChrome.backDestination(expected);
+      if (destination != null) {
+        IconBuilder cancel = new IconBuilder(ItemStackCompat.of("RED_CONCRETE", messages.component(player, "ui-confirm-cancel-action")));
+        cancel.withActions(new RunnableAction(click -> {
+          ExchangeMenuChrome.playCancelSound(player);
+          contexts.put(playerId, ExchangeMenuChrome.backRequest(expected, request));
+          ExchangeMenuNavigator.open(click.player(), destination);
+        })).withSlot(33);
+        ExchangePageIcons.add(page, playerId, cancel.build());
+      }
     }
+  }
+
+  private void navigateToResultPage(Player player, UUID playerId) {
+    ExchangeMenuPage target = expected == ExchangeMenuPage.CANCEL_CONFIRM
+        ? ExchangeMenuPage.ORDERS : ExchangeMenuPage.HISTORY;
+    contexts.put(playerId, ExchangeMenuRequest.page(target.menuName()));
+    ExchangeMenuNavigator.open(
+        com.ghostchu.quickshop.QuickShop.getInstance().createMenuPlayer(player), target);
   }
 
   private static String titleKey(ExchangeMenuRequest request) {
@@ -130,10 +157,13 @@ final class RequestSummaryPage {
       if (onlinePlayer == null || !onlinePlayer.isOnline()) return;
       QuickShop.folia().getScheduler().runAtEntityLater(onlinePlayer, () -> {
         if (failure != null) {
+          ExchangeMenuChrome.playErrorSound(onlinePlayer);
           onlinePlayer.sendMessage(messages.component(onlinePlayer, "ui-confirm-submit-failed"));
         } else {
+          ExchangeMenuChrome.playConfirmSound(onlinePlayer);
           onlinePlayer.sendMessage(messages.component(onlinePlayer, "ui-confirm-submit-result",
               result.outcome(), result.reference()));
+          navigateToResultPage(onlinePlayer, playerId);
         }
       }, 1L);
     });

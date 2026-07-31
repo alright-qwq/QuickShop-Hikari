@@ -3,6 +3,13 @@ package com.ghostchu.quickshop.addon.exchange.runtime;
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
+import com.ghostchu.quickshop.addon.exchange.display.DisplayScheduler;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartCache;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartRenderer;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartSeriesBuilder;
+import com.ghostchu.quickshop.addon.exchange.display.MarketDisplayRegistry;
+import com.ghostchu.quickshop.addon.exchange.display.MarketDisplayService;
+import com.ghostchu.quickshop.addon.exchange.display.MarketSignFormatter;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeRequestSubmitter;
 import java.math.BigDecimal;
 import java.nio.file.Files;
@@ -156,6 +163,67 @@ class ExchangeRuntimeTest {
   }
 
   @Test
+  void stopsDisplaysAndSavesBindingsBeforeDispatcherDrain() throws Exception {
+    java.util.List<String> phases = new java.util.ArrayList<>();
+    TrackingGuard writer = new TrackingGuard(new AtomicBoolean());
+    MarketDisplayRegistry registry = MarketDisplayRegistry.load(
+        Files.createTempDirectory("exchange-runtime-displays-").resolve("displays.yml"));
+    MarketDisplayService displays = displayService();
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {},
+        () -> phases.add("dispatcher"), () -> {}, () -> phases.add("operational"),
+        null, null, null, null, displays, () -> {
+          displays.close();
+          phases.add("displays");
+          phases.add("registry");
+          registry.save();
+        });
+
+    runtime.start();
+    runtime.close();
+
+    assertThat(phases).containsExactly("displays", "registry", "dispatcher", "operational");
+  }
+
+  @Test
+  void retriesDisplayShutdownBeforeRunningLaterShutdownPhases() throws Exception {
+    java.util.concurrent.atomic.AtomicInteger displayAttempts =
+        new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger dispatcherAttempts =
+        new java.util.concurrent.atomic.AtomicInteger();
+    TrackingGuard writer = new TrackingGuard(new AtomicBoolean());
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {},
+        () -> dispatcherAttempts.incrementAndGet(), () -> {}, () -> {},
+        null, null, null, null, null, () -> {
+          if (displayAttempts.incrementAndGet() == 1) {
+            throw new IllegalStateException("display shutdown failed");
+          }
+        });
+    runtime.start();
+
+    assertThatThrownBy(runtime::close)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("display shutdown failed");
+    assertThat(dispatcherAttempts).hasValue(0);
+    assertThat(writer.held()).isTrue();
+
+    runtime.close();
+
+    assertThat(displayAttempts).hasValue(2);
+    assertThat(dispatcherAttempts).hasValue(1);
+    assertThat(runtime.closed()).isTrue();
+  }
+
+  @Test
+  void exposesConfiguredDisplayService() {
+    TrackingGuard writer = new TrackingGuard(new AtomicBoolean());
+    MarketDisplayService displays = displayService();
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {}, () -> {},
+        () -> {}, () -> {}, null, null, null, null, displays, () -> {});
+
+    assertThat(runtime.displays()).isSameAs(displays);
+  }
+
+  @Test
   void returnsWriteResultOnlyWhileTheWriterFenceIsHeld() throws Exception {
     TrackingGuard writer = new TrackingGuard(new AtomicBoolean());
     ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {}, () -> {});
@@ -242,6 +310,56 @@ class ExchangeRuntimeTest {
     assertThatThrownBy(() -> submitter.submit(request))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("closed");
+  }
+
+  @Test
+  void retriesOwnedExecutorCloseWithoutReopeningSubmissions() {
+    ExchangeRuntime runtime = new ExchangeRuntime(new TrackingGuard(new AtomicBoolean()),
+        () -> {}, () -> {}, () -> {});
+    java.util.concurrent.atomic.AtomicInteger closeAttempts =
+        new java.util.concurrent.atomic.AtomicInteger();
+    AutoCloseable owner = () -> {
+      if (closeAttempts.incrementAndGet() == 1) {
+        throw new IllegalStateException("executor drain timed out");
+      }
+    };
+    RuntimeExchangeRequestSubmitter submitter =
+        new RuntimeExchangeRequestSubmitter(runtime, Runnable::run, owner);
+    ExchangeMenuRequest request = ExchangeMenuRequest.cancel(
+        UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+
+    assertThatThrownBy(submitter::close)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("executor drain timed out");
+    assertThatThrownBy(() -> submitter.submit(request))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("closed");
+
+    submitter.close();
+
+    assertThat(closeAttempts).hasValue(2);
+  }
+
+  private static MarketDisplayService displayService() {
+    DisplayScheduler scheduler = new DisplayScheduler() {
+      @Override
+      public CompletableFuture<Void> updateMapFrame(
+          com.ghostchu.quickshop.addon.exchange.display.MapFrameBinding frame,
+          com.ghostchu.quickshop.addon.exchange.display.MarketChartImage image) {
+        return CompletableFuture.completedFuture(null);
+      }
+
+      @Override
+      public CompletableFuture<Void> updateSign(
+          com.ghostchu.quickshop.addon.exchange.display.MarketSignBinding sign,
+          com.ghostchu.quickshop.addon.exchange.display.MarketSignLines lines) {
+        return CompletableFuture.completedFuture(null);
+      }
+    };
+    return new MarketDisplayService((marketId, period, toExclusive) ->
+        CompletableFuture.failedFuture(new AssertionError("unexpected snapshot")),
+        new MarketChartSeriesBuilder(), new MarketChartRenderer(), new MarketChartCache(1),
+        new MarketSignFormatter(), scheduler, java.time.Clock.systemUTC());
   }
 
   private static final class TrackingGuard implements SingleWriterGuard {

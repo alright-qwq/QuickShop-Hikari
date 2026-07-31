@@ -37,4 +37,38 @@ class DrainingExecutorTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("closed");
   }
+
+  @Test
+  void timedOutCloseKeepsQueuedWorkForALaterRetry() throws Exception {
+    DrainingExecutor executor = new DrainingExecutor(
+        "qs-exchange-retry-test-", Duration.ofMillis(25));
+    CountDownLatch started = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    CountDownLatch queuedCompleted = new CountDownLatch(1);
+    executor.execute(() -> {
+      started.countDown();
+      boolean released = false;
+      while (!released) {
+        try {
+          released = release.await(2, TimeUnit.SECONDS);
+        } catch (InterruptedException ignored) {
+          // A graceful close must not interrupt already accepted work.
+        }
+      }
+    });
+    executor.execute(queuedCompleted::countDown);
+    assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();
+
+    assertThatThrownBy(executor::close)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("timed out");
+    assertThatThrownBy(() -> executor.execute(() -> {}))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("closed");
+
+    release.countDown();
+    executor.close();
+
+    assertThat(queuedCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+  }
 }

@@ -571,6 +571,24 @@ public final class JdbcExchangeRepository
     }
 
     @Override
+    public TransferRecord claimReviewedTransfer(
+        UUID transferId, long expectedVersion, String claim) throws SQLException {
+      return transitionTransfer(transferId, expectedVersion, TransferStatus.REVIEW_REQUIRED,
+          TransferStatus.REVIEW_PROCESSING, claim);
+    }
+
+    @Override
+    public TransferRecord resolveClaimedTransfer(
+        UUID transferId, long expectedVersion, TransferStatus targetStatus, String reason)
+        throws SQLException {
+      if (targetStatus != TransferStatus.COMPLETED && targetStatus != TransferStatus.FAILED) {
+        throw new IllegalArgumentException("claimed transfer must resolve to a terminal status");
+      }
+      return transitionTransfer(transferId, expectedVersion, TransferStatus.REVIEW_PROCESSING,
+          targetStatus, reason);
+    }
+
+    @Override
     public TransferRecord resolveReviewedTransfer(
         UUID transferId, long expectedVersion, TransferStatus targetStatus, String reason)
         throws SQLException {

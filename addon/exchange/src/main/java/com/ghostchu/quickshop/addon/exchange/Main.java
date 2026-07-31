@@ -9,9 +9,14 @@ import com.ghostchu.quickshop.addon.exchange.command.QseAliasCommand;
 import com.ghostchu.quickshop.addon.exchange.command.RolloutPolicy;
 import com.ghostchu.quickshop.addon.exchange.command.SubCommandExchange;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
+import com.ghostchu.quickshop.addon.exchange.platform.ExchangeHandbookListener;
+import com.ghostchu.quickshop.addon.exchange.platform.ExchangeHandbookService;
+import com.ghostchu.quickshop.addon.exchange.platform.ExchangeHandbookSettings;
+import com.ghostchu.quickshop.addon.exchange.platform.HandbookAdminCommands;
 import com.ghostchu.quickshop.addon.exchange.runtime.ExchangeRuntime;
 import com.ghostchu.quickshop.addon.exchange.runtime.ExchangeRuntimeFactory;
 import com.ghostchu.quickshop.addon.exchange.runtime.RuntimeExchangeRequestSubmitter;
+import com.ghostchu.quickshop.addon.exchange.ui.ExchangeClockDisplay;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeMenuListener;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeMenuService;
 import com.ghostchu.quickshop.api.command.CommandContainer;
@@ -30,6 +35,7 @@ public final class Main extends JavaPlugin {
   private PluginCommand qseCommand;
   private ExchangeMenuService menus;
   private ExchangeMenuListener menuListener;
+  private ExchangeHandbookListener handbookListener;
 
   static java.util.List<String> firstRunResources() {
     return java.util.List.of("markets.yml", "messages.yml");
@@ -75,7 +81,7 @@ public final class Main extends JavaPlugin {
     ExchangeShutdown.Result result = ExchangeShutdown.close(runtimeHandle,
         this::unregisterCommands,
         this::closeMenus,
-        this::unregisterMenuListener);
+        this::unregisterPlayerListeners);
     if (result.failure() != null) {
       getLogger().log(Level.SEVERE, "Exchange shutdown failed", result.failure());
     }
@@ -86,15 +92,42 @@ public final class Main extends JavaPlugin {
 
   private void registerPlayerEntrypoints() {
     AddonMessageService messages = AddonMessageService.load(
+        Objects.requireNonNull(getResource("messages.yml"), "bundled messages.yml missing"),
         new File(getDataFolder(), "messages.yml"));
     RolloutPolicy rollout = rolloutPolicy();
+    ExchangeHandbookSettings handbookSettings = ExchangeHandbookSettings.create(
+        getConfig().getBoolean("handbook.enabled", true),
+        getConfig().getBoolean("handbook.self-claim", true),
+        getConfig().getBoolean("handbook.prevent-duplicate", true),
+        getConfig().getString("handbook.material", "KNOWLEDGE_BOOK"));
+    ExchangeHandbookService handbooks = new ExchangeHandbookService(
+        new org.bukkit.NamespacedKey(this, "exchange-handbook"),
+        handbookSettings, messages, org.bukkit.entity.Player::locale);
+    ExchangeClockDisplay clock = ExchangeClockDisplay.create(
+        getConfig().getBoolean("gui.clock.enabled", true),
+        getConfig().getString("gui.clock.zone-id", ExchangeClockDisplay.DEFAULT_ZONE_ID),
+        getConfig().getString("gui.clock.format", ExchangeClockDisplay.DEFAULT_PATTERN),
+        java.time.Clock.systemUTC(), getLogger()::warning);
     menus = new ExchangeMenuService(runtime.views(), new RuntimeExchangeRequestSubmitter(runtime),
-        rollout, messages);
+        rollout, messages, clock);
     menuListener = new ExchangeMenuListener(menus);
+    handbookListener = new ExchangeHandbookListener(
+        handbooks, rollout, messages, org.bukkit.entity.Player::locale,
+        player -> player.hasPermission("quickshop.exchange.use"),
+        (player, action) -> QuickShop.folia().getScheduler()
+            .runAtEntityLater(player, action, 1L),
+        player -> menus.open(player, "markets", 1));
     Bukkit.getPluginManager().registerEvents(menuListener, this);
+    Bukkit.getPluginManager().registerEvents(handbookListener, this);
+    AdminCommandRouter.HandbookCommands handbookCommands = new HandbookAdminCommands(
+        Bukkit::getPlayerExact,
+        handbooks::give,
+        (player, action, retired) -> QuickShop.folia().getScheduler()
+            .runAtEntityLater(player, action, retired, 1L));
     ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID,
         new AdminCommandRouter(runtime.administration(), UUID::randomUUID,
-            work -> runtime.runWhileWriting(work::run), runtime.transferReviews()), rollout);
+            work -> runtime.runWhileWriting(work::run), runtime.transferReviews(),
+            runtime.displayAdministration(), handbookCommands), rollout);
     var actors = (java.util.function.Function<org.bukkit.entity.Player,
         com.ghostchu.quickshop.addon.exchange.command.CommandActor>) player ->
         new BukkitCommandActor(player, messages, player.locale(),
@@ -108,7 +141,7 @@ public final class Main extends JavaPlugin {
               public void open(ExchangeMenuRequest request) {
                 menus.open(player, request);
               }
-            });
+            }, () -> handbooks.claim(player));
     exchangeCommand = CommandContainer.builder()
         .prefix("exchange")
         .permission("quickshop.exchange.use")
@@ -157,10 +190,14 @@ public final class Main extends JavaPlugin {
     }
   }
 
-  private void unregisterMenuListener() {
+  private void unregisterPlayerListeners() {
     if (menuListener != null) {
       HandlerList.unregisterAll(menuListener);
       menuListener = null;
+    }
+    if (handbookListener != null) {
+      HandlerList.unregisterAll(handbookListener);
+      handbookListener = null;
     }
   }
 }

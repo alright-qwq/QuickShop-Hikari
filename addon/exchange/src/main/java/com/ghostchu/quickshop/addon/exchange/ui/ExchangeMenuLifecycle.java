@@ -19,7 +19,18 @@ public final class ExchangeMenuLifecycle {
   }
 
   public void inventoryClosed(UUID playerId, String title) {
-    if (ExchangeMenu.TITLE.equals(title)) {
+    inventoryClosed(playerId, title, false);
+  }
+
+  public void inventoryClosed(UUID playerId, String title, boolean viewerStillOpen) {
+    inventoryClosed(playerId, title, viewerStillOpen,
+        viewerStillOpen ? ExchangeMenu.NAME : null);
+  }
+
+  public void inventoryClosed(UUID playerId, String title, boolean viewerStillOpen,
+                              String viewerMenu) {
+    boolean stillInExchange = viewerStillOpen && ExchangeMenu.NAME.equals(viewerMenu);
+    if (ExchangeMenu.TITLE.equals(title) && !stillInExchange) {
       contexts.remove(Objects.requireNonNull(playerId, "playerId"));
     }
   }

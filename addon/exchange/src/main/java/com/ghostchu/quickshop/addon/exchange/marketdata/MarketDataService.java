@@ -134,6 +134,15 @@ public final class MarketDataService {
     }
   }
 
+  /** Returns immutable in-memory candles for the requested half-open interval. */
+  public synchronized List<Candle> liveCandles(
+      String marketId, Instant fromInclusive, Instant toExclusive) {
+    Objects.requireNonNull(marketId, "marketId");
+    Objects.requireNonNull(fromInclusive, "fromInclusive");
+    Objects.requireNonNull(toExclusive, "toExclusive");
+    return candles.snapshots(marketId, fromInclusive, toExclusive);
+  }
+
   public MarketQuote quote(String marketId, BigDecimal referencePrice, BigDecimal bestBid,
                            BigDecimal bestAsk, MarketStatus status, Instant asOf) {
     return quote(marketId, referencePrice, LiquidityTier.LOW,

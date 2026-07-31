@@ -2,13 +2,25 @@
 config-version: 1
 enabled: false
 database:
-  mode: quickshop
+  # sqlite is the safe default for standalone/Paper servers, including when QuickShop uses H2.
+  # Use quickshop only when QuickShop itself is configured for MySQL.
+  mode: sqlite
 economy:
   world: world
   default-currency: default
 market-data:
   gui-refresh-ticks: 20
   candle-retention-days: 365
+gui:
+  clock:
+    enabled: true
+    zone-id: Asia/Shanghai
+    format: yyyy-MM-dd HH:mm
+handbook:
+  enabled: true
+  self-claim: true
+  prevent-duplicate: true
+  material: KNOWLEDGE_BOOK
 risk-defaults:
   price-cage-ratio: '0.20'
   default-market-slippage: '0.05'
@@ -22,6 +34,16 @@ risk-defaults:
 operations:
   reconciliation-interval-minutes: 1440
   audit-export-directory: audit
+displays:
+  enabled: true
+  refresh-seconds: 5
+  max-map-walls: 128
+  max-signs: 256
+  chart:
+    professional-layout: true
+    include-live-candle: true
+    show-volume: true
+    show-latest-price-line: true
 rollout:
   whitelist-enabled: true
   allowed-players: []

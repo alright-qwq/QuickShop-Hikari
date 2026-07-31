@@ -78,19 +78,22 @@ Also verified:
 Maven still prints the repository's existing effective-model, deprecated API, SLF4J-provider and
 native-access warnings. They did not produce a compile or test failure.
 
-## Important worktree warning
+## Preserved follow-up WIP
 
-The worktree intentionally remains very dirty after this commit. It contains large, unfinished
-user-owned changes for transfer-review claims/markers, market displays/charts, handbook/UI work,
-configuration and documentation. Some Task 8 files also contain excluded unstaged hunks:
+The Task 8 commit is followed by a separate WIP handoff commit that preserves the previously
+uncommitted user-owned changes for transfer-review claims/markers, market displays/charts,
+handbook/UI work, QSH 6.2.0.11 compatibility, configuration and documentation. Keeping this as a
+separate commit preserves the reviewable Task 8 boundary while making the entire local state
+available on the next computer. Mixed files include:
 
 - `MarketDataService.java` / `MarketDataServiceTest.java`: live Candle display API/tests;
 - `ExchangeRuntimeFactory.java`: display, marker, recovery and view-executor wiring;
 - `ExchangeTransaction.java` and `JdbcExchangeRepository.java`: reviewed-transfer claim methods.
 
-Do not run `git reset --hard`, `git clean`, broad checkout/restore, stash-pop automation, or stage
-all files. Start by reading `git status --short` and inspecting both staged/unstaged sides of mixed
-files. The Task 8 commit was built with hunk-level staging specifically to preserve these changes.
+After pulling, inspect the latest WIP commit before continuing or splitting it. Do not discard or
+rewrite it with `git reset --hard`, `git clean` or broad checkout/restore operations. The preceding
+Task 8 commit was built with hunk-level staging specifically so it can still be reviewed or
+cherry-picked independently.
 
 ## Next work
 
@@ -105,4 +108,4 @@ Continue with Task 9 of the trusted-market plan:
    compatibility boundary check.
 
 Before Task 9, pull this branch on the next computer, read this file and the trusted-market plan,
-then inspect the remaining worktree changes instead of assuming they belong to Task 9.
+then inspect the follow-up WIP commit instead of assuming all of its changes belong to Task 9.

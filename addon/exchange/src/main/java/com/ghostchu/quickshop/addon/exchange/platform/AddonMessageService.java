@@ -1,6 +1,11 @@
 package com.ghostchu.quickshop.addon.exchange.platform;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -18,7 +23,30 @@ public final class AddonMessageService {
 
   public static AddonMessageService load(File source) {
     Objects.requireNonNull(source, "source");
-    YamlConfiguration yaml = YamlConfiguration.loadConfiguration(source);
+    return fromYaml(YamlConfiguration.loadConfiguration(source));
+  }
+
+  public static AddonMessageService load(File defaults, File overrides) {
+    Objects.requireNonNull(defaults, "defaults");
+    Objects.requireNonNull(overrides, "overrides");
+    YamlConfiguration merged = YamlConfiguration.loadConfiguration(defaults);
+    mergeInto(merged, YamlConfiguration.loadConfiguration(overrides));
+    return fromYaml(merged);
+  }
+
+  public static AddonMessageService load(InputStream defaults, File overrides) {
+    Objects.requireNonNull(defaults, "defaults");
+    Objects.requireNonNull(overrides, "overrides");
+    try (InputStreamReader reader = new InputStreamReader(defaults, StandardCharsets.UTF_8)) {
+      YamlConfiguration merged = YamlConfiguration.loadConfiguration(reader);
+      mergeInto(merged, YamlConfiguration.loadConfiguration(overrides));
+      return fromYaml(merged);
+    } catch (IOException failure) {
+      throw new UncheckedIOException("failed to close bundled messages", failure);
+    }
+  }
+
+  private static AddonMessageService fromYaml(YamlConfiguration yaml) {
     Map<String, Map<String, String>> localized = new LinkedHashMap<>();
     for (String locale : yaml.getKeys(false)) {
       ConfigurationSection section = yaml.getConfigurationSection(locale);
@@ -38,6 +66,14 @@ public final class AddonMessageService {
       throw new IllegalArgumentException("messages.yml must define en-US");
     }
     return new AddonMessageService(localized);
+  }
+
+  private static void mergeInto(YamlConfiguration defaults, YamlConfiguration overrides) {
+    for (String path : overrides.getKeys(true)) {
+      if (!overrides.isConfigurationSection(path)) {
+        defaults.set(path, overrides.get(path));
+      }
+    }
   }
 
   public String message(String key, Locale locale, Object... arguments) {

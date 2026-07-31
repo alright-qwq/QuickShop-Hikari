@@ -11,7 +11,8 @@ import java.util.concurrent.TimeUnit;
 public final class DrainingExecutor implements Executor, AutoCloseable {
   private final ExecutorService executor;
   private final Duration closeTimeout;
-  private boolean closed;
+  private boolean shutdownStarted;
+  private boolean terminated;
 
   public DrainingExecutor(String threadNamePrefix, Duration closeTimeout) {
     if (threadNamePrefix == null || threadNamePrefix.isBlank()) {
@@ -28,7 +29,7 @@ public final class DrainingExecutor implements Executor, AutoCloseable {
   @Override
   public synchronized void execute(Runnable command) {
     Objects.requireNonNull(command, "command");
-    if (closed) {
+    if (shutdownStarted) {
       throw new IllegalStateException("executor is closed");
     }
     executor.execute(command);
@@ -37,19 +38,22 @@ public final class DrainingExecutor implements Executor, AutoCloseable {
   @Override
   public void close() {
     synchronized (this) {
-      if (closed) {
+      if (terminated) {
         return;
       }
-      closed = true;
-      executor.shutdown();
+      if (!shutdownStarted) {
+        shutdownStarted = true;
+        executor.shutdown();
+      }
     }
     try {
       if (!executor.awaitTermination(closeTimeout.toNanos(), TimeUnit.NANOSECONDS)) {
-        executor.shutdownNow();
         throw new IllegalStateException("timed out draining executor during close");
       }
+      synchronized (this) {
+        terminated = true;
+      }
     } catch (InterruptedException failure) {
-      executor.shutdownNow();
       Thread.currentThread().interrupt();
       throw new IllegalStateException("interrupted while draining executor", failure);
     }

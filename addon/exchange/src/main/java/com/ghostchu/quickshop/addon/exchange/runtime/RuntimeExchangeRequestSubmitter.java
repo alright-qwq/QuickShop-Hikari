@@ -16,27 +16,32 @@ public final class RuntimeExchangeRequestSubmitter implements ExchangeRequestSub
   private final ExchangeRuntime runtime;
   private final Executor executor;
   private final AutoCloseable executorOwner;
-  private final AtomicBoolean closed = new AtomicBoolean();
+  private final AtomicBoolean acceptingClosed = new AtomicBoolean();
+  private boolean ownerClosed;
 
   public RuntimeExchangeRequestSubmitter(ExchangeRuntime runtime) {
-    this(runtime, new DrainingExecutor("qs-exchange-submit-", java.time.Duration.ofSeconds(30)), true);
+    this(runtime, new DrainingExecutor("qs-exchange-submit-", java.time.Duration.ofSeconds(30)));
+  }
+
+  private RuntimeExchangeRequestSubmitter(ExchangeRuntime runtime, DrainingExecutor executor) {
+    this(runtime, executor, executor);
   }
 
   RuntimeExchangeRequestSubmitter(ExchangeRuntime runtime, Executor executor) {
-    this(runtime, executor, false);
+    this(runtime, executor, () -> {});
   }
 
-  private RuntimeExchangeRequestSubmitter(ExchangeRuntime runtime, Executor executor,
-                                          boolean ownsExecutor) {
+  RuntimeExchangeRequestSubmitter(ExchangeRuntime runtime, Executor executor,
+                                  AutoCloseable executorOwner) {
     this.runtime = Objects.requireNonNull(runtime, "runtime");
     this.executor = Objects.requireNonNull(executor, "executor");
-    this.executorOwner = ownsExecutor ? (AutoCloseable) executor : () -> {};
+    this.executorOwner = Objects.requireNonNull(executorOwner, "executorOwner");
   }
 
   @Override
   public CompletableFuture<SubmissionResult> submit(ExchangeMenuRequest request) {
     Objects.requireNonNull(request, "request");
-    if (closed.get()) {
+    if (acceptingClosed.get()) {
       throw new IllegalStateException("exchange request submitter is closed");
     }
     if (request.requestId() == null) {
@@ -105,12 +110,14 @@ public final class RuntimeExchangeRequestSubmitter implements ExchangeRequestSub
   }
 
   @Override
-  public void close() {
-    if (!closed.compareAndSet(false, true)) {
+  public synchronized void close() {
+    acceptingClosed.set(true);
+    if (ownerClosed) {
       return;
     }
     try {
       executorOwner.close();
+      ownerClosed = true;
     } catch (RuntimeException failure) {
       throw failure;
     } catch (Exception failure) {

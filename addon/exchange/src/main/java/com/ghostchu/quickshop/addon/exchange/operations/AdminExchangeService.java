@@ -110,7 +110,8 @@ public final class AdminExchangeService {
       throw new IllegalStateException("repository does not support transfer reviews");
     }
     return transfers.findAllUnfinished().stream()
-        .filter(transfer -> transfer.status() == TransferStatus.REVIEW_REQUIRED)
+        .filter(transfer -> transfer.status() == TransferStatus.REVIEW_REQUIRED
+            || transfer.status() == TransferStatus.REVIEW_PROCESSING)
         .toList();
   }
 
@@ -122,7 +123,8 @@ public final class AdminExchangeService {
     }
     TransferRecord transfer = transfers.find(transferId)
         .orElseThrow(() -> new IllegalArgumentException("unknown transfer: " + transferId));
-    if (transfer.status() != TransferStatus.REVIEW_REQUIRED) {
+    if (transfer.status() != TransferStatus.REVIEW_REQUIRED
+        && transfer.status() != TransferStatus.REVIEW_PROCESSING) {
       throw new IllegalStateException("transfer is not awaiting review: " + transfer.status());
     }
     return transfer;
@@ -163,16 +165,99 @@ public final class AdminExchangeService {
         ReviewDecision.CONFIRM_EXTERNAL_FAILURE, evidence, true);
   }
 
-  TransferRecord resolveVerifiedItemMarkerCleanup(
+  TransferRecord resolveVerifiedItemDepositSuccess(
+      UUID actorId, UUID requestId, UUID transferId, long markedQuantity, String operatorEvidence)
+      throws SQLException {
+    if (markedQuantity != 0) {
+      throw new IllegalStateException("marked item deposit still exists");
+    }
+    String evidence = "machine-marker-observation:transfer=" + transferId
+        + ";marked=0;deposit-removal=confirmed;operator="
+        + normalizeReviewEvidence(operatorEvidence);
+    return resolveReview(actorId, requestId, transferId,
+        ReviewDecision.CONFIRM_EXTERNAL_SUCCESS, evidence, true);
+  }
+
+  TransferRecord claimVerifiedItemMarkerCleanup(
+      UUID actorId, UUID requestId, UUID transferId, ReviewDecision decision,
+      long markedQuantity, String operatorEvidence) throws SQLException {
+    Objects.requireNonNull(actorId, "actorId");
+    Objects.requireNonNull(requestId, "requestId");
+    Objects.requireNonNull(transferId, "transferId");
+    Objects.requireNonNull(decision, "decision");
+    String normalizedEvidence = normalizeReviewEvidence(operatorEvidence);
+    ExchangeRepository store = requireRepository();
+    return store.inTransaction(tx -> {
+      TransferRecord review = tx.transfer(transferId)
+          .orElseThrow(() -> new IllegalArgumentException("unknown transfer: " + transferId));
+      String claim = itemReviewClaim(
+          actorId, requestId, decision, markedQuantity, normalizedEvidence);
+      if (review.status() == TransferStatus.REVIEW_PROCESSING) {
+        if (!claim.equals(review.failureReason())) {
+          throw new IllegalStateException("item review is already claimed by another request");
+        }
+        return review;
+      }
+      requireReviewDecision(review, decision, true);
+      if (markedQuantity != review.amount().longValueExact()) {
+        throw new IllegalStateException("marked item custody does not match transfer amount");
+      }
+      return tx.claimReviewedTransfer(review.transferId(), review.version(), claim);
+    });
+  }
+
+  ItemReviewClaim claimedItemReview(TransferRecord transfer) {
+    Objects.requireNonNull(transfer, "transfer");
+    if (transfer.status() != TransferStatus.REVIEW_PROCESSING) {
+      throw new IllegalStateException("transfer is not claimed for item review");
+    }
+    return parseItemReviewClaim(transfer.failureReason());
+  }
+
+  TransferRecord resolveClaimedItemMarkerCleanup(
       UUID actorId, UUID requestId, UUID transferId, ReviewDecision decision,
       long markedBefore, long markedAfter, String operatorEvidence) throws SQLException {
     if (markedAfter != 0) {
       throw new IllegalStateException("marked items remain after cleanup");
     }
+    Objects.requireNonNull(actorId, "actorId");
+    Objects.requireNonNull(requestId, "requestId");
+    Objects.requireNonNull(transferId, "transferId");
+    Objects.requireNonNull(decision, "decision");
+    String normalizedOperatorEvidence = normalizeReviewEvidence(operatorEvidence);
     String evidence = "machine-marker-cleanup:transfer=" + transferId
-        + ";before=" + markedBefore + ";after=0;operator="
-        + normalizeReviewEvidence(operatorEvidence);
-    return resolveReview(actorId, requestId, transferId, decision, evidence, true);
+        + ";before=" + markedBefore + ";after=0;operator=" + normalizedOperatorEvidence;
+    String operationPayload = reviewPayload(transferId, decision);
+    Instant resolvedAt = Instant.now();
+    ExchangeRepository store = requireRepository();
+    return store.inTransaction(tx -> {
+      StoredRequestResult duplicate = tx.requestResult(actorId, requestId).orElse(null);
+      if (duplicate != null) {
+        return resolvedReviewResult(tx, duplicate, transferId, decision);
+      }
+      TransferRecord claimed = tx.transfer(transferId)
+          .orElseThrow(() -> new IllegalArgumentException("unknown transfer: " + transferId));
+      ItemReviewClaim persistedClaim = claimedItemReview(claimed);
+      if (!persistedClaim.actorId().equals(actorId)
+          || !persistedClaim.requestId().equals(requestId)
+          || persistedClaim.decision() != decision
+          || persistedClaim.markedQuantity() != markedBefore
+          || !persistedClaim.operatorEvidence().equals(normalizedOperatorEvidence)) {
+        throw new IllegalStateException("item review claim does not match settlement evidence");
+      }
+      applyReviewSettlement(tx, claimed, decision, resolvedAt);
+      TransferStatus target = decision == ReviewDecision.CONFIRM_EXTERNAL_SUCCESS
+          ? TransferStatus.COMPLETED : TransferStatus.FAILED;
+      TransferRecord resolved = tx.resolveClaimedTransfer(
+          claimed.transferId(), claimed.version(), target, evidence);
+      tx.appendAudit(new AuditRecord(
+          UUID.randomUUID(), actorId, RESOLVE_TRANSFER_REVIEW_OPERATION,
+          claimed.transferId().toString(), evidence,
+          transferState(claimed), transferState(resolved), resolvedAt));
+      tx.putRequestResult(new StoredRequestResult(
+          actorId, requestId, RESOLVE_TRANSFER_REVIEW_OPERATION, operationPayload));
+      return resolved;
+    });
   }
 
   private TransferRecord resolveReview(
@@ -406,29 +491,17 @@ public final class AdminExchangeService {
     if (transfer.status() != TransferStatus.REVIEW_REQUIRED) {
       throw new IllegalStateException("transfer is not awaiting review: " + transfer.status());
     }
-    if (transfer.type() == TransferType.ITEM_DEPOSIT
-        && decision == ReviewDecision.CONFIRM_EXTERNAL_SUCCESS
-        && "inventory deposit marking result unknown".equals(transfer.failureReason())) {
+    if ((transfer.type() == TransferType.ITEM_DEPOSIT
+        || transfer.type() == TransferType.ITEM_WITHDRAWAL)
+        && !machineVerifiedItemReview) {
       throw new IllegalStateException(
-          "item deposit success requires evidence that the marked items were removed");
+          "item transfer review requires machine marker verification before terminal resolution");
     }
     if (transfer.type() == TransferType.ITEM_DEPOSIT
-        && decision == ReviewDecision.CONFIRM_EXTERNAL_FAILURE
-        && !machineVerifiedItemReview) {
-      throw new IllegalStateException(
-          "item deposit failure requires marker cleanup before terminal resolution");
-    }
-    if (transfer.type() == TransferType.ITEM_WITHDRAWAL
-        && decision == ReviewDecision.CONFIRM_EXTERNAL_FAILURE
-        && !machineVerifiedItemReview) {
-      throw new IllegalStateException(
-          "item withdrawal failure requires machine marker verification before releasing custody");
-    }
-    if (transfer.type() == TransferType.ITEM_WITHDRAWAL
         && decision == ReviewDecision.CONFIRM_EXTERNAL_SUCCESS
-        && !machineVerifiedItemReview) {
+        && !"inventory deposit removal result unknown".equals(transfer.failureReason())) {
       throw new IllegalStateException(
-          "item withdrawal success requires marker cleanup before terminal resolution");
+          "item deposit success requires a removal-unknown review and zero marker evidence");
     }
   }
 
@@ -445,6 +518,51 @@ public final class AdminExchangeService {
 
   private static String reviewPayload(UUID transferId, ReviewDecision decision) {
     return "transfer=" + transferId + ";decision=" + decision;
+  }
+
+  private static String itemReviewClaim(
+      UUID actorId, UUID requestId, ReviewDecision decision,
+      long markedQuantity, String operatorEvidence) {
+    String encodedEvidence = Base64.getUrlEncoder().withoutPadding().encodeToString(
+        operatorEvidence.getBytes(StandardCharsets.UTF_8));
+    return "item-review-claim:actor=" + actorId + ";request=" + requestId
+        + ";decision=" + decision + ";marked=" + markedQuantity
+        + ";evidence=" + encodedEvidence;
+  }
+
+  private static ItemReviewClaim parseItemReviewClaim(String claim) {
+    if (claim == null || !claim.startsWith("item-review-claim:")) {
+      throw new IllegalStateException("item review claim is missing or invalid");
+    }
+    Map<String, String> values = new LinkedHashMap<>();
+    for (String entry : claim.substring("item-review-claim:".length()).split(";")) {
+      int separator = entry.indexOf('=');
+      if (separator < 1 || separator == entry.length() - 1
+          || values.putIfAbsent(entry.substring(0, separator), entry.substring(separator + 1))
+              != null) {
+        throw new IllegalStateException("item review claim is missing or invalid");
+      }
+    }
+    try {
+      UUID actorId = UUID.fromString(values.get("actor"));
+      UUID requestId = UUID.fromString(values.get("request"));
+      ReviewDecision decision = ReviewDecision.valueOf(values.get("decision"));
+      long markedQuantity = Long.parseLong(values.get("marked"));
+      String operatorEvidence = new String(
+          Base64.getUrlDecoder().decode(values.get("evidence")), StandardCharsets.UTF_8);
+      if (values.size() != 5 || markedQuantity < 0) {
+        throw new IllegalArgumentException("invalid claim fields");
+      }
+      return new ItemReviewClaim(
+          actorId, requestId, decision, markedQuantity, operatorEvidence);
+    } catch (RuntimeException failure) {
+      throw new IllegalStateException("item review claim is missing or invalid", failure);
+    }
+  }
+
+  record ItemReviewClaim(
+      UUID actorId, UUID requestId, ReviewDecision decision,
+      long markedQuantity, String operatorEvidence) {
   }
 
   private static String transferState(TransferRecord transfer) {

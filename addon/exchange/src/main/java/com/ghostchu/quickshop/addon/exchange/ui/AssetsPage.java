@@ -22,68 +22,91 @@ final class AssetsPage {
   private final ExchangeMenuContextStore contexts;
   private final AssetTransferPrompt prompts;
   private final ExchangeUiMessages messages;
+  private final ExchangeMenuChrome chrome;
 
   AssetsPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
              AddonMessageService messages) {
+    this(views, contexts, messages, ExchangeClockDisplay.disabled());
+  }
+
+  AssetsPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
+             AddonMessageService messages, ExchangeClockDisplay clock) {
     this.views = views;
     this.contexts = contexts;
     this.prompts = new AssetTransferPrompt(contexts, UUID::randomUUID);
     this.messages = new ExchangeUiMessages(messages);
+    this.chrome = new ExchangeMenuChrome(contexts, this.messages, clock);
   }
 
   void open(PageOpenCallback callback) {
     if (!(callback.getPage() instanceof PlayerInstancePage page)) return;
     UUID playerId = callback.getPlayer().identifier();
-    ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
-    AssetPageSnapshot.combine(views.accountAssets(playerId),
-        views.accountTransfers(playerId, 12, 0)).whenComplete((snapshot, failure) -> {
-      if (opened == null || !contexts.isCurrent(playerId, opened)) return;
-      Player player = Bukkit.getPlayer(playerId);
-      if (player == null || !player.isOnline()) return;
-      QuickShop.folia().getScheduler().runAtEntityLater(player,
-          () -> render(page, player, snapshot, failure), 1L);
-    });
+    Player player = Bukkit.getPlayer(playerId);
+    if (player == null || !player.isOnline()) return;
+    try {
+      AssetPageSnapshot snapshot = AssetPageSnapshot.combine(
+          views.accountAssets(playerId),
+          views.accountTransfers(playerId, 12, 0)).join();
+      render(page, player, snapshot, null);
+    } catch (Exception failure) {
+      render(page, player, null, failure);
+    }
   }
 
   private void render(PlayerInstancePage page, Player player, AssetPageSnapshot snapshot,
                       Throwable failure) {
     UUID playerId = player.getUniqueId();
-    page.getIcons(playerId).clear();
-    page.setLockEmptySlots(true);
     if (failure != null || snapshot == null || snapshot.failure() != null) {
-      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BARRIER", 1)
-          .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
+      chrome.error(page, player, ExchangeMenuPage.ASSETS, "ui-guide-assets", "ui-data-unavailable");
       return;
     }
-    int slot = 9;
-    for (AssetPageRows.Row row : AssetPageRows.merge(views.transferTargets(), snapshot.assets())) {
-      if (slot >= 45) break;
+    chrome.prepare(page, player, ExchangeMenuPage.ASSETS, "ui-guide-assets");
+    List<AssetPageRows.Row> assetRows = AssetPageRows.merge(views.transferTargets(), snapshot.assets());
+    if (assetRows.isEmpty() && snapshot.transfers().isEmpty()) {
+      chrome.empty(page, player, "ui-empty-assets", "ui-empty-assets-action");
+      return;
+    }
+    if (!assetRows.isEmpty()) {
+      ExchangePageIcons.add(page, playerId, new IconBuilder(ItemStackCompat.of("GOLD_BLOCK", messages.component(player, "ui-assets-section-balances")
+              .color(net.kyori.adventure.text.format.NamedTextColor.YELLOW)))
+          .withSlot(ExchangeMenuChrome.CONTENT_SLOTS.get(0)).build());
+    }
+    int index = 1;
+    for (AssetPageRows.Row row : assetRows) {
+      if (index >= 14) break;
+      int slot = ExchangeMenuChrome.CONTENT_SLOTS.get(index++);
       TransferTarget target = row.target();
       List<Component> lore = List.of(
           messages.component(player, "ui-assets-available", row.available().toPlainString()),
           messages.component(player, "ui-assets-frozen", row.frozen().toPlainString()),
           messages.component(player, "ui-assets-deposit-action"),
           messages.component(player, "ui-assets-withdraw-action"));
-      IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of(
-          target.kind() == TransferTarget.Kind.CURRENCY ? "GOLD_INGOT" : "CHEST", 1)
-          .customName(Component.text(target.displayName())).lore(lore));
+      IconBuilder icon = new IconBuilder(ItemStackCompat.of(
+          target.kind() == TransferTarget.Kind.CURRENCY ? "GOLD_INGOT" : "CHEST", Component.text(target.displayName())).lore(lore));
       icon.withActions(
           new RunnableAction(click -> requestTransfer(playerId, target, true), ActionType.LEFT_CLICK),
           new RunnableAction(click -> requestTransfer(playerId, target, false), ActionType.RIGHT_CLICK))
-          .withSlot(slot++);
-      page.addIcon(playerId, icon.build());
+          .withSlot(slot);
+      ExchangePageIcons.add(page, playerId, icon.build());
+    }
+    int transferStart = Math.max(index, 14);
+    if (!snapshot.transfers().isEmpty() && transferStart < ExchangeMenuChrome.CONTENT_SLOTS.size()) {
+      ExchangePageIcons.add(page, playerId, new IconBuilder(ItemStackCompat.of("MAP", messages.component(player, "ui-assets-section-transfers")
+              .color(net.kyori.adventure.text.format.NamedTextColor.YELLOW)))
+          .withSlot(ExchangeMenuChrome.CONTENT_SLOTS.get(transferStart)).build());
+      transferStart++;
     }
     for (TransferRecord transfer : snapshot.transfers()) {
-      if (slot >= 45) break;
+      if (transferStart >= ExchangeMenuChrome.CONTENT_SLOTS.size()) break;
+      int slot = ExchangeMenuChrome.CONTENT_SLOTS.get(transferStart++);
       String reason = transfer.failureReason() == null ? "" : " " + transfer.failureReason();
-      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("HOPPER", 1)
-          .customName(messages.component(player, "ui-assets-transfer-title", transfer.status()))
+      ExchangePageIcons.add(page, playerId, new IconBuilder(ItemStackCompat.of("HOPPER", messages.component(player, "ui-assets-transfer-title", transfer.status()))
           .lore(List.of(messages.component(player, "ui-assets-transfer-kind",
                   transfer.type(), transfer.assetId()),
               messages.component(player, "ui-assets-transfer-amount",
                   transfer.amount().toPlainString()),
               messages.component(player, "ui-assets-transfer-status",
-                  transfer.status() + reason)))).withSlot(slot++).build());
+                  transfer.status() + reason)))).withSlot(slot).build());
     }
   }
 

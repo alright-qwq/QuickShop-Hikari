@@ -47,7 +47,8 @@ public final class CandleAggregator {
       throw new IllegalArgumentException("candle range must not be empty or reversed");
     }
     Instant from = bucketStart(fromInclusive);
-    Instant to = bucketStart(toExclusive);
+    Instant toBucket = bucketStart(toExclusive);
+    Instant to = toBucket.equals(toExclusive) ? toBucket : toBucket.plusSeconds(60);
     return candles.entrySet().stream()
         .filter(entry -> entry.getKey().marketId().equals(marketId))
         .map(Map.Entry::getValue)

@@ -281,10 +281,17 @@ public final class FoliaInventoryGateway implements InventoryGateway {
   }
 
   private boolean hasMarker(ItemStack stack, UUID transferId) {
-    return stack != null
-        && !stack.getType().isAir()
+    return hasTransferMarker(stack, transferMarker)
         && transferId.toString().equals(stack.getItemMeta().getPersistentDataContainer()
             .get(transferMarker, PersistentDataType.STRING));
+  }
+
+  public static boolean hasTransferMarker(ItemStack stack, NamespacedKey transferMarker) {
+    Objects.requireNonNull(transferMarker, "transferMarker");
+    return stack != null
+        && !stack.getType().isAir()
+        && stack.hasItemMeta()
+        && stack.getItemMeta().getPersistentDataContainer().has(transferMarker);
   }
 
   private ItemStack markedCopy(ItemStack source, int amount, UUID transferId) {

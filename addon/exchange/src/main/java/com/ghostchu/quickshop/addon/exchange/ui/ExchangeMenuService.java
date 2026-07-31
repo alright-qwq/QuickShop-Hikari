@@ -32,9 +32,16 @@ public final class ExchangeMenuService implements AutoCloseable {
 
   public ExchangeMenuService(ExchangeViewService views, ExchangeRequestSubmitter submitter,
                              RolloutPolicy rollout, AddonMessageService messages) {
+    this(views, submitter, rollout, messages, ExchangeClockDisplay.disabled());
+  }
+
+  public ExchangeMenuService(ExchangeViewService views, ExchangeRequestSubmitter submitter,
+                             RolloutPolicy rollout, AddonMessageService messages,
+                             ExchangeClockDisplay clock) {
     this.submitter = submitter;
     menu = new ExchangeMenu(Objects.requireNonNull(views, "views"), contexts, submitter,
-        Objects.requireNonNull(rollout, "rollout"), messages);
+        Objects.requireNonNull(rollout, "rollout"), messages,
+        Objects.requireNonNull(clock, "clock"));
     MenuManager.instance().addMenu(menu);
   }
 
@@ -46,11 +53,13 @@ public final class ExchangeMenuService implements AutoCloseable {
     Objects.requireNonNull(player, "player");
     Objects.requireNonNull(request, "request");
     contexts.put(player.getUniqueId(), request);
+    MenuManager.instance().recentlyClosed().remove(player.getUniqueId());
+    boolean viewerAlreadyOpen = MenuManager.instance().findViewer(player.getUniqueId()).isPresent();
     MenuViewer viewer = new MenuViewer(player.getUniqueId());
     MenuManager.instance().addViewer(viewer);
     MenuPlayer menuPlayer = QuickShop.getInstance().createMenuPlayer(player);
-    int page = ExchangeMenuPage.forName(request.menuName()).page();
-    MenuManager.instance().open(ExchangeMenu.NAME, page, menuPlayer);
+    ExchangeMenuPage destination = ExchangeMenuPage.forName(request.menuName());
+    ExchangeMenuNavigator.open(menuPlayer, destination, viewerAlreadyOpen);
   }
 
   public java.util.Optional<ExchangeMenuRequest> requestFor(UUID playerId) {
@@ -62,7 +71,9 @@ public final class ExchangeMenuService implements AutoCloseable {
   }
 
   public void inventoryClosed(UUID playerId, String title) {
-    lifecycle.inventoryClosed(playerId, title);
+    java.util.Optional<MenuViewer> viewer = MenuManager.instance().findViewer(playerId);
+    lifecycle.inventoryClosed(playerId, title, viewer.isPresent(),
+        viewer.map(MenuViewer::menu).orElse(null));
   }
 
   static void closeInventoryAtOwner(Player player, BiConsumer<Player, Runnable> scheduler) {

@@ -43,13 +43,15 @@ Reviewed item transfers now fail closed instead of trusting free-form operator e
 - `ITEM_WITHDRAWAL + CONFIRM_EXTERNAL_FAILURE` may release custody only after an actual marker observation returns exactly zero.
 - `ITEM_WITHDRAWAL + CONFIRM_EXTERNAL_SUCCESS` and `ITEM_DEPOSIT + CONFIRM_EXTERNAL_FAILURE` require:
   1. marker quantity before cleanup equals the transfer amount exactly;
-  2. `clearMarker()` returns `SUCCESS`;
-  3. marker quantity after cleanup equals zero;
-  4. only then does settlement re-enter the runtime writer fence.
-- Offline players, scheduler rejection, null/negative observations, partial or excessive marker quantities, cleanup uncertainty, and residual markers keep the transfer in `REVIEW_REQUIRED`.
-- Interrupted transfer recovery uses the same safe ordering: verify, clean, verify zero, then change the durable terminal state.
-- Duplicate review request IDs return the original terminal transfer without repeating inventory mutation or settlement.
-- Admin command completion is dispatched through the player entity scheduler on Folia/Paper.
+  2. an atomic `REVIEW_REQUIRED → REVIEW_PROCESSING` claim persists actor, request ID, decision, quantity and evidence;
+  3. `clearMarker()` returns `SUCCESS`;
+  4. marker quantity after cleanup equals zero;
+  5. only then does settlement re-enter the runtime writer fence and CAS to `COMPLETED`/`FAILED`.
+- Observation failures, null/negative values, partial or excessive marker quantities fail closed in `REVIEW_REQUIRED`; once claimed, cleanup uncertainty or interruption remains durably recoverable as `REVIEW_PROCESSING`.
+- Recovery handles both crash windows: it retries cleanup if the claimed marker quantity still exists, or completes settlement if marker cleanup already reached zero. Any conflicting or malformed persisted claim fails closed.
+- Duplicate review request IDs return the original terminal transfer without repeating inventory mutation or settlement, and the same transfer's administrator review and login recovery share one in-process serial chain.
+- A registered `TransferMarkerListener` blocks marked custody from inventory/creative/drag/hopper movement, double-click collection, dropping or pickup, use/mutation/place/swap, death drops, and entity or armor-stand placement/removal. Ordinary actions remain allowed.
+- Admin command completion and inventory inspection are dispatched through the player entity scheduler on Folia/Paper.
 
 Key files:
 
@@ -112,22 +114,38 @@ Major regression suites include:
 
 ## Fresh verification
 
-Executed with JDK 21:
+Executed with JDK 21 on the final local source, including the marker lifecycle, claimed-review
+recovery, retryable drain, Paper/QuickShop-H2 configuration fixes, and the GUI redesign
+(unified chrome, navigation, loading/empty/error states, confirmation back/cancel flow,
+admin page localization):
 
-```bash
-JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" \
-  mvn -f "/Users/ztrnb/.config/superpowers/worktrees/QuickShop-Hikari/exchange-safety-fixes/pom.xml" \
-  -pl addon/exchange -am -Dapi.version=1.44 verify
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Zulu\zulu-21"
+mvn -f "C:\Users\ztrnb\Documents\QuickShop-Hikari\.worktrees\exchange-safety-review\pom.xml" `
+  -pl addon/exchange -am "-Dapi.version=1.44" verify
 ```
 
 Result:
 
 ```text
-Tests run: 360, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 394, Failures: 0, Errors: 0, Skipped: 0
 All 7 reactor modules: SUCCESS
 BUILD SUCCESS
-Total time: 25.387 s
-Finished at: 2026-07-29T10:43:18+08:00
+Total time: 01:44 min
+Finished at: 2026-07-29T18:50:28+08:00
+```
+
+Release JAR inspection:
+
+```text
+Addon-Exchange-6.3.0.0-SNAPSHOT-11.jar
+Size: 500255 bytes
+SHA-256: 5C36389D049326BE634C93E115CEDB0A35B1A1E96D8CB7F11337ADC640FE1F7B
+Required resources/classes: OK
+Packaged database default: mode: sqlite
+messages.yml: 134 en-US keys, 134 zh-CN keys (parity confirmed)
+ExchangeMenuChrome.class: present
+TransferMarkerListener.class: present
 ```
 
 Also executed:
@@ -151,7 +169,7 @@ This commit is suitable as a reviewed source handoff, but it is not evidence of 
   - delayed old transaction while a new epoch activates;
   - Paper and Folia end-to-end item transfer/review/recovery cycles;
   - plugin disable/reload during queued account work and custody operations.
-- The automated code-review service returned an upstream 502 during the final review request. A manual source/diff review and the full Maven verification were completed instead.
+- Independent automated review attempts did not return a usable result (upstream access/turn-limit failures). A manual source/diff review and the full Maven verification were completed instead.
 - Existing broader Phase 4 gaps such as full load testing, abnormal-trading detection, and production metrics acceptance remain outside this safety commit.
 
 ## Recommended next steps

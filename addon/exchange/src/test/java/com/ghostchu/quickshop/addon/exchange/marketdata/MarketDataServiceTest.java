@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class MarketDataServiceTest {
   @Test
@@ -204,6 +205,40 @@ class MarketDataServiceTest {
       assertThat(candle.bucketStart()).isEqualTo(Instant.parse("2026-07-26T00:00:00Z"));
       assertThat(candle.volume()).isEqualTo(2L);
     });
+  }
+
+  @Test
+  void exposesOnlyRequestedMarketsAndMinutesThroughLiveCandleSnapshot() {
+    MarketDataService data = new MarketDataService(new CandleAggregator());
+    Instant first = Instant.parse("2026-07-31T04:00:20Z");
+    data.recordTrade("diamond-usd", new BigDecimal("100.00"), 2, first);
+    data.recordTrade("diamond-usd", new BigDecimal("105.00"), 3, first.plusSeconds(60));
+    data.recordTrade("gold-usd", new BigDecimal("50.00"), 4, first.plusSeconds(60));
+
+    List<Candle> live = data.liveCandles(
+        "diamond-usd", first.plusSeconds(60), first.plusSeconds(120));
+
+    assertThat(live).singleElement().satisfies(candle -> {
+      assertThat(candle.marketId()).isEqualTo("diamond-usd");
+      assertThat(candle.bucketStart()).isEqualTo(Instant.parse("2026-07-31T04:01:00Z"));
+      assertThat(candle.close()).isEqualByComparingTo("105.00");
+      assertThat(candle.volume()).isEqualTo(3L);
+    });
+    assertThatThrownBy(() -> live.add(live.getFirst()))
+        .isInstanceOf(UnsupportedOperationException.class);
+  }
+
+  @Test
+  void includesCurrentPartialMinuteInLiveSnapshot() {
+    MarketDataService data = new MarketDataService(new CandleAggregator());
+    Instant trade = Instant.parse("2026-07-31T04:01:20Z");
+    data.recordTrade("diamond-usd", new BigDecimal("105.00"), 3, trade);
+
+    List<Candle> live = data.liveCandles(
+        "diamond-usd", trade.minusSeconds(60), trade.plusSeconds(10));
+
+    assertThat(live).singleElement().satisfies(candle ->
+        assertThat(candle.bucketStart()).isEqualTo(Instant.parse("2026-07-31T04:01:00Z")));
   }
 
   @Test

@@ -1,6 +1,9 @@
 package com.ghostchu.quickshop.addon.exchange.command;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartDimensions;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartMode;
+import com.ghostchu.quickshop.addon.exchange.display.MarketChartPeriod;
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.operations.TransferReviewCoordinator;
 import com.ghostchu.quickshop.addon.exchange.transfer.InventoryGateway;
@@ -26,6 +29,126 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AdminCommandRouterTest {
+  @Test
+  void completesDisplayCommandSyntax() {
+    ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.display");
+
+    assertThat(router.tabComplete(actor, new String[] {"admin", "display", ""}))
+        .containsExactly("map", "sign");
+    assertThat(router.tabComplete(actor, new String[] {"admin", "display", "map", ""}))
+        .containsExactly("create", "mode", "period", "refresh", "remove");
+  }
+
+  @Test
+  void givesHandbookToNamedOnlinePlayerWithDedicatedPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    java.util.concurrent.atomic.AtomicReference<String> target =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    AdminCommandRouter router = new AdminCommandRouter(
+        new AdminExchangeService(Map.of(fixture.rules().marketId(), fixture.service())),
+        UUID::randomUUID,
+        work -> { work.run(); return true; },
+        null,
+        null,
+        (actor, playerName) -> {
+          target.set(playerName);
+          actor.message("admin-handbook-given", playerName);
+        });
+    Actor actor = new Actor("quickshop.exchange.admin.handbook");
+
+    router.execute(actor, new String[] {"book", "give", "Trader"});
+
+    assertThat(target).hasValue("Trader");
+    assertThat(actor.message).isEqualTo("admin-handbook-given");
+    assertThat(actor.arguments).containsExactly("Trader");
+  }
+
+  @Test
+  void deniesHandbookGiveWithoutDedicatedPermissionOrProvider() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminExchangeService administration = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()));
+    java.util.concurrent.atomic.AtomicInteger gives = new java.util.concurrent.atomic.AtomicInteger();
+    AdminCommandRouter configured = new AdminCommandRouter(
+        administration, UUID::randomUUID, work -> true, null, null,
+        (actor, playerName) -> gives.incrementAndGet());
+    Actor denied = new Actor("quickshop.exchange.admin.audit");
+    Actor missingProvider = new Actor("quickshop.exchange.admin.handbook");
+
+    configured.execute(denied, new String[] {"book", "give", "Trader"});
+    new AdminCommandRouter(administration, UUID::randomUUID)
+        .execute(missingProvider, new String[] {"book", "give", "Trader"});
+
+    assertThat(denied.message).isEqualTo("permission-denied");
+    assertThat(missingProvider.message).isEqualTo("admin-command-failed");
+    assertThat(gives).hasValue(0);
+  }
+
+  @Test
+  void completesAdministratorHandbookSyntaxAndPermissionOpensAdminPage() {
+    ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.handbook");
+
+    assertThat(router.tabComplete(actor, new String[] {"admin", ""}))
+        .contains("book");
+    assertThat(router.tabComplete(actor, new String[] {"admin", "book", ""}))
+        .containsExactly("give");
+    router.execute(actor, new String[] {"admin"});
+
+    assertThat(actor.openedMenu).isEqualTo("admin");
+  }
+
+  @Test
+  void createsMapDisplayWithDefaultsAndDedicatedPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    DisplayCommands displays = new DisplayCommands();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service())), UUID::randomUUID,
+        work -> { work.run(); return true; }, null, displays);
+    Actor actor = new Actor("quickshop.exchange.admin.display");
+
+    router.execute(actor, new String[] {"display", "map", "create", fixture.rules().marketId()});
+
+    assertThat(displays.operation).isEqualTo("map-create");
+    assertThat(displays.marketId).isEqualTo(fixture.rules().marketId());
+    assertThat(displays.dimensions).isEqualTo(new MarketChartDimensions(2, 1));
+    assertThat(displays.mode).isEqualTo(MarketChartMode.KLINE);
+    assertThat(displays.period).isEqualTo(MarketChartPeriod.ONE_DAY);
+    assertThat(actor.message).isEqualTo("display-map-created");
+  }
+
+  @Test
+  void deniesDisplayCommandsWithoutDedicatedPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    DisplayCommands displays = new DisplayCommands();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service())), UUID::randomUUID,
+        work -> { work.run(); return true; }, null, displays);
+    Actor actor = new Actor("quickshop.exchange.admin.market");
+
+    router.execute(actor, new String[] {"display", "sign", "bind", fixture.rules().marketId()});
+
+    assertThat(displays.operation).isNull();
+    assertThat(actor.message).isEqualTo("permission-denied");
+  }
+
+  @Test
+  void rejectsDisplayCommandsWithoutAPlayerTarget() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    DisplayCommands displays = new DisplayCommands();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service())), UUID::randomUUID,
+        work -> { work.run(); return true; }, null, displays);
+    Actor actor = new Actor("quickshop.exchange.admin.display");
+    actor.player = false;
+
+    router.execute(actor, new String[] {"display", "map", "refresh"});
+
+    assertThat(displays.operation).isNull();
+    assertThat(actor.message).isEqualTo("display-player-only");
+  }
+
   @Test
   void cancelsAnOpenOrderWithTheDedicatedOrdersPermission() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
@@ -240,7 +363,7 @@ class AdminCommandRouterTest {
         reviewed.transferId().toString(), "success", "operator", "ticket-002"});
 
     assertThat(actor.message).isEqualTo("request-accepted");
-    assertThat(writes).hasValue(1);
+    assertThat(writes).hasValue(2);
     assertThat(fixture.repository().find(reviewed.transferId()).orElseThrow().status())
         .isEqualTo(TransferStatus.COMPLETED);
     assertThat(fixture.availableItems(account)).isEqualTo(1);
@@ -385,6 +508,37 @@ class AdminCommandRouterTest {
         "economy withdrawal result unknown");
   }
 
+  private static final class DisplayCommands implements AdminCommandRouter.DisplayCommands {
+    private String operation;
+    private String marketId;
+    private MarketChartDimensions dimensions;
+    private MarketChartMode mode;
+    private MarketChartPeriod period;
+
+    @Override
+    public void createMap(CommandActor actor, String marketId, MarketChartDimensions dimensions,
+                          MarketChartMode mode, MarketChartPeriod period) {
+      this.operation = "map-create";
+      this.marketId = marketId;
+      this.dimensions = dimensions;
+      this.mode = mode;
+      this.period = period;
+      actor.message("display-map-created");
+    }
+
+    @Override public void mapMode(CommandActor actor, MarketChartMode mode) {
+      operation = "map-mode";
+    }
+    @Override public void mapPeriod(CommandActor actor, MarketChartPeriod period) {
+      operation = "map-period";
+    }
+    @Override public void refreshMap(CommandActor actor) { operation = "map-refresh"; }
+    @Override public void removeMap(CommandActor actor) { operation = "map-remove"; }
+    @Override public void bindSign(CommandActor actor, String marketId) { operation = "sign-bind"; }
+    @Override public void refreshSign(CommandActor actor) { operation = "sign-refresh"; }
+    @Override public void removeSign(CommandActor actor) { operation = "sign-remove"; }
+  }
+
   private static final class Actor implements CommandActor {
     private final UUID accountId = UUID.randomUUID();
     private final Set<String> permissions = new HashSet<>();
@@ -392,6 +546,8 @@ class AdminCommandRouterTest {
     private Object[] arguments = new Object[0];
     private final java.util.concurrent.atomic.AtomicInteger completionDispatches =
         new java.util.concurrent.atomic.AtomicInteger();
+    private boolean player = true;
+    private String openedMenu;
 
     private Actor(String... permissions) {
       this.permissions.addAll(Set.of(permissions));
@@ -399,6 +555,7 @@ class AdminCommandRouterTest {
 
     @Override public UUID accountId() { return accountId; }
     @Override public boolean hasPermission(String permission) { return permissions.contains(permission); }
+    @Override public boolean isPlayer() { return player; }
     @Override public void message(String key, Object... arguments) {
       message = key;
       this.arguments = arguments;
@@ -407,6 +564,6 @@ class AdminCommandRouterTest {
       completionDispatches.incrementAndGet();
       completion.run();
     }
-    @Override public void openMenu(String menuName, int page) { }
+    @Override public void openMenu(String menuName, int page) { openedMenu = menuName; }
   }
 }

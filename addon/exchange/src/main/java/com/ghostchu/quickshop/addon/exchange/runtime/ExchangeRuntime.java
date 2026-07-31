@@ -1,6 +1,8 @@
 package com.ghostchu.quickshop.addon.exchange.runtime;
 
+import com.ghostchu.quickshop.addon.exchange.command.AdminCommandRouter;
 import com.ghostchu.quickshop.addon.exchange.core.service.MarketDispatcher;
+import com.ghostchu.quickshop.addon.exchange.display.MarketDisplayService;
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.operations.TransferReviewCoordinator;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferRecoveryService;
@@ -26,7 +28,11 @@ public final class ExchangeRuntime implements AutoCloseable {
   private final AdminExchangeService administration;
   private final ExchangeActionService actions;
   private final TransferReviewCoordinator transferReviews;
+  private final MarketDisplayService displays;
+  private final AdminCommandRouter.DisplayCommands displayAdministration;
+  private final CheckedRunnable closeDisplays;
   private final AtomicBoolean acceptingWrites = new AtomicBoolean();
+  private boolean displaysClosed;
   private boolean dispatcherClosed;
   private boolean operationalDataFlushed;
   private boolean writerClosed;
@@ -83,6 +89,28 @@ public final class ExchangeRuntime implements AutoCloseable {
                   CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
                   ExchangeViewService views, AdminExchangeService administration,
                   ExchangeActionService actions, TransferReviewCoordinator transferReviews) {
+    this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
+        views, administration, actions, transferReviews, null, null, () -> {});
+  }
+
+  ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
+                  CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
+                  CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
+                  ExchangeViewService views, AdminExchangeService administration,
+                  ExchangeActionService actions, TransferReviewCoordinator transferReviews,
+                  MarketDisplayService displays, CheckedRunnable closeDisplays) {
+    this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
+        views, administration, actions, transferReviews, displays, null, closeDisplays);
+  }
+
+  ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
+                  CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
+                  CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
+                  ExchangeViewService views, AdminExchangeService administration,
+                  ExchangeActionService actions, TransferReviewCoordinator transferReviews,
+                  MarketDisplayService displays,
+                  AdminCommandRouter.DisplayCommands displayAdministration,
+                  CheckedRunnable closeDisplays) {
     this.writer = Objects.requireNonNull(writer, "writer");
     this.recoverBooks = Objects.requireNonNull(recoverBooks, "recoverBooks");
     this.recoverTransfers = Objects.requireNonNull(recoverTransfers, "recoverTransfers");
@@ -94,6 +122,9 @@ public final class ExchangeRuntime implements AutoCloseable {
     this.administration = administration;
     this.actions = actions;
     this.transferReviews = transferReviews;
+    this.displays = displays;
+    this.displayAdministration = displayAdministration;
+    this.closeDisplays = Objects.requireNonNull(closeDisplays, "closeDisplays");
     writer.onLockLost(this::fenceAfterLockLoss);
   }
 
@@ -146,6 +177,20 @@ public final class ExchangeRuntime implements AutoCloseable {
       throw new IllegalStateException("runtime transfer reviews are not configured");
     }
     return transferReviews;
+  }
+
+  public MarketDisplayService displays() {
+    if (displays == null) {
+      throw new IllegalStateException("runtime displays are not configured");
+    }
+    return displays;
+  }
+
+  public AdminCommandRouter.DisplayCommands displayAdministration() {
+    if (displayAdministration == null) {
+      throw new IllegalStateException("runtime display administration is not configured");
+    }
+    return displayAdministration;
   }
 
   /** Executes a command mutation while writer ownership remains fenced. */
@@ -219,6 +264,10 @@ public final class ExchangeRuntime implements AutoCloseable {
   @Override
   public synchronized void close() throws Exception {
     acceptingWrites.set(false);
+    if (!displaysClosed) {
+      closeDisplays.run();
+      displaysClosed = true;
+    }
     if (!dispatcherClosed) {
       dispatcher.close();
       dispatcherClosed = true;

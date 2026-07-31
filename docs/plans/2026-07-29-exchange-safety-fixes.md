@@ -4,7 +4,7 @@
 
 **Goal:** Eliminate the confirmed Exchange asset-safety and lifecycle defects, starting with database writer fencing and machine-verified item-transfer review resolution.
 
-**Architecture:** MySQL retains its advisory lock for leader election, while a durable writer-epoch row provides transaction-level fencing. Every JDBC mutation transaction locks and validates that row before running domain work. Item review resolution becomes an asynchronous two-phase operation: inspect inventory markers on the player entity scheduler, then enter the runtime writer fence and settle only from machine-verifiable evidence.
+**Architecture:** MySQL retains its advisory lock for leader election, while a durable writer-epoch row provides transaction-level fencing. Every JDBC mutation transaction locks and validates that row before running domain work. Item review resolution first inspects inventory markers on the player entity scheduler. Cleanup-required decisions then durably claim `REVIEW_REQUIRED → REVIEW_PROCESSING`, persist the exact actor/request/decision/marker evidence, clean and re-observe markers, and only then settle to a terminal state inside the runtime writer fence. This ordering remains recoverable across crashes before or after marker cleanup.
 
 **Tech Stack:** Java 21, Maven, JDBC, MySQL/SQLite, Paper/Folia entity scheduling, JUnit 5, AssertJ.
 
@@ -114,3 +114,55 @@
 3. Inspect `git diff --check` and the full diff.
 4. Request an independent code review against the final review report.
 5. Fix all Critical/Important findings and rerun the full verification.
+
+### Task 8: Remove destructive inventory cleanup before durable review settlement
+
+**Files:**
+- Modify: `addon/exchange/src/main/java/com/ghostchu/quickshop/addon/exchange/operations/TransferReviewCoordinator.java`
+- Modify: `addon/exchange/src/main/java/com/ghostchu/quickshop/addon/exchange/operations/AdminExchangeService.java`
+- Test: `addon/exchange/src/test/java/com/ghostchu/quickshop/addon/exchange/operations/TransferReviewCoordinatorTest.java`
+- Test: `addon/exchange/src/test/java/com/ghostchu/quickshop/addon/exchange/operations/AdminExchangeServiceTest.java`
+
+**Steps:**
+1. Add failing tests proving two different requests for one transfer cannot execute overlapping review workflows.
+2. Add failing tests proving item settlement wins the database CAS before marker cleanup runs.
+3. Add failing tests proving direct free-text settlement is rejected for every item transfer decision.
+4. Add failing tests for `ITEM_DEPOSIT` success: only a removal-unknown review with a zero marker observation may credit inventory assets.
+5. Serialise review workflows by transfer ID and remove idle serialisation tails after completion.
+6. For cleanup-required decisions, atomically claim `REVIEW_REQUIRED → REVIEW_PROCESSING` before marker cleanup and persist the exact review context.
+7. After cleanup, re-observe zero markers and atomically settle `REVIEW_PROCESSING → COMPLETED/FAILED`; on interruption, recover from the persisted claim without repeating settlement.
+8. Re-read and validate transfer status, claim context and request idempotency inside each settlement transaction.
+9. Run the focused coordinator, administration and command tests.
+
+### Task 9: Keep marked custody items inside their owner inventory
+
+**Files:**
+- Create: `addon/exchange/src/main/java/com/ghostchu/quickshop/addon/exchange/platform/TransferMarkerListener.java`
+- Modify: `addon/exchange/src/main/java/com/ghostchu/quickshop/addon/exchange/platform/FoliaInventoryGateway.java`
+- Modify: `addon/exchange/src/main/java/com/ghostchu/quickshop/addon/exchange/runtime/ExchangeRuntimeFactory.java`
+- Test: `addon/exchange/src/test/java/com/ghostchu/quickshop/addon/exchange/platform/TransferMarkerListenerTest.java`
+
+**Steps:**
+1. Add failing MockBukkit tests for dropping, pickup, container clicks, hotbar swaps, double-click collection, dragging, automated moves, consuming, placing, entity/armor-stand interaction and death drops involving marked items.
+2. Expose a marker predicate that recognises any Exchange transfer marker without trusting a transfer ID supplied by the caller.
+3. Cancel player-driven movement or use of marked custody items while leaving ordinary inventory actions unaffected.
+4. Block both placement onto and removal from item-bearing entities when either side carries a transfer marker.
+5. Preserve marked stacks in the owner inventory across death instead of allowing them to enter world drops.
+6. Register the listener during runtime construction and keep all Bukkit inventory access on the event/entity owner thread.
+7. Run the focused platform and transfer tests and require `Skipped: 0`.
+
+### Task 10: Make executor and submitter shutdown retryable without discarding work
+
+**Files:**
+- Modify: `addon/exchange/src/main/java/com/ghostchu/quickshop/addon/exchange/runtime/DrainingExecutor.java`
+- Modify: `addon/exchange/src/main/java/com/ghostchu/quickshop/addon/exchange/runtime/RuntimeExchangeRequestSubmitter.java`
+- Test: `addon/exchange/src/test/java/com/ghostchu/quickshop/addon/exchange/runtime/DrainingExecutorTest.java`
+- Test: `addon/exchange/src/test/java/com/ghostchu/quickshop/addon/exchange/runtime/ExchangeRuntimeTest.java`
+
+**Steps:**
+1. Add a failing test where the first close times out, accepted queued work remains intact, and a later close succeeds after the blocker is released.
+2. Add a failing test proving work is rejected as soon as close begins, including between failed and retried close calls.
+3. Add a failing submitter test proving a failed owned-executor close is invoked again by the next close call.
+4. Change executor close to call graceful `shutdown()` only once, never `shutdownNow()` on a drain timeout, and mark termination only after actual completion.
+5. Separate submitter acceptance from terminal close state so an owner close failure preserves a retry path without reopening submissions.
+6. Run focused runtime tests, then the complete Exchange and reactor verification.

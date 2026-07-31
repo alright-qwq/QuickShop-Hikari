@@ -65,6 +65,17 @@ public final class ExchangeCommandRouter {
       actor.openMenu(ExchangeMenuRequest.page("markets"));
       return;
     }
+    if ("book".equalsIgnoreCase(args[0])) {
+      if (args.length != 1) {
+        invalid(actor);
+        return;
+      }
+      if (!allowed(actor, "quickshop.exchange.use")) {
+        return;
+      }
+      actor.claimHandbook();
+      return;
+    }
     if ("market".equalsIgnoreCase(args[0])) {
       if (args.length != 2 || !allowed(actor, "quickshop.exchange.use")) {
         invalid(actor);
@@ -240,7 +251,9 @@ public final class ExchangeCommandRouter {
     return actor.hasPermission("quickshop.exchange.admin.market")
         || actor.hasPermission("quickshop.exchange.admin.orders")
         || actor.hasPermission("quickshop.exchange.admin.recovery")
-        || actor.hasPermission("quickshop.exchange.admin.audit");
+        || actor.hasPermission("quickshop.exchange.admin.audit")
+        || actor.hasPermission("quickshop.exchange.admin.display")
+        || actor.hasPermission("quickshop.exchange.admin.handbook");
   }
 
   private static void invalid(CommandActor actor) {
@@ -251,12 +264,12 @@ public final class ExchangeCommandRouter {
   public List<String> tabComplete(CommandActor actor, String[] args) {
     Objects.requireNonNull(actor, "actor");
     if (args == null || args.length == 0) {
-      return List.of("open", "market", "order", "cancel", "deposit", "withdraw", "orders",
+      return List.of("open", "book", "market", "order", "cancel", "deposit", "withdraw", "orders",
           "assets", "history", "admin");
     }
     if (args.length == 1) {
       String prefix = args[0].toLowerCase(java.util.Locale.ROOT);
-      return List.of("open", "market", "order", "cancel", "deposit", "withdraw", "orders",
+      return List.of("open", "book", "market", "order", "cancel", "deposit", "withdraw", "orders",
           "assets", "history", "admin").stream()
           .filter(value -> value.startsWith(prefix)).toList();
     }
@@ -264,12 +277,48 @@ public final class ExchangeCommandRouter {
       case "order" -> args.length == 2 ? List.of("limit", "market")
           : args.length == 3 ? List.of("buy", "sell") : List.of();
       case "deposit", "withdraw" -> args.length == 2 ? List.of("money", "item") : List.of();
-      case "admin" -> args.length == 2 ? List.of("market", "order", "transfer", "audit")
-          : args.length == 3 && "transfer".equalsIgnoreCase(args[1]) ? List.of("review")
-          : args.length == 4 && "transfer".equalsIgnoreCase(args[1])
-              && "review".equalsIgnoreCase(args[2]) ? List.of("list", "show", "resolve")
-          : List.of();
+      case "admin" -> completeAdmin(args);
       default -> List.of();
     };
+  }
+
+  private static List<String> completeAdmin(String[] args) {
+    if (args.length == 2) {
+      return List.of("market", "order", "transfer", "audit", "display", "book");
+    }
+    if (args.length == 3 && "book".equalsIgnoreCase(args[1])) {
+      return List.of("give");
+    }
+    if (args.length == 3 && "transfer".equalsIgnoreCase(args[1])) {
+      return List.of("review");
+    }
+    if (args.length == 4 && "transfer".equalsIgnoreCase(args[1])
+        && "review".equalsIgnoreCase(args[2])) {
+      return List.of("list", "show", "resolve");
+    }
+    if (args.length == 3 && "display".equalsIgnoreCase(args[1])) {
+      return List.of("map", "sign");
+    }
+    if (args.length == 4 && "display".equalsIgnoreCase(args[1])) {
+      if ("map".equalsIgnoreCase(args[2])) {
+        return List.of("create", "mode", "period", "refresh", "remove");
+      }
+      if ("sign".equalsIgnoreCase(args[2])) {
+        return List.of("bind", "refresh", "remove");
+      }
+    }
+    if (args.length == 6 && "display".equalsIgnoreCase(args[1])
+        && "map".equalsIgnoreCase(args[2]) && "create".equalsIgnoreCase(args[3])) {
+      return List.of("1x1", "2x1", "2x2");
+    }
+    if (args.length == 7 && "display".equalsIgnoreCase(args[1])
+        && "map".equalsIgnoreCase(args[2]) && "create".equalsIgnoreCase(args[3])) {
+      return List.of("kline", "line");
+    }
+    if (args.length == 8 && "display".equalsIgnoreCase(args[1])
+        && "map".equalsIgnoreCase(args[2]) && "create".equalsIgnoreCase(args[3])) {
+      return List.of("1h", "6h", "24h", "7d");
+    }
+    return List.of();
   }
 }

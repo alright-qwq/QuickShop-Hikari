@@ -12,6 +12,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
+import java.util.function.Function;
 
 /** Resolves interrupted custody operations only when durable inventory evidence is sufficient. */
 public final class TransferRecoveryService {
@@ -19,14 +20,26 @@ public final class TransferRecoveryService {
   private final ExchangeRepository repository;
   private final InventoryGateway inventory;
   private final Executor executor;
+  private final Function<TransferRecord, CompletableFuture<TransferRecord>> claimedReviewRecovery;
 
   public TransferRecoveryService(
       TransferRepository transfers, ExchangeRepository repository,
       InventoryGateway inventory, Executor executor) {
+    this(transfers, repository, inventory, executor,
+        transfer -> CompletableFuture.failedFuture(new IllegalStateException(
+            "claimed item review recovery is not configured")));
+  }
+
+  public TransferRecoveryService(
+      TransferRepository transfers, ExchangeRepository repository,
+      InventoryGateway inventory, Executor executor,
+      Function<TransferRecord, CompletableFuture<TransferRecord>> claimedReviewRecovery) {
     this.transfers = Objects.requireNonNull(transfers, "transfers");
     this.repository = Objects.requireNonNull(repository, "repository");
     this.inventory = Objects.requireNonNull(inventory, "inventory");
     this.executor = Objects.requireNonNull(executor, "executor");
+    this.claimedReviewRecovery = Objects.requireNonNull(
+        claimedReviewRecovery, "claimedReviewRecovery");
   }
 
   public CompletableFuture<List<TransferRecord>> recoverPlayer(UUID accountId) {
@@ -67,6 +80,13 @@ public final class TransferRecoveryService {
   }
 
   private TransferRecord recoverSynchronously(TransferRecord transfer) throws SQLException {
+    if (transfer.status() == TransferStatus.REVIEW_PROCESSING) {
+      try {
+        return claimedReviewRecovery.apply(transfer).join();
+      } catch (RuntimeException failure) {
+        throw failure;
+      }
+    }
     return switch (transfer.type()) {
       case MONEY_DEPOSIT, MONEY_WITHDRAWAL -> recoverMoney(transfer);
       case ITEM_DEPOSIT -> recoverItemDeposit(transfer);
