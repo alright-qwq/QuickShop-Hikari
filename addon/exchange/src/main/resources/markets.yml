@@ -1,4 +1,5 @@
 config-version: 1
+# Trusted-price policy is configured globally in config.yml and versioned with each market's risk rules.
 markets:
   minecraft_diamond/default:
     enabled: false

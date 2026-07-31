@@ -7,6 +7,9 @@ import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceMaintenance;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPricePolicy;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceState;
 import com.ghostchu.quickshop.addon.exchange.display.BukkitDisplayTargets;
 import com.ghostchu.quickshop.addon.exchange.display.ExchangeMarketDisplayDataSource;
 import com.ghostchu.quickshop.addon.exchange.display.FoliaDisplayScheduler;
@@ -117,7 +120,8 @@ public final class ExchangeRuntimeFactory {
       markets.put(marketId, new PersistentOrderService(
           repository, rules, limits, RecoveryHandler.NO_OP,
           accountLimits(definition.risk()), marketData,
-          definition.structural().discoveryQuantity()));
+          definition.structural().discoveryQuantity(),
+          definition.risk().trustedPricePolicy()));
     }
 
     PlayerOperationSerialiser playerOperations = new PlayerOperationSerialiser();
@@ -272,8 +276,11 @@ public final class ExchangeRuntimeFactory {
             if (!viewExecutor.awaitTermination(30L, TimeUnit.SECONDS)) {
               throw new IllegalStateException("timed out draining exchange view executor");
             }
-          });
+          }, () -> runTrustedPriceMaintenance(
+              repository, registry, markets, Instant.now()));
       runtimeReference.set(runtime);
+      maintenance.scheduleWithFixedDelay(() -> runTrustedPriceMaintenance(runtime),
+          1L, 1L, TimeUnit.MINUTES);
       Bukkit.getPluginManager().registerEvents(new TransferLoginListener(accountId ->
           runtime.callAsyncWhileWriting(() -> transfers.recoverPlayer(accountId),
               recoveryFenceExecutor),
@@ -343,6 +350,63 @@ public final class ExchangeRuntimeFactory {
 
   static void flushWhileOwned(SingleWriterGuard writer, MarketDataService marketData, Instant at) {
     runWhileOwned(writer, () -> marketData.flush(at));
+  }
+
+  private static void runTrustedPriceMaintenance(ExchangeRuntime runtime) {
+    try {
+      runtime.runTrustedPriceMaintenance();
+    } catch (Exception ignored) {
+      // The next minute retries from the last committed state.
+    }
+  }
+
+  /** Applies one durable, bounded no-trade sweep and publishes each market only after commit. */
+  static void runTrustedPriceMaintenance(
+      JdbcExchangeRepository repository, MarketRegistry registry,
+      Map<String, PersistentOrderService> markets, Instant now) throws SQLException {
+    Objects.requireNonNull(repository, "repository");
+    Objects.requireNonNull(registry, "registry");
+    Objects.requireNonNull(markets, "markets");
+    Objects.requireNonNull(now, "now");
+    TrustedPriceMaintenance evaluator = new TrustedPriceMaintenance();
+    for (String marketId : registry.marketIds()) {
+      PersistentOrderService market = markets.get(marketId);
+      if (market == null) {
+        continue;
+      }
+      MarketDefinition definition = registry.require(marketId);
+      TrustedPricePolicy policy = definition.risk().trustedPricePolicy();
+      long policyVersion = registry.versions(marketId).riskVersion();
+      TrustedPriceState committed = repository.inTransaction(tx -> {
+        var snapshot = tx.trustedMarketSnapshot(marketId,
+            now.minus(policy.budgetWindow()), now.minus(policy.confidenceWindow()));
+        TrustedPriceState current = snapshot.state();
+        TrustedPriceState versioned = current.policyVersion() == policyVersion ? current
+            : new TrustedPriceState(current.marketId(), current.trustedPrice(),
+                current.guidancePrice(), current.lastEvaluatedAt(), current.liquidityTier(),
+                policyVersion, current.lastMatchSequence(), current.stateVersion());
+        TrustedPriceMaintenance.Result result = evaluator.evaluate(
+            versioned, policy, now, definition.structural().priceScale());
+        TrustedPriceState next = result.state();
+        if (result.adjustment() != null) {
+          tx.insertTrustedAdjustment(result.adjustment());
+          tx.updateTrustedPriceState(next, current.stateVersion());
+          return next;
+        }
+        if (versioned != current) {
+          next = new TrustedPriceState(versioned.marketId(), versioned.trustedPrice(),
+              versioned.guidancePrice(), versioned.lastEvaluatedAt(), versioned.liquidityTier(),
+              versioned.policyVersion(), versioned.lastMatchSequence(),
+              Math.addExact(versioned.stateVersion(), 1));
+          tx.updateTrustedPriceState(next, current.stateVersion());
+          return next;
+        }
+        return current;
+      });
+      // Publication is deliberately after the transaction returns/commits. Publishing an
+      // unchanged state makes a prior post-commit publication failure self-heal next minute.
+      market.publishCommittedTrustedState(committed);
+    }
   }
 
   static void runWhileOwned(SingleWriterGuard writer, ExchangeRuntime.CheckedRunnable work) {

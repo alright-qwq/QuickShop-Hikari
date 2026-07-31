@@ -31,6 +31,7 @@ public final class ExchangeRuntime implements AutoCloseable {
   private final MarketDisplayService displays;
   private final AdminCommandRouter.DisplayCommands displayAdministration;
   private final CheckedRunnable closeDisplays;
+  private final CheckedRunnable trustedMaintenance;
   private final AtomicBoolean acceptingWrites = new AtomicBoolean();
   private boolean displaysClosed;
   private boolean dispatcherClosed;
@@ -111,6 +112,19 @@ public final class ExchangeRuntime implements AutoCloseable {
                   MarketDisplayService displays,
                   AdminCommandRouter.DisplayCommands displayAdministration,
                   CheckedRunnable closeDisplays) {
+    this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
+        views, administration, actions, transferReviews, displays, displayAdministration,
+        closeDisplays, () -> {});
+  }
+
+  ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
+                  CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
+                  CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
+                  ExchangeViewService views, AdminExchangeService administration,
+                  ExchangeActionService actions, TransferReviewCoordinator transferReviews,
+                  MarketDisplayService displays,
+                  AdminCommandRouter.DisplayCommands displayAdministration,
+                  CheckedRunnable closeDisplays, CheckedRunnable trustedMaintenance) {
     this.writer = Objects.requireNonNull(writer, "writer");
     this.recoverBooks = Objects.requireNonNull(recoverBooks, "recoverBooks");
     this.recoverTransfers = Objects.requireNonNull(recoverTransfers, "recoverTransfers");
@@ -125,6 +139,7 @@ public final class ExchangeRuntime implements AutoCloseable {
     this.displays = displays;
     this.displayAdministration = displayAdministration;
     this.closeDisplays = Objects.requireNonNull(closeDisplays, "closeDisplays");
+    this.trustedMaintenance = Objects.requireNonNull(trustedMaintenance, "trustedMaintenance");
     writer.onLockLost(this::fenceAfterLockLoss);
   }
 
@@ -208,6 +223,11 @@ public final class ExchangeRuntime implements AutoCloseable {
       completed.set(true);
     });
     return held && completed.get();
+  }
+
+  /** Runs the single bounded trusted-price sweep under the normal writer fence. */
+  boolean runTrustedPriceMaintenance() throws Exception {
+    return runWhileWriting(trustedMaintenance);
   }
 
   /** Executes a value-producing mutation under the same writer fence. */

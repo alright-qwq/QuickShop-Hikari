@@ -7,6 +7,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.trust.LimitReason;
 import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPricePolicy;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
 import com.ghostchu.quickshop.addon.exchange.marketdata.CandleAggregator;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
@@ -15,10 +16,40 @@ import com.ghostchu.quickshop.addon.exchange.repository.TrustedMarketSnapshot;
 import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class TrustedSettlementIntegrationTest {
+  @Test
+  void configuredTrustedPolicyControlsSettlementInfluence() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketDataService marketData = new MarketDataService(new CandleAggregator());
+    EnumMap<LiquidityTier, TrustedPricePolicy.Tier> tiers =
+        new EnumMap<>(LiquidityTier.class);
+    tiers.putAll(TrustedPricePolicy.defaults().tiers());
+    TrustedPricePolicy.Tier defaults = tiers.get(LiquidityTier.LOW);
+    tiers.put(LiquidityTier.LOW, new TrustedPricePolicy.Tier(
+        new BigDecimal("0.001"), defaults.marketBudget(), defaults.accountBudget(),
+        defaults.pairBudget(), defaults.anchorBand(), defaults.reversionPerHour()));
+    TrustedPricePolicy policy = new TrustedPricePolicy(
+        TrustedPricePolicy.defaults().budgetWindow(),
+        TrustedPricePolicy.defaults().confidenceWindow(), tiers);
+    PersistentOrderService service =
+        fixture.serviceWithMarketDataAndTrustedPolicy(marketData, policy);
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    UUID seller = fixture.accountWithItems(5);
+
+    trade(service, seller, buyer, "115.00");
+
+    TrustedMarketSnapshot trusted = fixture.repository().inTransaction(tx ->
+        tx.trustedMarketSnapshot("diamond-usd", Instant.EPOCH, Instant.EPOCH));
+    assertThat(trusted.influences()).singleElement()
+        .satisfies(influence -> assertThat(influence.acceptedMove())
+            .isEqualByComparingTo("0.001"));
+    assertThat(trusted.state().trustedPrice()).isEqualByComparingTo("100.1000000000");
+  }
+
   @Test
   void rawTradesSettleWhilePairBudgetBoundsTheTrustedQuote() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();

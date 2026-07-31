@@ -1,6 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.config;
 
 import com.ghostchu.quickshop.addon.exchange.platform.FingerprintMode;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPricePolicy;
 import java.math.BigDecimal;
 import java.util.Objects;
 
@@ -55,7 +56,20 @@ public record MarketDefinition(
       BigDecimal maximumMarketSlippage, BigDecimal levelOneMove,
       long levelOneHaltSeconds, BigDecimal levelTwoMove, long levelTwoHaltSeconds,
       long maxAccountHolding, BigDecimal maxFrozenCurrency, int maxOpenOrders,
-      int operationsPerSecond, int operationsPerMinute) {
+      int operationsPerSecond, int operationsPerMinute, TrustedPricePolicy trustedPricePolicy) {
+    public RiskRules(
+        BigDecimal makerFeeRate, BigDecimal takerFeeRate,
+        BigDecimal priceCageRatio, BigDecimal defaultMarketSlippage,
+        BigDecimal maximumMarketSlippage, BigDecimal levelOneMove,
+        long levelOneHaltSeconds, BigDecimal levelTwoMove, long levelTwoHaltSeconds,
+        long maxAccountHolding, BigDecimal maxFrozenCurrency, int maxOpenOrders,
+        int operationsPerSecond, int operationsPerMinute) {
+      this(makerFeeRate, takerFeeRate, priceCageRatio, defaultMarketSlippage,
+          maximumMarketSlippage, levelOneMove, levelOneHaltSeconds, levelTwoMove,
+          levelTwoHaltSeconds, maxAccountHolding, maxFrozenCurrency, maxOpenOrders,
+          operationsPerSecond, operationsPerMinute, TrustedPricePolicy.defaults());
+    }
+
     public RiskRules {
       requireNonNegative(makerFeeRate, "makerFeeRate");
       requireNonNegative(takerFeeRate, "takerFeeRate");
@@ -65,6 +79,7 @@ public record MarketDefinition(
       requireNonNegative(levelOneMove, "levelOneMove");
       requireNonNegative(levelTwoMove, "levelTwoMove");
       requirePositive(maxFrozenCurrency, "maxFrozenCurrency");
+      Objects.requireNonNull(trustedPricePolicy, "trustedPricePolicy");
       if (defaultMarketSlippage.compareTo(maximumMarketSlippage) > 0
           || maximumMarketSlippage.compareTo(new BigDecimal("0.20")) > 0
           || levelOneHaltSeconds <= 0 || levelTwoHaltSeconds <= 0 || maxAccountHolding <= 0

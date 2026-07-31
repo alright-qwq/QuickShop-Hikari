@@ -136,9 +136,17 @@ public final class PersistentOrderService {
                                 RiskLimits riskLimits, RecoveryHandler recovery,
                                 AccountOrderLimits accountLimits, MarketDataService marketData,
                                 long discoveryQuantity) {
+    this(repository, rules, riskLimits, recovery, accountLimits, marketData,
+        discoveryQuantity, TrustedPricePolicy.defaults());
+  }
+
+  public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                                RiskLimits riskLimits, RecoveryHandler recovery,
+                                AccountOrderLimits accountLimits, MarketDataService marketData,
+                                long discoveryQuantity, TrustedPricePolicy trustedPolicy) {
     this(repository, rules, riskLimits, recovery, SettlementObserver.NONE,
         new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
-        accountLimits, marketData, discoveryQuantity);
+        accountLimits, marketData, discoveryQuantity, trustedPolicy);
   }
 
   PersistentOrderService(ExchangeRepository repository, MarketRules rules,
@@ -188,6 +196,16 @@ public final class PersistentOrderService {
                          TimeOrderedIdGenerator ids, Supplier<Instant> now,
                          AccountOrderLimits accountLimits, MarketDataService marketData,
                          long discoveryQuantity) {
+    this(repository, rules, riskLimits, recovery, observer, ids, now, accountLimits, marketData,
+        discoveryQuantity, TrustedPricePolicy.defaults());
+  }
+
+  PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                         RiskLimits riskLimits, RecoveryHandler recovery,
+                         SettlementObserver observer,
+                         TimeOrderedIdGenerator ids, Supplier<Instant> now,
+                         AccountOrderLimits accountLimits, MarketDataService marketData,
+                         long discoveryQuantity, TrustedPricePolicy trustedPolicy) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.rules = Objects.requireNonNull(rules, "rules");
     this.riskLimits = Objects.requireNonNull(riskLimits, "riskLimits");
@@ -201,7 +219,7 @@ public final class PersistentOrderService {
       throw new IllegalArgumentException("trusted discovery quantity must be positive");
     }
     this.discoveryQuantity = discoveryQuantity;
-    this.trustedPolicy = TrustedPricePolicy.defaults();
+    this.trustedPolicy = Objects.requireNonNull(trustedPolicy, "trustedPolicy");
     this.liquidityClassifier = new LiquidityClassifier(trustedPolicy);
     this.trustedPriceEngine = new TrustedPriceEngine();
     this.ids = Objects.requireNonNull(ids, "ids");
@@ -209,7 +227,7 @@ public final class PersistentOrderService {
     this.fees = new FeeCalculator(rules.priceScale());
     this.reservations = new ReservationCalculator(fees);
     this.marketRecovery = new OrderBookRecoveryService(
-        repository, rules, riskLimits, discoveryQuantity);
+        repository, rules, riskLimits, discoveryQuantity, trustedPolicy);
     MarketCoordinationKey coordinationKey = new MarketCoordinationKey(
         Objects.requireNonNull(repository.coordinationKey(), "repository coordination key"),
         rules.marketId());
@@ -605,6 +623,20 @@ public final class PersistentOrderService {
       runtimeState.referencePrices = rebuiltReferencePrices.copy();
       runtimeState.circuitBreaker = rebuiltCircuitBreaker.copy();
       runtimeState.committedMarketVersion = marketVersion;
+    }
+  }
+
+  /** Publishes a trusted state that has already committed under the Exchange writer fence. */
+  public void publishCommittedTrustedState(TrustedPriceState committed) {
+    Objects.requireNonNull(committed, "committed");
+    if (!rules.marketId().equals(committed.marketId())) {
+      throw new IllegalArgumentException("trusted state belongs to another market");
+    }
+    synchronized (runtimeState) {
+      if (committed.stateVersion() < runtimeState.trustedPriceState.stateVersion()) {
+        throw new IllegalStateException("trusted state version cannot move backwards");
+      }
+      runtimeState.trustedPriceState = committed;
     }
   }
 

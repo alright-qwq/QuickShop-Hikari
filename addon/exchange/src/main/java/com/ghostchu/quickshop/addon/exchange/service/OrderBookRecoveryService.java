@@ -56,6 +56,12 @@ public final class OrderBookRecoveryService {
   public OrderBookRecoveryService(
       ExchangeRepository repository, MarketRules rules, RiskLimits riskLimits,
       long discoveryQuantity) {
+    this(repository, rules, riskLimits, discoveryQuantity, TrustedPricePolicy.defaults());
+  }
+
+  public OrderBookRecoveryService(
+      ExchangeRepository repository, MarketRules rules, RiskLimits riskLimits,
+      long discoveryQuantity, TrustedPricePolicy trustedPolicy) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.rules = Objects.requireNonNull(rules, "rules");
     this.riskLimits = Objects.requireNonNull(riskLimits, "riskLimits");
@@ -63,7 +69,7 @@ public final class OrderBookRecoveryService {
       throw new IllegalArgumentException("recovery discovery quantity must be at least 10");
     }
     this.discoveryQuantity = discoveryQuantity;
-    this.trustedPolicy = TrustedPricePolicy.defaults();
+    this.trustedPolicy = Objects.requireNonNull(trustedPolicy, "trustedPolicy");
     this.liquidityClassifier = new LiquidityClassifier(trustedPolicy);
     this.trustedPriceEngine = new TrustedPriceEngine();
   }

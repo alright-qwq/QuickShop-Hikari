@@ -31,6 +31,31 @@ risk-defaults:
   level-two-halt-seconds: 600
   operations-per-second: 5
   operations-per-minute: 60
+trusted-market:
+  budget-window-hours: 6
+  confidence-window-hours: 24
+  tiers:
+    low:
+      per-trade-cap: '0.005'
+      market-budget: '0.030'
+      account-budget: '0.015'
+      pair-budget: '0.0075'
+      anchor-band: '0.10'
+      reversion-per-hour: '0.005'
+    growing:
+      per-trade-cap: '0.015'
+      market-budget: '0.080'
+      account-budget: '0.040'
+      pair-budget: '0.020'
+      anchor-band: '0.25'
+      reversion-per-hour: '0.0015'
+    stable:
+      per-trade-cap: '0.030'
+      market-budget: '0.200'
+      account-budget: '0.080'
+      pair-budget: '0.040'
+      anchor-band: '0.60'
+      reversion-per-hour: '0'
 operations:
   reconciliation-interval-minutes: 1440
   audit-export-directory: audit

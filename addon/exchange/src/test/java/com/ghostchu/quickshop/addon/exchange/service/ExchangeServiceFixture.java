@@ -253,6 +253,16 @@ public final class ExchangeServiceFixture {
         RecoveryHandler.NO_OP, marketData);
   }
 
+  PersistentOrderService serviceWithMarketDataAndTrustedPolicy(
+      com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService marketData,
+      com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPricePolicy trustedPolicy) {
+    return new PersistentOrderService(repository, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP,
+        com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits.defaults(),
+        marketData, 100L, trustedPolicy);
+  }
+
   public UUID accountWithItems(long quantity) throws SQLException {
     UUID account = UUID.randomUUID();
     repository.inTransaction(tx -> {

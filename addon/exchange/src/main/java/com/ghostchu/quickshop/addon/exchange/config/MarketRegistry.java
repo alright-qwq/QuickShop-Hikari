@@ -12,6 +12,10 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.Material;
 import com.ghostchu.quickshop.addon.exchange.platform.FingerprintMode;
 import com.ghostchu.quickshop.addon.exchange.core.model.FeeRates;
+import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPricePolicy;
+import java.time.Duration;
+import java.util.EnumMap;
 import java.util.Collections;
 
 /** Holds market configuration and only permits structural changes on a paused empty book. */
@@ -39,6 +43,9 @@ public final class MarketRegistry {
     YamlConfiguration configuration = YamlConfiguration.loadConfiguration(configurationFile);
     YamlConfiguration markets = YamlConfiguration.loadConfiguration(marketsFile);
     ConfigurationSection riskDefaults = requiredSection(configuration, "risk-defaults");
+    ConfigurationSection trustedMarket = configuration.getConfigurationSection("trusted-market");
+    TrustedPricePolicy trustedPricePolicy = trustedMarket == null
+        ? TrustedPricePolicy.defaults() : trustedPricePolicy(trustedMarket);
     ConfigurationSection configuredMarkets = requiredSection(markets, "markets");
     Map<String, MarketDefinition> definitions = new LinkedHashMap<>();
     for (String marketId : configuredMarkets.getKeys(false)) {
@@ -64,7 +71,8 @@ public final class MarketRegistry {
               decimal(riskDefaults, "level-two-move"), riskDefaults.getLong("level-two-halt-seconds"),
               market.getLong("max-account-holding"), decimal(market, "max-frozen-currency"),
               market.getInt("max-open-orders"), riskDefaults.getInt("operations-per-second"),
-              riskDefaults.getInt("operations-per-minute")), market.getBoolean("block-container-shops")));
+              riskDefaults.getInt("operations-per-minute"), trustedPricePolicy),
+          market.getBoolean("block-container-shops")));
     }
     return new MarketRegistry(definitions, persistence);
   }
@@ -193,6 +201,32 @@ public final class MarketRegistry {
 
   private static BigDecimal decimal(ConfigurationSection section, String path) {
     return new BigDecimal(requiredString(section, path));
+  }
+
+  private static TrustedPricePolicy trustedPricePolicy(ConfigurationSection section) {
+    EnumMap<LiquidityTier, TrustedPricePolicy.Tier> tiers =
+        new EnumMap<>(LiquidityTier.class);
+    tiers.put(LiquidityTier.LOW, trustedTier(requiredSection(section, "tiers.low")));
+    tiers.put(LiquidityTier.GROWING, trustedTier(requiredSection(section, "tiers.growing")));
+    tiers.put(LiquidityTier.STABLE, trustedTier(requiredSection(section, "tiers.stable")));
+    return new TrustedPricePolicy(
+        Duration.ofHours(positiveLong(section, "budget-window-hours")),
+        Duration.ofHours(positiveLong(section, "confidence-window-hours")), tiers);
+  }
+
+  private static TrustedPricePolicy.Tier trustedTier(ConfigurationSection tier) {
+    return new TrustedPricePolicy.Tier(
+        decimal(tier, "per-trade-cap"), decimal(tier, "market-budget"),
+        decimal(tier, "account-budget"), decimal(tier, "pair-budget"),
+        decimal(tier, "anchor-band"), decimal(tier, "reversion-per-hour"));
+  }
+
+  private static long positiveLong(ConfigurationSection section, String path) {
+    long value = section.getLong(path);
+    if (value <= 0L) {
+      throw new IllegalArgumentException("configuration value must be positive: " + path);
+    }
+    return value;
   }
 
   public record Versions(long structuralVersion, long riskVersion, long feeVersion) {
