@@ -87,6 +87,27 @@ class OrderBookRecoveryServiceTest {
   }
 
   @Test
+  void persistedTradeSamplesRetainTradeAndParticipantIdentity() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    fixture.service().place(limitSell(seller, 1));
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), buyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    MarketSnapshot snapshot = fixture.repository().inTransaction(tx -> {
+      MarketState state = tx.marketState("diamond-usd");
+      return tx.marketSnapshot(state, Instant.EPOCH);
+    });
+
+    assertThat(snapshot.recentTrades()).singleElement().satisfies(sample -> {
+      assertThat(sample.tradeId()).isNotNull();
+      assertThat(sample.buyerAccountId()).isEqualTo(buyer);
+      assertThat(sample.sellerAccountId()).isEqualTo(seller);
+    });
+  }
+
+  @Test
   void replaysV1HistoryOnceAndPersistsExactMetadata() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID seller = fixture.accountWithItems(50);
@@ -166,9 +187,13 @@ class OrderBookRecoveryServiceTest {
     Instant now = Instant.EPOCH.plusSeconds(10);
     MarketState validState = state(2, 2, 0L, 0);
     Order validOrder = order("diamond-usd", OrderStatus.OPEN, 1, UUID.randomUUID());
+    UUID buyer = UUID.randomUUID();
+    UUID seller = UUID.randomUUID();
     MarketTradeSample first = new MarketTradeSample(
+        UUID.randomUUID(), buyer, seller,
         new BigDecimal("100.00"), 1, 1, now.minusSeconds(2));
     MarketTradeSample second = new MarketTradeSample(
+        UUID.randomUUID(), buyer, seller,
         new BigDecimal("100.00"), 1, 2, now.minusSeconds(1));
 
     List<MarketSnapshot> corruptSnapshots = List.of(

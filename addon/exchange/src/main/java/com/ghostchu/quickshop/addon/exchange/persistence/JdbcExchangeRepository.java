@@ -1305,7 +1305,8 @@ public final class JdbcExchangeRepository
     public void visitTradeHistory(String marketId, TradeVisitor visitor) throws SQLException {
       Objects.requireNonNull(visitor, "visitor");
       try (PreparedStatement select = connection.prepareStatement(
-          "SELECT price,quantity,match_sequence,executed_at FROM " + tables.trades()
+          "SELECT trade_id,buyer_account_id,seller_account_id,price,quantity,match_sequence,"
+              + "executed_at FROM " + tables.trades()
               + " WHERE market_id=? ORDER BY match_sequence" + dialect.forUpdate())) {
         if (dialect == SqlDialect.MYSQL) {
           // Connector/J streaming mode without requiring a JDBC URL option.
@@ -1323,7 +1324,8 @@ public final class JdbcExchangeRepository
     private List<MarketTradeSample> recentTrades(String marketId, Instant cutoff)
         throws SQLException {
       try (PreparedStatement select = connection.prepareStatement(
-          "SELECT price,quantity,match_sequence,executed_at FROM " + tables.trades()
+          "SELECT trade_id,buyer_account_id,seller_account_id,price,quantity,match_sequence,"
+              + "executed_at FROM " + tables.trades()
               + " WHERE market_id=? AND executed_at>=? ORDER BY match_sequence"
               + dialect.forUpdate())) {
         select.setString(1, marketId);
@@ -1339,7 +1341,9 @@ public final class JdbcExchangeRepository
     }
 
     private MarketTradeSample readTradeSample(ResultSet result) throws SQLException {
-      return new MarketTradeSample(readDecimal(result, "price"),
+      return new MarketTradeSample(UUID.fromString(result.getString("trade_id")),
+          UUID.fromString(result.getString("buyer_account_id")),
+          UUID.fromString(result.getString("seller_account_id")), readDecimal(result, "price"),
           result.getLong("quantity"), result.getLong("match_sequence"),
           Instant.ofEpochMilli(result.getLong("executed_at")));
     }
