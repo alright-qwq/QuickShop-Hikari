@@ -61,6 +61,9 @@ public interface ExchangeTransaction {
   default void insertTrustedAdjustment(TrustedPriceAdjustment adjustment) throws SQLException {
     throw new UnsupportedOperationException("trusted market adjustments are not supported");
   }
+  default void insertTrustedPriceState(TrustedPriceState state) throws SQLException {
+    throw new UnsupportedOperationException("trusted market state initialization is not supported");
+  }
   default void updateTrustedPriceState(TrustedPriceState state, long expectedVersion)
       throws SQLException {
     throw new UnsupportedOperationException("trusted market state is not supported");

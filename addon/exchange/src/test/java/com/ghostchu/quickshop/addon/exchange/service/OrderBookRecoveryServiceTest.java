@@ -8,6 +8,8 @@ import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
+import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceState;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
@@ -142,6 +144,12 @@ class OrderBookRecoveryServiceTest {
     UUID seller = fixture.accountWithItems(1);
     UUID buyer = fixture.accountWithCurrency("1000.00");
     fixture.setMarketSequences(10, 20);
+    fixture.repository().inTransaction(tx -> {
+      tx.insertTrustedPriceState(new TrustedPriceState(
+          "diamond-usd", new BigDecimal("100.00"), new BigDecimal("100.00"),
+          Instant.EPOCH, LiquidityTier.LOW, 1, 20, 20));
+      return null;
+    });
     fixture.service().recoverFromDatabase();
 
     fixture.service().place(limitSell(seller, 1));

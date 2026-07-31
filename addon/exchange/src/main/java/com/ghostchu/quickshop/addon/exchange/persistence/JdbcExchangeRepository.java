@@ -1266,6 +1266,25 @@ public final class JdbcExchangeRepository
     }
 
     @Override
+    public void insertTrustedPriceState(TrustedPriceState state) throws SQLException {
+      Objects.requireNonNull(state, "state");
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO " + tables.trustedMarketState()
+              + " (market_id,trusted_price,guidance_price,last_evaluated_at,confidence_tier,"
+              + "policy_version,last_match_sequence,state_version) VALUES (?,?,?,?,?,?,?,?)")) {
+        insert.setString(1, state.marketId());
+        writeDecimal(insert, 2, state.trustedPrice());
+        writeDecimal(insert, 3, state.guidancePrice());
+        insert.setLong(4, state.lastEvaluatedAt().toEpochMilli());
+        insert.setString(5, state.liquidityTier().name());
+        insert.setLong(6, state.policyVersion());
+        insert.setLong(7, state.lastMatchSequence());
+        insert.setLong(8, state.stateVersion());
+        insert.executeUpdate();
+      }
+    }
+
+    @Override
     public void updateTrustedPriceState(TrustedPriceState state, long expectedVersion)
         throws SQLException {
       Objects.requireNonNull(state, "state");
