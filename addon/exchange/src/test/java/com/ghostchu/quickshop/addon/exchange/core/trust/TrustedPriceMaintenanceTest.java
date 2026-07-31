@@ -58,6 +58,21 @@ class TrustedPriceMaintenanceTest {
   }
 
   @Test
+  void internalRoundingNeverCrossesGuidancePrice() {
+    TrustedPriceMaintenance.Result downward = maintenance.evaluate(
+        state("1.00000000015", "1.00000000004", LiquidityTier.LOW), POLICY,
+        NOW.plus(Duration.ofHours(1)), 2);
+    TrustedPriceMaintenance.Result upward = maintenance.evaluate(
+        state("1.00000000000", "1.00000000006", LiquidityTier.LOW), POLICY,
+        NOW.plus(Duration.ofHours(1)), 2);
+
+    assertThat(downward.state().trustedPrice())
+        .isGreaterThanOrEqualTo(downward.state().guidancePrice());
+    assertThat(upward.state().trustedPrice())
+        .isLessThanOrEqualTo(upward.state().guidancePrice());
+  }
+
+  @Test
   void equalPriceOrEqualTimeDoesNotCreateAdjustment() {
     assertThat(maintenance.evaluate(
         state("100", "100", LiquidityTier.LOW), POLICY,

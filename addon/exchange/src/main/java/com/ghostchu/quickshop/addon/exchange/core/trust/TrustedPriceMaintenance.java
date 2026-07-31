@@ -41,8 +41,14 @@ public final class TrustedPriceMaintenance {
       return new Result(state, null);
     }
     BigDecimal signedMove = direction < 0 ? move.negate() : move;
+    int internalScale = Math.addExact(priceScale, EXTRA_INTERNAL_SCALE);
     BigDecimal nextPrice = state.trustedPrice().multiply(BigDecimal.ONE.add(signedMove))
-        .setScale(Math.addExact(priceScale, EXTRA_INTERNAL_SCALE), RoundingMode.HALF_UP);
+        .setScale(internalScale, RoundingMode.HALF_UP);
+    if (direction < 0 && nextPrice.compareTo(state.guidancePrice()) < 0) {
+      nextPrice = state.guidancePrice().setScale(internalScale, RoundingMode.CEILING);
+    } else if (direction > 0 && nextPrice.compareTo(state.guidancePrice()) > 0) {
+      nextPrice = state.guidancePrice().setScale(internalScale, RoundingMode.FLOOR);
+    }
     TrustedPriceState nextState = new TrustedPriceState(
         state.marketId(), nextPrice, state.guidancePrice(), now, state.liquidityTier(),
         state.policyVersion(), state.lastMatchSequence(), Math.addExact(state.stateVersion(), 1));
