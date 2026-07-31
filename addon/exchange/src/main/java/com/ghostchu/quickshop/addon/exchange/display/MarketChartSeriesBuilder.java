@@ -1,15 +1,73 @@
 package com.ghostchu.quickshop.addon.exchange.display;
 
+import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.TreeMap;
 
 public final class MarketChartSeriesBuilder {
+  private final AdaptiveChartIntervalSelector intervalSelector;
+
+  public MarketChartSeriesBuilder() {
+    this(new AdaptiveChartIntervalSelector());
+  }
+
+  MarketChartSeriesBuilder(AdaptiveChartIntervalSelector intervalSelector) {
+    this.intervalSelector = Objects.requireNonNull(intervalSelector, "intervalSelector");
+  }
+
+  public MarketChartSeries build(List<Candle> rawCandles, List<TrustedPricePoint> trustedPoints,
+                                 MarketChartDimensions dimensions, MarketChartPeriod period,
+                                 LiquidityTier liquidityTier) {
+    Objects.requireNonNull(rawCandles, "rawCandles");
+    Objects.requireNonNull(trustedPoints, "trustedPoints");
+    Objects.requireNonNull(dimensions, "dimensions");
+    Objects.requireNonNull(period, "period");
+    Objects.requireNonNull(liquidityTier, "liquidityTier");
+
+    AdaptiveChartIntervalSelector.Selection selected = intervalSelector.select(
+        deduplicateRawMinutes(rawCandles), dimensions);
+    List<ChartCandle> candles = selected.candles().stream()
+        .map(MarketChartSeriesBuilder::toChartCandle)
+        .toList();
+    List<TrustedPricePoint> references = sortAndDeduplicateTrustedPoints(trustedPoints);
+    if (candles.isEmpty() && references.isEmpty()) {
+      return new MarketChartSeries(selected.interval(), List.of(), List.of(), selected.gaps(),
+          BigDecimal.ZERO, BigDecimal.ONE, BigDecimal.ZERO, BigDecimal.ZERO, liquidityTier,
+          false, false);
+    }
+
+    List<BigDecimal> lowerBounds = new ArrayList<>();
+    List<BigDecimal> upperBounds = new ArrayList<>();
+    candles.forEach(candle -> {
+      lowerBounds.add(candle.low());
+      upperBounds.add(candle.high());
+    });
+    references.forEach(point -> {
+      lowerBounds.add(point.price());
+      upperBounds.add(point.price());
+    });
+    BigDecimal minimum = lowerBounds.stream().min(BigDecimal::compareTo).orElseThrow();
+    BigDecimal maximum = upperBounds.stream().max(BigDecimal::compareTo).orElseThrow();
+    boolean flat = minimum.compareTo(maximum) == 0;
+    if (flat) {
+      BigDecimal padding = flatPadding(minimum);
+      minimum = minimum.subtract(padding);
+      maximum = maximum.add(padding);
+    }
+    BigDecimal latestRaw = candles.isEmpty() ? BigDecimal.ZERO : candles.getLast().close();
+    BigDecimal latestTrusted = references.isEmpty() ? BigDecimal.ZERO : references.getLast().price();
+    return new MarketChartSeries(selected.interval(), candles, references, selected.gaps(), minimum,
+        maximum, latestRaw, latestTrusted, liquidityTier, flat, candles.size() == 1);
+  }
+
   public MarketChartSeries build(List<Candle> source, int maxPoints) {
     Objects.requireNonNull(source, "source");
     if (maxPoints <= 0) {
@@ -57,5 +115,37 @@ public final class MarketChartSeriesBuilder {
         .reduce(BigDecimal.ZERO, BigDecimal::add);
     return new ChartCandle(first.bucketStart(), first.open(), high, low, last.close(),
         volume, notional.setScale(Math.max(0, notional.scale()), RoundingMode.UNNECESSARY));
+  }
+
+  private static List<Candle> deduplicateRawMinutes(List<Candle> source) {
+    TreeMap<Instant, Candle> byMinute = new TreeMap<>();
+    for (Candle candle : source) {
+      Objects.requireNonNull(candle, "candle");
+      Instant minute = Instant.ofEpochMilli(
+          Math.floorDiv(candle.bucketStart().toEpochMilli(), 60_000L) * 60_000L);
+      byMinute.put(minute, candle);
+    }
+    return List.copyOf(byMinute.values());
+  }
+
+  private static List<TrustedPricePoint> sortAndDeduplicateTrustedPoints(
+      List<TrustedPricePoint> source) {
+    TreeMap<Instant, TrustedPricePoint> byTime = new TreeMap<>();
+    for (TrustedPricePoint point : source) {
+      Objects.requireNonNull(point, "trustedPricePoint");
+      byTime.put(point.at(), point);
+    }
+    return List.copyOf(byTime.values());
+  }
+
+  private static ChartCandle toChartCandle(Candle candle) {
+    return new ChartCandle(candle.bucketStart(), candle.open(), candle.high(), candle.low(),
+        candle.close(), candle.volume(), candle.notional());
+  }
+
+  private static BigDecimal flatPadding(BigDecimal price) {
+    BigDecimal percent = price.abs().multiply(new BigDecimal("0.01"), MathContext.DECIMAL64);
+    BigDecimal inferredTick = BigDecimal.ONE.scaleByPowerOfTen(-Math.max(0, price.scale()));
+    return percent.max(inferredTick);
   }
 }
