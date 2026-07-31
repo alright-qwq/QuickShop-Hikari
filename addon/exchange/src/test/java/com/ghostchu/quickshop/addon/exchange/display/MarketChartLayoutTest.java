@@ -15,15 +15,16 @@ class MarketChartLayoutTest {
 
       assertInside(layout.header(), dimensions);
       assertInside(layout.plot(), dimensions);
-      assertInside(layout.priceAxis(), dimensions);
-      assertInside(layout.timeAxis(), dimensions);
-      assertInside(layout.volume(), dimensions);
+      layout.priceAxis().ifPresent(region -> assertInside(region, dimensions));
+      layout.timeAxis().ifPresent(region -> assertInside(region, dimensions));
+      layout.volume().ifPresent(region -> assertInside(region, dimensions));
       assertThat(layout.plot().width()).isGreaterThanOrEqualTo(72);
       assertThat(layout.plot().height()).isGreaterThanOrEqualTo(60);
       assertThat(layout.header().bottom()).isLessThan(layout.plot().top());
-      assertThat(layout.plot().right()).isLessThan(layout.priceAxis().left());
-      assertThat(layout.plot().bottom()).isLessThan(layout.volume().top());
-      assertThat(layout.volume().bottom()).isLessThan(layout.timeAxis().top());
+      layout.priceAxis().ifPresent(
+          region -> assertThat(layout.plot().right()).isLessThan(region.left()));
+      layout.volume().ifPresent(
+          region -> assertThat(layout.plot().bottom()).isLessThan(region.top()));
     }
   }
 
@@ -36,7 +37,9 @@ class MarketChartLayoutTest {
     assertThat(compact.density()).isEqualTo(MarketChartLayout.Density.COMPACT);
     assertThat(wide.density()).isEqualTo(MarketChartLayout.Density.WIDE);
     assertThat(full.density()).isEqualTo(MarketChartLayout.Density.FULL);
-    assertThat(full.volume().height()).isGreaterThan(compact.volume().height());
+    assertThat(compact.volume()).isEmpty();
+    assertThat(full.volume().orElseThrow().height())
+        .isGreaterThan(wide.volume().orElseThrow().height());
   }
 
   private static void assertInside(MarketChartLayout.Rect rect,

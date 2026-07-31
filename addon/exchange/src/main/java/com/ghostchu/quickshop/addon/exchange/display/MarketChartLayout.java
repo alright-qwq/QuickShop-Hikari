@@ -1,31 +1,58 @@
 package com.ghostchu.quickshop.addon.exchange.display;
 
-/** Size-aware regions for the professional map chart. */
-public record MarketChartLayout(Density density, Rect header, Rect plot, Rect priceAxis,
-                                Rect volume, Rect timeAxis) {
+import java.util.Optional;
+
+/** Size-aware, non-overlapping regions for the professional map chart. */
+public record MarketChartLayout(
+    Density density,
+    Rect header,
+    Rect plot,
+    Optional<Rect> priceAxis,
+    Optional<Rect> volume,
+    Optional<Rect> timeAxis,
+    Optional<Rect> legend,
+    Optional<Rect> confidence) {
+
+  public MarketChartLayout {
+    if (density == null || header == null || plot == null || priceAxis == null || volume == null
+        || timeAxis == null || legend == null || confidence == null) {
+      throw new NullPointerException("chart layout regions cannot be null");
+    }
+  }
+
   public static MarketChartLayout forDimensions(MarketChartDimensions dimensions) {
     int width = dimensions.pixelWidth();
     int height = dimensions.pixelHeight();
     Density density = dimensions.rows() == 2 ? Density.FULL
         : dimensions.columns() == 2 ? Density.WIDE : Density.COMPACT;
     int margin = 4;
-    int axisWidth = density == Density.COMPACT ? 25 : 31;
+    int axisWidth = 31;
     int headerHeight = density == Density.FULL ? 15 : 10;
-    int timeHeight = density == Density.FULL ? 19 : 12;
-    int volumeHeight = density == Density.FULL ? 35 : 17;
-    int gap = 4;
-    int plotTop = margin + headerHeight + gap;
-    int timeTop = height - margin - timeHeight;
-    int volumeTop = timeTop - gap - volumeHeight;
-    int plotBottom = volumeTop - gap - 1;
-    int priceLeft = width - margin - axisWidth;
     Rect header = new Rect(margin, margin, width - margin * 2, headerHeight);
-    Rect plot = new Rect(margin, plotTop, priceLeft - gap - margin,
-        plotBottom - plotTop + 1);
-    Rect priceAxis = new Rect(priceLeft, plotTop, axisWidth, plot.height());
-    Rect volume = new Rect(margin, volumeTop, plot.width(), volumeHeight);
-    Rect timeAxis = new Rect(margin, timeTop, width - margin * 2, timeHeight);
-    return new MarketChartLayout(density, header, plot, priceAxis, volume, timeAxis);
+
+    if (density == Density.COMPACT) {
+      Rect plot = new Rect(margin, 18, width - margin * 2, height - 22);
+      return new MarketChartLayout(density, header, plot, Optional.empty(), Optional.empty(),
+          Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    int priceLeft = width - margin - axisWidth;
+    int plotTop = density == Density.FULL ? 23 : 18;
+    int plotHeight = density == Density.FULL ? 135 : 75;
+    Rect plot = new Rect(margin, plotTop, priceLeft - margin - 4, plotHeight);
+    Rect priceAxis = new Rect(priceLeft, plotTop, axisWidth, plotHeight);
+    if (density == Density.WIDE) {
+      Rect volume = new Rect(margin, 97, plot.width(), 27);
+      return new MarketChartLayout(density, header, plot, Optional.of(priceAxis),
+          Optional.of(volume), Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    Rect volume = new Rect(margin, 162, plot.width(), 35);
+    Rect timeAxis = new Rect(margin, 201, width - margin * 2, 15);
+    Rect legend = new Rect(margin, 220, 100, 12);
+    Rect confidence = new Rect(108, 220, width - 112, 12);
+    return new MarketChartLayout(density, header, plot, Optional.of(priceAxis),
+        Optional.of(volume), Optional.of(timeAxis), Optional.of(legend), Optional.of(confidence));
   }
 
   public enum Density {

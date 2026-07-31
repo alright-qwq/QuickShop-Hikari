@@ -24,7 +24,8 @@ public final class MarketChartRenderer {
 
   public MarketChartImage render(MarketChartSeries series, MarketChartMode mode,
                                  MarketChartDimensions dimensions) {
-    BigDecimal latest = series.hasData() ? series.candles().getLast().close() : BigDecimal.ZERO;
+    BigDecimal latest = series.candles().isEmpty()
+        ? BigDecimal.ZERO : series.candles().getLast().close();
     return render(series, mode, dimensions, "MARKET", MarketChartPeriod.ONE_DAY,
         latest, BigDecimal.ZERO);
   }
@@ -47,7 +48,7 @@ public final class MarketChartRenderer {
       drawHeader(canvas, layout, displayName, mode, period, latestPrice, change);
     }
     drawFrameAndGrid(canvas, layout);
-    if (!series.hasData()) {
+    if (series.candles().isEmpty()) {
       drawNoData(canvas, layout.plot());
       return canvas.image();
     }
@@ -60,11 +61,11 @@ public final class MarketChartRenderer {
       drawLine(canvas, layout.plot(), series);
     }
     if (options.professionalLayout()) {
-      drawPriceAxis(canvas, layout, series);
-      drawTimeAxis(canvas, layout.timeAxis(), series.candles());
+      layout.priceAxis().ifPresent(axis -> drawPriceAxis(canvas, layout.plot(), axis, series));
+      layout.timeAxis().ifPresent(axis -> drawTimeAxis(canvas, axis, series.candles()));
     }
     if (options.showVolume()) {
-      drawVolume(canvas, layout.volume(), series.candles());
+      layout.volume().ifPresent(area -> drawVolume(canvas, area, series.candles()));
     }
     return canvas.image();
   }
@@ -168,23 +169,25 @@ public final class MarketChartRenderer {
     int y = priceToY(layout.plot(), series, latestPrice);
     canvas.dashedHorizontal(layout.plot().left() + 1, layout.plot().right() - 1, y,
         MarketChartPalette.LATEST_PRICE, 3);
-    String label = compactPrice(latestPrice);
-    int labelY = Math.max(layout.priceAxis().top(),
-        Math.min(layout.priceAxis().bottom() - 4, y - 2));
-    PixelFont.draw(canvas::set, trimToPixels(label, layout.priceAxis().width()),
-        layout.priceAxis().left() + 1, labelY, MarketChartPalette.LATEST_PRICE);
+    layout.priceAxis().ifPresent(axis -> {
+      String label = compactPrice(latestPrice);
+      int labelY = Math.max(axis.top(), Math.min(axis.bottom() - 4, y - 2));
+      PixelFont.draw(canvas::set, trimToPixels(label, axis.width()), axis.left() + 1, labelY,
+          MarketChartPalette.LATEST_PRICE);
+    });
   }
 
-  private static void drawPriceAxis(Canvas canvas, MarketChartLayout layout,
+  private static void drawPriceAxis(Canvas canvas, MarketChartLayout.Rect plot,
+                                    MarketChartLayout.Rect priceAxis,
                                     MarketChartSeries series) {
     BigDecimal range = series.maximumPrice().subtract(series.minimumPrice());
     for (int fraction = 0; fraction <= 4; fraction += 2) {
       BigDecimal price = series.maximumPrice().subtract(range.multiply(
           BigDecimal.valueOf(fraction)).divide(BigDecimal.valueOf(4), 8, RoundingMode.HALF_UP));
-      int y = layout.plot().top() + fraction * (layout.plot().height() - 1) / 4;
-      String label = trimToPixels(compactPrice(price), layout.priceAxis().width());
-      PixelFont.draw(canvas::set, label, layout.priceAxis().left() + 1,
-          Math.min(layout.priceAxis().bottom() - 4, y), MarketChartPalette.AXIS_TEXT);
+      int y = plot.top() + fraction * (plot.height() - 1) / 4;
+      String label = trimToPixels(compactPrice(price), priceAxis.width());
+      PixelFont.draw(canvas::set, label, priceAxis.left() + 1,
+          Math.min(priceAxis.bottom() - 4, y), MarketChartPalette.AXIS_TEXT);
     }
   }
 
