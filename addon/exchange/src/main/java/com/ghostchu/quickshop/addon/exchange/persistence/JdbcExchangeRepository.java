@@ -9,6 +9,12 @@ import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.core.trust.AdjustmentType;
+import com.ghostchu.quickshop.addon.exchange.core.trust.LimitReason;
+import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TradeInfluence;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceAdjustment;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceState;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
@@ -25,6 +31,7 @@ import com.ghostchu.quickshop.addon.exchange.repository.MarketSnapshot;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketFeeSchedule;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketTradeSample;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
+import com.ghostchu.quickshop.addon.exchange.repository.TrustedMarketSnapshot;
 import com.ghostchu.quickshop.addon.exchange.transfer.IdempotencyConflictException;
 import com.ghostchu.quickshop.addon.exchange.transfer.RecoveryEvidence;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferRepository;
@@ -53,6 +60,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 
 public final class JdbcExchangeRepository
     implements ExchangeRepository, TransferRepository, MarketConfigurationPersistence {
@@ -1103,6 +1112,193 @@ public final class JdbcExchangeRepository
       return new MarketSnapshot(state, orders, trades,
           maximumSequence(tables.orders(), "priority_sequence", state.marketId()),
           maximumSequence(tables.trades(), "match_sequence", state.marketId()));
+    }
+
+    @Override
+    public TrustedMarketSnapshot trustedMarketSnapshot(
+        String marketId, Instant budgetCutoff, Instant confidenceCutoff) throws SQLException {
+      Objects.requireNonNull(marketId, "marketId");
+      Objects.requireNonNull(budgetCutoff, "budgetCutoff");
+      Objects.requireNonNull(confidenceCutoff, "confidenceCutoff");
+      TrustedPriceState state = loadTrustedPriceState(marketId);
+      Instant influenceCutoff = budgetCutoff.isBefore(confidenceCutoff)
+          ? budgetCutoff : confidenceCutoff;
+      List<TradeInfluence> influences = loadTradeInfluences(marketId, influenceCutoff);
+      List<TrustedPriceAdjustment> adjustments = loadTrustedAdjustments(marketId, confidenceCutoff);
+      return new TrustedMarketSnapshot(state, influences, adjustments);
+    }
+
+    private TrustedPriceState loadTrustedPriceState(String marketId) throws SQLException {
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT market_id,trusted_price,guidance_price,last_evaluated_at,confidence_tier,"
+              + "policy_version,last_match_sequence,state_version FROM "
+              + tables.trustedMarketState() + " WHERE market_id=?" + dialect.forUpdate())) {
+        query.setString(1, marketId);
+        try (ResultSet result = query.executeQuery()) {
+          if (!result.next()) {
+            throw new SQLException("trusted market state does not exist: " + marketId);
+          }
+          return new TrustedPriceState(result.getString("market_id"),
+              readDecimal(result, "trusted_price"), readDecimal(result, "guidance_price"),
+              Instant.ofEpochMilli(result.getLong("last_evaluated_at")),
+              LiquidityTier.valueOf(result.getString("confidence_tier")),
+              result.getLong("policy_version"), result.getLong("last_match_sequence"),
+              result.getLong("state_version"));
+        }
+      }
+    }
+
+    private List<TradeInfluence> loadTradeInfluences(String marketId, Instant cutoff)
+        throws SQLException {
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT trade_id,market_id,match_sequence,buyer_account_id,seller_account_id,pair_key,"
+              + "trade_price,quantity,reference_before,reference_after,requested_move,"
+              + "accepted_move,quantity_factor,confidence_tier,policy_version,limit_reasons,"
+              + "executed_at FROM " + tables.trustedMarketInfluence()
+              + " WHERE market_id=? AND executed_at>=? ORDER BY executed_at,match_sequence")) {
+        query.setString(1, marketId);
+        query.setLong(2, cutoff.toEpochMilli());
+        try (ResultSet result = query.executeQuery()) {
+          List<TradeInfluence> influences = new ArrayList<>();
+          while (result.next()) {
+            influences.add(new TradeInfluence(
+                UUID.fromString(result.getString("trade_id")), result.getString("market_id"),
+                result.getLong("match_sequence"),
+                UUID.fromString(result.getString("buyer_account_id")),
+                UUID.fromString(result.getString("seller_account_id")),
+                result.getString("pair_key"), readDecimal(result, "trade_price"),
+                result.getLong("quantity"), readDecimal(result, "reference_before"),
+                readDecimal(result, "reference_after"), readDecimal(result, "requested_move"),
+                readDecimal(result, "accepted_move"), readDecimal(result, "quantity_factor"),
+                LiquidityTier.valueOf(result.getString("confidence_tier")),
+                result.getLong("policy_version"), decodeReasons(result.getString("limit_reasons")),
+                Instant.ofEpochMilli(result.getLong("executed_at"))));
+          }
+          return List.copyOf(influences);
+        }
+      }
+    }
+
+    private List<TrustedPriceAdjustment> loadTrustedAdjustments(String marketId, Instant cutoff)
+        throws SQLException {
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT adjustment_id,market_id,adjustment_type,trusted_price_before,"
+              + "trusted_price_after,guidance_price_before,guidance_price_after,actor_id,reason,"
+              + "policy_version,adjusted_at FROM " + tables.trustedMarketAdjustment()
+              + " WHERE market_id=? AND adjusted_at>=? ORDER BY adjusted_at,adjustment_id")) {
+        query.setString(1, marketId);
+        query.setLong(2, cutoff.toEpochMilli());
+        try (ResultSet result = query.executeQuery()) {
+          List<TrustedPriceAdjustment> adjustments = new ArrayList<>();
+          while (result.next()) {
+            String actor = result.getString("actor_id");
+            adjustments.add(new TrustedPriceAdjustment(
+                UUID.fromString(result.getString("adjustment_id")), result.getString("market_id"),
+                AdjustmentType.valueOf(result.getString("adjustment_type")),
+                readDecimal(result, "trusted_price_before"),
+                readDecimal(result, "trusted_price_after"),
+                readDecimal(result, "guidance_price_before"),
+                readDecimal(result, "guidance_price_after"),
+                actor == null ? null : UUID.fromString(actor), result.getString("reason"),
+                result.getLong("policy_version"),
+                Instant.ofEpochMilli(result.getLong("adjusted_at"))));
+          }
+          return List.copyOf(adjustments);
+        }
+      }
+    }
+
+    @Override
+    public void insertTradeInfluence(TradeInfluence influence) throws SQLException {
+      Objects.requireNonNull(influence, "influence");
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO " + tables.trustedMarketInfluence()
+              + " (trade_id,market_id,match_sequence,buyer_account_id,seller_account_id,pair_key,"
+              + "trade_price,quantity,reference_before,reference_after,requested_move,accepted_move,"
+              + "quantity_factor,confidence_tier,policy_version,limit_reasons,executed_at)"
+              + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+        insert.setString(1, influence.tradeId().toString());
+        insert.setString(2, influence.marketId());
+        insert.setLong(3, influence.matchSequence());
+        insert.setString(4, influence.buyerAccountId().toString());
+        insert.setString(5, influence.sellerAccountId().toString());
+        insert.setString(6, influence.pairKey());
+        writeDecimal(insert, 7, influence.tradePrice());
+        insert.setLong(8, influence.quantity());
+        writeDecimal(insert, 9, influence.referenceBefore());
+        writeDecimal(insert, 10, influence.referenceAfter());
+        writeDecimal(insert, 11, influence.requestedMove());
+        writeDecimal(insert, 12, influence.acceptedMove());
+        writeDecimal(insert, 13, influence.quantityFactor());
+        insert.setString(14, influence.tier().name());
+        insert.setLong(15, influence.policyVersion());
+        insert.setString(16, encodeReasons(influence.reasons()));
+        insert.setLong(17, influence.executedAt().toEpochMilli());
+        insert.executeUpdate();
+      }
+    }
+
+    @Override
+    public void insertTrustedAdjustment(TrustedPriceAdjustment adjustment) throws SQLException {
+      Objects.requireNonNull(adjustment, "adjustment");
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO " + tables.trustedMarketAdjustment()
+              + " (adjustment_id,market_id,adjustment_type,trusted_price_before,"
+              + "trusted_price_after,guidance_price_before,guidance_price_after,actor_id,reason,"
+              + "policy_version,adjusted_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")) {
+        insert.setString(1, adjustment.adjustmentId().toString());
+        insert.setString(2, adjustment.marketId());
+        insert.setString(3, adjustment.type().name());
+        writeDecimal(insert, 4, adjustment.trustedPriceBefore());
+        writeDecimal(insert, 5, adjustment.trustedPriceAfter());
+        writeDecimal(insert, 6, adjustment.guidancePriceBefore());
+        writeDecimal(insert, 7, adjustment.guidancePriceAfter());
+        if (adjustment.actorId() == null) {
+          insert.setNull(8, Types.VARCHAR);
+        } else {
+          insert.setString(8, adjustment.actorId().toString());
+        }
+        insert.setString(9, adjustment.reason());
+        insert.setLong(10, adjustment.policyVersion());
+        insert.setLong(11, adjustment.adjustedAt().toEpochMilli());
+        insert.executeUpdate();
+      }
+    }
+
+    @Override
+    public void updateTrustedPriceState(TrustedPriceState state, long expectedVersion)
+        throws SQLException {
+      Objects.requireNonNull(state, "state");
+      try (PreparedStatement update = connection.prepareStatement(
+          "UPDATE " + tables.trustedMarketState()
+              + " SET trusted_price=?,guidance_price=?,last_evaluated_at=?,confidence_tier=?,"
+              + "policy_version=?,last_match_sequence=?,state_version=?"
+              + " WHERE market_id=? AND state_version=?")) {
+        writeDecimal(update, 1, state.trustedPrice());
+        writeDecimal(update, 2, state.guidancePrice());
+        update.setLong(3, state.lastEvaluatedAt().toEpochMilli());
+        update.setString(4, state.liquidityTier().name());
+        update.setLong(5, state.policyVersion());
+        update.setLong(6, state.lastMatchSequence());
+        update.setLong(7, state.stateVersion());
+        update.setString(8, state.marketId());
+        update.setLong(9, expectedVersion);
+        if (update.executeUpdate() != 1) {
+          throw new ConcurrentModificationException("trusted market state version changed");
+        }
+      }
+    }
+
+    private static String encodeReasons(Set<LimitReason> reasons) {
+      return reasons.stream().map(Enum::name).sorted().collect(Collectors.joining(","));
+    }
+
+    private static Set<LimitReason> decodeReasons(String encoded) {
+      if (encoded == null || encoded.isBlank()) {
+        return Set.of();
+      }
+      return Arrays.stream(encoded.split(","))
+          .map(LimitReason::valueOf).collect(Collectors.toUnmodifiableSet());
     }
 
     @Override
