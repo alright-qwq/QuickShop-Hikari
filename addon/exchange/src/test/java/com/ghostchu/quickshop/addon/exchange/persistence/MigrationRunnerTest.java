@@ -22,9 +22,22 @@ class MigrationRunnerTest {
     runner.migrate();
 
     try (Connection connection = connections.open()) {
-      assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(15);
-      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(4);
+      assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(18);
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(5);
       assertThat(rowCount(connection, names.writerEpoch())).isEqualTo(1);
+      assertThat(tableExists(connection, names.trustedMarketState())).isTrue();
+      assertThat(tableExists(connection, names.trustedMarketInfluence())).isTrue();
+      assertThat(tableExists(connection, names.trustedMarketAdjustment())).isTrue();
+      assertThat(uniqueIndexOnColumn(
+          connection, names.trustedMarketInfluence(), "trade_id")).isTrue();
+      assertThat(indexExists(connection, names.trustedMarketInfluence(),
+          names.prefix() + "exchange_trusted_influence_market_time_idx")).isTrue();
+      assertThat(indexExists(connection, names.trustedMarketInfluence(),
+          names.prefix() + "exchange_trusted_influence_buyer_time_idx")).isTrue();
+      assertThat(indexExists(connection, names.trustedMarketInfluence(),
+          names.prefix() + "exchange_trusted_influence_seller_time_idx")).isTrue();
+      assertThat(indexExists(connection, names.trustedMarketInfluence(),
+          names.prefix() + "exchange_trusted_influence_pair_time_idx")).isTrue();
       assertThat(triggerExists(connection, names.prefix() + "exchange_audit_records_no_update"))
           .isTrue();
       assertThat(triggerExists(connection, names.prefix() + "exchange_audit_records_no_delete"))
@@ -119,6 +132,24 @@ class MigrationRunnerTest {
   private static int rowCount(Connection connection, String table) throws SQLException {
     try (ResultSet result = connection.createStatement().executeQuery("SELECT COUNT(*) FROM " + table)) {
       return result.next() ? result.getInt(1) : 0;
+    }
+  }
+
+  private static boolean tableExists(Connection connection, String table) throws SQLException {
+    try (ResultSet result = connection.getMetaData().getTables(null, null, table, null)) {
+      return result.next();
+    }
+  }
+
+  private static boolean uniqueIndexOnColumn(
+      Connection connection, String table, String column) throws SQLException {
+    try (ResultSet result = connection.getMetaData().getIndexInfo(null, null, table, true, false)) {
+      while (result.next()) {
+        if (column.equalsIgnoreCase(result.getString("COLUMN_NAME"))) {
+          return true;
+        }
+      }
+      return false;
     }
   }
 

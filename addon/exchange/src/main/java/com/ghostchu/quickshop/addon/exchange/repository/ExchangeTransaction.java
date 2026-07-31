@@ -3,8 +3,12 @@ package com.ghostchu.quickshop.addon.exchange.repository;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TradeInfluence;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceAdjustment;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceState;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
+import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import java.math.BigDecimal;
@@ -36,6 +40,10 @@ public interface ExchangeTransaction {
   long marketStructuralVersion(String marketId) throws SQLException;
   MarketFeeSchedule marketFeeSchedule(String marketId) throws SQLException;
   MarketSnapshot marketSnapshot(MarketState state, Instant cutoff) throws SQLException;
+  default TrustedMarketSnapshot trustedMarketSnapshot(
+      String marketId, Instant budgetCutoff, Instant confidenceCutoff) throws SQLException {
+    throw new UnsupportedOperationException("trusted market snapshots are not supported");
+  }
   void visitTradeHistory(String marketId, TradeVisitor visitor) throws SQLException;
   List<PersistedOrder> openOrders(String marketId) throws SQLException;
   void updateMarketState(MarketState state, long expectedVersion) throws SQLException;
@@ -47,6 +55,17 @@ public interface ExchangeTransaction {
   void updateOrder(Order order, BigDecimal reservedCurrency, long reservedQuantity,
                    long expectedVersion) throws SQLException;
   void insertTrade(Trade trade) throws SQLException;
+  default void insertTradeInfluence(TradeInfluence influence) throws SQLException {
+    throw new UnsupportedOperationException("trusted market influence is not supported");
+  }
+  default void insertTrustedAdjustment(TrustedPriceAdjustment adjustment) throws SQLException {
+    throw new UnsupportedOperationException("trusted market adjustments are not supported");
+  }
+  default void updateTrustedPriceState(TrustedPriceState state, long expectedVersion)
+      throws SQLException {
+    throw new UnsupportedOperationException("trusted market state is not supported");
+  }
+  void upsertCandle(Candle candle) throws SQLException;
   void appendJournal(LedgerJournal journal) throws SQLException;
   default ReconciliationReport reconcile() throws SQLException {
     throw new UnsupportedOperationException("reconciliation is not supported by this transaction");

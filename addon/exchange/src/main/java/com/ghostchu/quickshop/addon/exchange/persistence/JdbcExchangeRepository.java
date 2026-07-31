@@ -1407,7 +1407,8 @@ public final class JdbcExchangeRepository
       return notional.add(fee);
     }
 
-    private void upsertCandle(Candle candle) throws SQLException {
+    @Override
+    public void upsertCandle(Candle candle) throws SQLException {
       String sql = dialect == SqlDialect.SQLITE
           ? "INSERT INTO " + tables.candles1m()
               + " (market_id,bucket_start,open_price,high_price,low_price,close_price,volume,notional)"

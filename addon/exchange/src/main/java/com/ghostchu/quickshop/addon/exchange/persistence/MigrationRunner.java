@@ -63,6 +63,15 @@ public final class MigrationRunner {
           }
         }
         recordVersion(connection, 4);
+        for (String sql : SchemaV5.statements(dialect, tables)) {
+          try (Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+          }
+        }
+        for (SchemaV1.IndexDefinition index : SchemaV5.indexes(tables)) {
+          ensureIndex(connection, index);
+        }
+        recordVersion(connection, 5);
         connection.commit();
       } catch (SQLException failure) {
         connection.rollback();

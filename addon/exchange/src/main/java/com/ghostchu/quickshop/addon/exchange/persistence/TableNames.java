@@ -21,4 +21,7 @@ public record TableNames(String prefix) {
   public String auditAlerts() { return prefix + "exchange_audit_alerts"; }
   public String auditRecords() { return prefix + "exchange_audit_records"; }
   public String writerEpoch() { return prefix + "exchange_writer_epoch"; }
+  public String trustedMarketState() { return prefix + "exchange_trusted_market_state"; }
+  public String trustedMarketInfluence() { return prefix + "exchange_trusted_market_influence"; }
+  public String trustedMarketAdjustment() { return prefix + "exchange_trusted_market_adjustment"; }
 }
