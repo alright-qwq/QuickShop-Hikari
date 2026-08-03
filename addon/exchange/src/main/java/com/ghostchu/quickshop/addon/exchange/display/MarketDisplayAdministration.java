@@ -97,10 +97,8 @@ public final class MarketDisplayAdministration
         return created.rollback().get().thenCompose(rolledBack ->
             CompletableFuture.<Void>failedFuture(unwrap(failure)));
       }).thenCompose(java.util.function.Function.identity())
-          .thenRun(() -> {
-            queueRefresh(binding);
-            dispatchMessage(actor, "display-map-created");
-          });
+          .thenCompose(ignored -> queueRefresh(binding))
+          .thenRun(() -> dispatchMessage(actor, "display-map-created"));
     }));
     reportFailure(actor, operation, "map create");
   }
@@ -342,16 +340,19 @@ public final class MarketDisplayAdministration
     return true;
   }
 
-  private void queueRefresh(MapWallBinding binding) {
-    observe(refresher.refresh(binding));
+  private CompletableFuture<Void> queueRefresh(MapWallBinding binding) {
+    return Objects.requireNonNull(refresher.refresh(binding), "display refresh future");
   }
 
   private void queueRefresh(MarketSignBinding binding) {
-    observe(refresher.refresh(binding));
+    observe(refresher.refresh(binding), "sign refresh");
   }
 
-  private static void observe(CompletableFuture<Void> refresh) {
-    Objects.requireNonNull(refresh, "display refresh future").exceptionally(ignored -> null);
+  private void observe(CompletableFuture<Void> refresh, String context) {
+    Objects.requireNonNull(refresh, "display refresh future").exceptionally(failure -> {
+      report(unwrap(failure), context);
+      return null;
+    });
   }
 
   public void failureReporter(BiConsumer<Throwable, String> failureReporter) {

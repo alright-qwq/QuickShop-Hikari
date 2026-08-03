@@ -86,6 +86,23 @@ class MarketDisplayAdministrationTest {
   }
 
   @Test
+  void reportsRefreshFailureInsteadOfClaimingTheWallWasCreated() throws Exception {
+    Fixture fixture = fixture(4, 4);
+    java.io.IOException failure = new java.io.IOException("renderer unavailable");
+    fixture.refreshFailure = failure;
+    fixture.targets.createdFrames = frames(new MarketChartDimensions(1, 1), fixture.worldId);
+    Throwable[] reported = new Throwable[1];
+    fixture.withReporter((cause, context) -> reported[0] = cause);
+
+    fixture.administration.createMap(fixture.actor, "market",
+        new MarketChartDimensions(1, 1), MarketChartMode.KLINE, MarketChartPeriod.ONE_DAY);
+
+    assertThat(fixture.registry.mapWalls()).hasSize(1);
+    assertThat(fixture.actor.message).isEqualTo("display-operation-failed");
+    assertThat(reported[0]).isSameAs(failure);
+  }
+
+  @Test
   void waitsForOwnerScheduledFrameCreationBeforePersisting() throws Exception {
     Fixture fixture = fixture(4, 4);
     MarketChartDimensions dimensions = new MarketChartDimensions(1, 1);
@@ -275,6 +292,7 @@ class MarketDisplayAdministrationTest {
     private final Actor actor = new Actor();
     private final List<MapWallBinding> refreshes = new ArrayList<>();
     private final List<MarketSignBinding> signRefreshes = new ArrayList<>();
+    private Throwable refreshFailure;
     private final int maxWalls;
     private final int maxSigns;
     private MarketDisplayAdministration.CheckedRunnable saver;
@@ -302,7 +320,9 @@ class MarketDisplayAdministrationTest {
             @Override
             public CompletableFuture<Void> refresh(MapWallBinding binding) {
               refreshes.add(binding);
-              return CompletableFuture.completedFuture(null);
+              return refreshFailure == null
+                  ? CompletableFuture.completedFuture(null)
+                  : CompletableFuture.failedFuture(refreshFailure);
             }
 
             @Override
