@@ -30,7 +30,7 @@ class MarketChartLayoutV2Test {
 
     assertThat(layout.priceAxis()).isPresent();
     assertThat(layout.volume()).isPresent();
-    assertThat(layout.timeAxis()).isEmpty();
+    assertThat(layout.timeAxis()).isPresent();
     assertThat(layout.legend()).isEmpty();
     assertThat(layout.confidence()).isEmpty();
     assertValidRegions(layout, dimensions);

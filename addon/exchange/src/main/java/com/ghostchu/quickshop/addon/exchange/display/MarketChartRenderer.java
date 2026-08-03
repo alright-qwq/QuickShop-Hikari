@@ -195,8 +195,10 @@ public final class MarketChartRenderer {
     for (int index = 1; index < candles.size(); index++) {
       int x = positions[index];
       int y = priceToY(plot, series, candles.get(index).close());
-      byte color = directionColor(candles.get(index - 1).close(), candles.get(index).close());
-      canvas.line(previousX, previousY, x, y, color);
+      if (!hasGap(candles.get(index - 1), candles.get(index), series.gaps())) {
+        byte color = directionColor(candles.get(index - 1).close(), candles.get(index).close());
+        canvas.line(previousX, previousY, x, y, color);
+      }
       previousX = x;
       previousY = y;
     }
@@ -386,8 +388,8 @@ public final class MarketChartRenderer {
   private static void drawRawLatestMarker(Canvas canvas, MarketChartLayout layout,
                                           MarketChartSeries series) {
     int rawY = priceToY(layout.plot(), series, series.latestRawPrice());
-    canvas.horizontal(layout.plot().right() - 4, layout.plot().right() - 1, rawY,
-        MarketChartPalette.HIGHLIGHT);
+    canvas.dashedHorizontal(layout.plot().left() + 1, layout.plot().right() - 1, rawY,
+        MarketChartPalette.HIGHLIGHT, 3);
     layout.priceAxis().ifPresent(axis -> {
       int labelY = labelY(axis, rawY);
       int trustedLabelY = labelY(axis,

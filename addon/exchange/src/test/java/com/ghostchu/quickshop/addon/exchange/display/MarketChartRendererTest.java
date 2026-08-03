@@ -105,6 +105,31 @@ class MarketChartRendererTest {
   }
 
   @Test
+  void breaksLineModeAcrossGapsInsteadOfConnectingThroughThem() {
+    ChartCandle a = candleAt("2026-07-30T00:00:00Z", "10", "10", "10", "10", 1);
+    ChartCandle b = candleAt("2026-07-30T00:05:00Z", "10", "12", "10", "12", 2);
+    ChartCandle c = candleAt("2026-07-30T00:10:00Z", "12", "12", "9", "9", 3);
+    MarketChartSeries continuous = new MarketChartSeries(MarketChartInterval.FIVE_MINUTES,
+        List.of(a, b, c), List.of(), List.of(), bd("9"), bd("12"), bd("10"),
+        BigDecimal.ZERO, com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier.LOW,
+        false, false);
+    MarketChartSeries gapped = new MarketChartSeries(MarketChartInterval.FIVE_MINUTES,
+        List.of(a, c), List.of(), List.of(new ChartGap(a.bucketStart(), c.bucketStart())),
+        bd("9"), bd("12"), bd("10"), BigDecimal.ZERO,
+        com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier.LOW, false, false);
+
+    MarketChartImage continuousImage = renderer.render(continuous, MarketChartMode.LINE,
+        new MarketChartDimensions(2, 1));
+    MarketChartImage gappedImage = renderer.render(gapped, MarketChartMode.LINE,
+        new MarketChartDimensions(2, 1));
+
+    assertThat(count(continuousImage, MarketChartPalette.RISE)
+        + count(continuousImage, MarketChartPalette.FALL))
+        .isGreaterThan(count(gappedImage, MarketChartPalette.RISE)
+            + count(gappedImage, MarketChartPalette.FALL));
+  }
+
+  @Test
   void canDisableProfessionalOverlaysForLegacyStyleRendering() {
     MarketChartRenderer minimalRenderer = new MarketChartRenderer(
         new MarketChartOptions(false, true, false, false));
@@ -209,6 +234,10 @@ class MarketChartRendererTest {
       }
     }
     return count;
+  }
+
+  private static BigDecimal bd(String value) {
+    return new BigDecimal(value);
   }
 
   private static int firstY(MarketChartImage image, byte color) {

@@ -90,6 +90,22 @@ class MarketChartRendererV2Test {
   }
 
   @Test
+  void drawsRawLatestPriceAsAFullWidthLineWhenTrustedPointsExist() {
+    Instant at = Instant.parse("2026-07-31T00:00:00Z");
+    MarketChartSeries series = new MarketChartSeries(MarketChartInterval.FIVE_MINUTES,
+        List.of(candle(at, "10", "12", "9", "11", 4)),
+        List.of(new TrustedPricePoint(at, bd("10.5"))), List.of(), bd("9"),
+        bd("12"), bd("11"), bd("10.5"), LiquidityTier.STABLE, true, true);
+    MarketChartDimensions dimensions = new MarketChartDimensions(2, 2);
+
+    MarketChartImage image = renderer.render(series, MarketChartMode.KLINE, dimensions,
+        "DIAMOND", MarketChartPeriod.ONE_HOUR, bd("11"), BigDecimal.ZERO);
+
+    MarketChartLayout.Rect plot = MarketChartLayout.forDimensions(dimensions).plot();
+    assertThat(highlightSpread(image, plot)).isGreaterThan(plot.width() / 2);
+  }
+
+  @Test
   void rendersGlyphsNeededByMarketLegendAndConfidenceLabels() {
     String labels = "OSBWFG";
     Set<Integer> pixels = new HashSet<>();
@@ -148,6 +164,20 @@ class MarketChartRendererV2Test {
     return new MarketChartSeries(MarketChartInterval.FIVE_MINUTES, candles, references, gaps,
         bd("80"), bd("115"), bd("85"), trusted ? bd("100.25") : BigDecimal.ZERO,
         LiquidityTier.STABLE, false, false);
+  }
+
+  private static int highlightSpread(MarketChartImage image, MarketChartLayout.Rect plot) {
+    int min = image.width();
+    int max = 0;
+    for (int y = plot.top(); y <= plot.bottom(); y++) {
+      for (int x = plot.left(); x <= plot.right(); x++) {
+        if (image.pixels()[y * image.width() + x] == MarketChartPalette.HIGHLIGHT) {
+          min = Math.min(min, x);
+          max = Math.max(max, x);
+        }
+      }
+    }
+    return min <= max ? max - min : 0;
   }
 
   private static ChartCandle candle(Instant at, String open, String high, String low, String close,

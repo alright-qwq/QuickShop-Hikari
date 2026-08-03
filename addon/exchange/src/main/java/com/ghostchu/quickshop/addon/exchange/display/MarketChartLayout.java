@@ -42,9 +42,10 @@ public record MarketChartLayout(
     Rect plot = new Rect(margin, plotTop, priceLeft - margin - 4, plotHeight);
     Rect priceAxis = new Rect(priceLeft, plotTop, axisWidth, plotHeight);
     if (density == Density.WIDE) {
-      Rect volume = new Rect(margin, 97, plot.width(), 27);
+      Rect volume = new Rect(margin, 97, plot.width(), 20);
+      Rect timeAxis = new Rect(margin, 121, width - margin * 2, 7);
       return new MarketChartLayout(density, header, plot, Optional.of(priceAxis),
-          Optional.of(volume), Optional.empty(), Optional.empty(), Optional.empty());
+          Optional.of(volume), Optional.of(timeAxis), Optional.empty(), Optional.empty());
     }
 
     Rect volume = new Rect(margin, 162, plot.width(), 35);
