@@ -183,8 +183,10 @@ class MarketChartRendererTest {
   }
 
   @Test
-  void fallsBackToMarketLabelWhenDisplayNameHasNoAsciiGlyphs() {
+  void fallsBackToMarketIdWhenDisplayNameHasNoAsciiGlyphs() {
     assertThat(MarketChartRenderer.compactText("钻石市场", 8)).isEqualTo("MARKET");
+    assertThat(MarketChartRenderer.compactText("钻石市场", "minecraft_netherite_ingot", 8))
+        .isEqualTo("MINECRAF");
   }
 
   @Test

@@ -57,7 +57,7 @@ public final class MarketDisplayService implements AutoCloseable {
               renderer.optionsFingerprint(), snapshot.trustedStateVersion(), series.interval());
           MarketChartImage image = cache.getOrRender(key, () -> renderer.render(
               series, binding.mode(),
-              binding.dimensions(), snapshot.displayName(), binding.period(),
+              binding.dimensions(), snapshot.displayName(), binding.marketId(), binding.period(),
               snapshot.quote().lastPrice(), snapshot.quote().change24h()));
           List<MarketChartImage> slices = MarketChartSlices.slice(image, binding.dimensions());
           CompletableFuture<?>[] updates = new CompletableFuture<?>[binding.frames().size()];

@@ -37,7 +37,7 @@ public final class MarketChartRenderer {
                                  MarketChartDimensions dimensions) {
     BigDecimal latest = series.candles().isEmpty()
         ? BigDecimal.ZERO : series.candles().getLast().close();
-    return render(series, mode, dimensions, "MARKET", MarketChartPeriod.ONE_DAY,
+    return render(series, mode, dimensions, "MARKET", "MARKET", MarketChartPeriod.ONE_DAY,
         latest, BigDecimal.ZERO);
   }
 
@@ -45,10 +45,19 @@ public final class MarketChartRenderer {
                                  MarketChartDimensions dimensions, String displayName,
                                  MarketChartPeriod period, BigDecimal latestPrice,
                                  BigDecimal change) {
+    return render(series, mode, dimensions, displayName, displayName, period, latestPrice,
+        change);
+  }
+
+  public MarketChartImage render(MarketChartSeries series, MarketChartMode mode,
+                                 MarketChartDimensions dimensions, String displayName,
+                                 String marketId, MarketChartPeriod period,
+                                 BigDecimal latestPrice, BigDecimal change) {
     Objects.requireNonNull(series, "series");
     Objects.requireNonNull(mode, "mode");
     Objects.requireNonNull(dimensions, "dimensions");
     Objects.requireNonNull(displayName, "displayName");
+    Objects.requireNonNull(marketId, "marketId");
     Objects.requireNonNull(period, "period");
     Objects.requireNonNull(latestPrice, "latestPrice");
     Objects.requireNonNull(change, "change");
@@ -58,8 +67,8 @@ public final class MarketChartRenderer {
     BigDecimal primaryLatest = series.trustedPoints().isEmpty()
         ? latestPrice : series.latestTrustedPrice();
     if (options.professionalLayout()) {
-      drawHeader(canvas, layout, displayName, mode, period, series.interval(), primaryLatest,
-          change);
+      drawHeader(canvas, layout, displayName, marketId, mode, period, series.interval(),
+          primaryLatest, change);
     }
     drawFrameAndGrid(canvas, layout);
     if (!series.hasData()) {
@@ -106,11 +115,12 @@ public final class MarketChartRenderer {
   }
 
   private static void drawHeader(Canvas canvas, MarketChartLayout layout, String displayName,
+                                 String marketId,
                                  MarketChartMode mode, MarketChartPeriod period,
                                  MarketChartInterval interval,
                                  BigDecimal latestPrice, BigDecimal change) {
-    String market = compactText(displayName, layout.density() == MarketChartLayout.Density.COMPACT
-        ? 8 : 16);
+    String market = compactText(displayName, marketId,
+        layout.density() == MarketChartLayout.Density.COMPACT ? 8 : 16);
     PixelFont.draw(canvas::set, market, layout.header().left(), layout.header().top(),
         MarketChartPalette.AXIS_TEXT);
     String modeAndPeriod = layout.density() == MarketChartLayout.Density.COMPACT
@@ -485,7 +495,14 @@ public final class MarketChartRenderer {
   }
 
   static String compactText(String value, int maximumCharacters) {
+    return compactText(value, "MARKET", maximumCharacters);
+  }
+
+  static String compactText(String value, String fallback, int maximumCharacters) {
     String normalized = value.replaceAll("[^A-Za-z0-9]", "").toUpperCase(java.util.Locale.ROOT);
+    if (normalized.isEmpty()) {
+      normalized = fallback.replaceAll("[^A-Za-z0-9]", "").toUpperCase(java.util.Locale.ROOT);
+    }
     if (normalized.isEmpty()) {
       normalized = "MARKET";
     }
