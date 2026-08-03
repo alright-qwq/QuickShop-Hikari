@@ -2,9 +2,9 @@
 
 ## 1. 当前状态
 
-- 分支:`fix/exchange-safety`,已推送远端,最新提交 `a5746f842`。
+- 分支:`fix/exchange-safety`,已推送远端,最新提交 `5968ff863`。
 - 工作树:本文件外无未提交改动;`outputs/` 为本地产物目录(不入库)。
-- 全量测试:647 tests, 0 failures(`addon/exchange`)。
+- 全量测试:648 tests, 0 failures(`addon/exchange`)。
 - 兼容基线:QuickShop-Hikari 6.2.0.11 / Paper 26.1.2。
 
 ## 2. 本轮已完成:图放不下来的修复(用户首要问题)
@@ -67,5 +67,5 @@
 - 构建正确 JAR:`mvn -o -f pom.xml -pl addon/exchange -am -Dapi.version=1.44 -DskipTests package`,
   取 `addon/exchange/target/Addon-Exchange-6.3.0.0-SNAPSHOT-11.jar`(shaded 主构件,774KB),
   复制到 `outputs/` 下正确的文件名;`target/exchange-*.jar` 是旧未 shade 构件,不要发用户。
-- 全量测试:`mvn -o -f pom.xml -pl addon/exchange -am -Dapi.version=1.44 test`(647 tests)。
+- 全量测试:`mvn -o -f pom.xml -pl addon/exchange -am -Dapi.version=1.44 test`(648 tests)。
 - 最新 JAR 已重建:`outputs/exchange-6.3.0.0-SNAPSHOT-11-reload-with-market-add-remove.jar`。
