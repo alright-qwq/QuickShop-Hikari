@@ -34,28 +34,119 @@ public final class AdminExchangeService {
   private static final String RECONCILE_OPERATION = "RECONCILE";
   private static final String RECONCILIATION_AUTO_PAUSE = "RECONCILIATION_AUTO_PAUSE";
   private static final String RECONCILIATION_DIFFERENCE = "RECONCILIATION_DIFFERENCE";
+  private static final String CONFIG_OPEN_MARKET_OPERATION = "CONFIG_OPEN_MARKET";
+  private static final String CONFIG_CLOSE_MARKET_OPERATION = "CONFIG_CLOSE_MARKET";
+  private static final String CONFIG_SYNCHRONIZE_OPERATION = "CONFIG_SYNCHRONIZE_MARKET_STATES";
 
   private final Map<String, PersistentOrderService> markets;
   private final ExchangeRepository repository;
+  private final MarketServiceFactory marketServiceFactory;
   private final AuditExporter auditExporter;
   private final Path auditDirectory;
 
   public AdminExchangeService(Map<String, PersistentOrderService> markets) {
-    this(markets, null, null, null);
+    this(markets, null, null, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository) {
-    this(markets, repository, null, null);
+    this(markets, repository, null, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository,
       AuditExporter auditExporter, Path auditDirectory) {
-    this.markets = Map.copyOf(Objects.requireNonNull(markets, "markets"));
+    this(markets, repository, null, auditExporter, auditDirectory);
+  }
+
+  public AdminExchangeService(
+      Map<String, PersistentOrderService> markets, ExchangeRepository repository,
+      MarketServiceFactory marketServiceFactory,
+      AuditExporter auditExporter, Path auditDirectory) {
+    this.markets = new java.util.concurrent.ConcurrentHashMap<>(
+        Objects.requireNonNull(markets, "markets"));
     this.repository = repository;
+    this.marketServiceFactory = marketServiceFactory;
     this.auditExporter = auditExporter;
     this.auditDirectory = auditDirectory;
+  }
+
+  /** Returns the set of currently registered market IDs. */
+  public java.util.Set<String> marketIds() {
+    return java.util.Set.copyOf(markets.keySet());
+  }
+
+  /**
+   * Registers a new market service at runtime, typically during a configuration reload
+   * that introduces a market not present at startup.
+   */
+  public void registerMarket(String marketId, PersistentOrderService service) {
+    Objects.requireNonNull(marketId, "marketId");
+    Objects.requireNonNull(service, "service");
+    if (markets.containsKey(marketId)) {
+      throw new IllegalArgumentException("market already registered: " + marketId);
+    }
+    markets.put(marketId, service);
+  }
+
+  /**
+   * Unregisters a market from the runtime after verifying it has no open orders.
+   * If the market exists in the database, its status is set to {@code CLOSED}.
+   */
+  public void unregisterMarket(String marketId) throws SQLException {
+    requireMarket(marketId);
+    ExchangeRepository store = requireRepository();
+    store.inTransaction(tx -> {
+      List<ExchangeTransaction.PersistedOrder> open = tx.openOrders(marketId);
+      if (!open.isEmpty()) {
+        throw new IllegalStateException(
+            "cannot unregister market with open orders: " + marketId);
+      }
+      MarketState state = tx.marketState(marketId);
+      if (state.status() != MarketStatus.CLOSED) {
+        MarketState after = new MarketState(
+            state.marketId(), MarketStatus.CLOSED, state.prioritySequence(),
+            state.matchSequence(), state.referencePrice(), state.lastPrice(),
+            state.haltedUntil(), state.discoveryQuantity(), state.circuitBreakerLevel(),
+            state.version() + 1);
+        tx.updateMarketState(after, state.version());
+        tx.appendAudit(new AuditRecord(
+            UUID.randomUUID(), UUID.randomUUID(), "CONFIG_CLOSE_MARKET", marketId,
+            "configuration reload removed market", "status=" + state.status(),
+            "status=" + MarketStatus.CLOSED, Instant.now()));
+      }
+      return null;
+    });
+    markets.remove(marketId);
+  }
+
+  /**
+   * Registers a brand-new market at runtime: inserts database rows, creates the
+   * market service, recovers any pre-existing state, and adds it to the live map.
+   *
+   * @throws IllegalStateException if the {@code MarketServiceFactory} is not configured.
+   */
+  public void registerNewMarket(
+      com.ghostchu.quickshop.addon.exchange.config.MarketDefinition definition)
+      throws Exception {
+    Objects.requireNonNull(definition, "definition");
+    if (marketServiceFactory == null) {
+      throw new IllegalStateException("market service factory is not configured");
+    }
+    String marketId = definition.marketId();
+    if (markets.containsKey(marketId)) {
+      throw new IllegalArgumentException("market already registered: " + marketId);
+    }
+    ExchangeRepository store = requireRepository();
+    store.inTransaction(tx -> {
+      if (!tx.marketExists(marketId)) {
+        tx.insertNewMarket(definition);
+      }
+      return null;
+    });
+    PersistentOrderService service = marketServiceFactory.create(definition);
+    service.recoverFromDatabase();
+    markets.put(marketId, service);
   }
 
   public OrderReceipt forceCancel(UUID actorId, UUID requestId, String marketId, UUID orderId,
@@ -308,6 +399,94 @@ public final class AdminExchangeService {
       throws SQLException {
     changeMarketStatus(actorId, requestId, marketId, reason,
         RESUME_MARKET_OPERATION, MarketStatus.OPEN);
+  }
+
+  /**
+   * Synchronizes the configured {@code enabled} flag for each market to the persisted
+   * {@code market_state.status} column, respecting protective runtime statuses.
+   *
+   * <p>Transition rules:
+   * <ul>
+   *   <li>{@code CLOSED + enabled=true} &rarr; {@code OPEN}
+   *   <li>{@code OPEN + enabled=false} &rarr; {@code CLOSED}
+   *   <li>{@code PAUSED / HALTED / RECOVERING} &rarr; preserved (protected)
+   * </ul>
+   *
+   * <p>The entire operation is guarded by request-ID idempotency and audited per change.
+   */
+  public MarketStateSynchronizationResult synchronizeConfiguredMarketStates(
+      UUID actorId, UUID requestId, Map<String, Boolean> enabledStates) throws SQLException {
+    Objects.requireNonNull(actorId, "actorId");
+    Objects.requireNonNull(requestId, "requestId");
+    Objects.requireNonNull(enabledStates, "enabledStates");
+    ExchangeRepository store = requireRepository();
+    return store.inTransaction(tx -> {
+      StoredRequestResult stored = tx.requestResult(actorId, requestId).orElse(null);
+      if (stored != null) {
+        if (!CONFIG_SYNCHRONIZE_OPERATION.equals(stored.operation())) {
+          throw new IllegalStateException("request id belongs to another operation");
+        }
+        return parseSynchronizationPayload(stored.payload());
+      }
+      List<String> changed = new java.util.ArrayList<>();
+      List<String> protectedMarkets = new java.util.ArrayList<>();
+      Instant changedAt = Instant.now();
+      for (Map.Entry<String, Boolean> entry : enabledStates.entrySet()) {
+        String marketId = entry.getKey();
+        boolean enabled = entry.getValue();
+        MarketState before = tx.marketState(marketId);
+        if (before.status() == MarketStatus.PAUSED
+            || before.status() == MarketStatus.HALTED
+            || before.status() == MarketStatus.RECOVERING) {
+          protectedMarkets.add(marketId);
+          continue;
+        }
+        MarketStatus target = enabled ? MarketStatus.OPEN : MarketStatus.CLOSED;
+        if (before.status() == target) {
+          continue;
+        }
+        MarketState after = new MarketState(
+            before.marketId(), target, before.prioritySequence(), before.matchSequence(),
+            before.referencePrice(), before.lastPrice(),
+            target == MarketStatus.OPEN ? null : before.haltedUntil(),
+            before.discoveryQuantity(), before.circuitBreakerLevel(), before.version() + 1);
+        tx.updateMarketState(after, before.version());
+        String operation = enabled
+            ? CONFIG_OPEN_MARKET_OPERATION : CONFIG_CLOSE_MARKET_OPERATION;
+        tx.appendAudit(new AuditRecord(
+            UUID.randomUUID(), actorId, operation, marketId,
+            "configuration reload", "status=" + before.status(), "status=" + after.status(),
+            changedAt));
+        changed.add(marketId);
+      }
+      String payload = synchronizationPayload(changed, protectedMarkets);
+      tx.putRequestResult(new StoredRequestResult(
+          actorId, requestId, CONFIG_SYNCHRONIZE_OPERATION, payload));
+      return new MarketStateSynchronizationResult(
+          List.copyOf(changed), List.copyOf(protectedMarkets));
+    });
+  }
+
+  private static String synchronizationPayload(
+      List<String> changed, List<String> protectedMarkets) {
+    return "changed=" + String.join(",", changed)
+        + ";protected=" + String.join(",", protectedMarkets);
+  }
+
+  private static MarketStateSynchronizationResult parseSynchronizationPayload(String payload) {
+    String[] parts = payload.split(";", 2);
+    List<String> changed = List.of();
+    List<String> protectedMarkets = List.of();
+    for (String part : parts) {
+      if (part.startsWith("changed=")) {
+        String value = part.substring("changed=".length());
+        changed = value.isEmpty() ? List.of() : List.of(value.split(","));
+      } else if (part.startsWith("protected=")) {
+        String value = part.substring("protected=".length());
+        protectedMarkets = value.isEmpty() ? List.of() : List.of(value.split(","));
+      }
+    }
+    return new MarketStateSynchronizationResult(changed, protectedMarkets);
   }
 
   private void changeMarketStatus(
@@ -629,5 +808,21 @@ public final class AdminExchangeService {
       }
     }
     throw missing == null ? new IllegalArgumentException("order is not open: " + orderId) : missing;
+  }
+
+  /** Immutable result of synchronizing configured market {@code enabled} flags to runtime state. */
+  public record MarketStateSynchronizationResult(
+      List<String> changedMarkets, List<String> protectedMarkets) {
+    public MarketStateSynchronizationResult {
+      changedMarkets = List.copyOf(changedMarkets);
+      protectedMarkets = List.copyOf(protectedMarkets);
+    }
+  }
+
+  /** Creates a {@link PersistentOrderService} from a {@link MarketDefinition} at runtime. */
+  @FunctionalInterface
+  public interface MarketServiceFactory {
+    PersistentOrderService create(
+        com.ghostchu.quickshop.addon.exchange.config.MarketDefinition definition) throws Exception;
   }
 }

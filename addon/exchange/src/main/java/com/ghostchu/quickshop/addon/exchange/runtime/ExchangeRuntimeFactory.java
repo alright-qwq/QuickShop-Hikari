@@ -48,6 +48,9 @@ import com.ghostchu.quickshop.addon.exchange.transfer.MoneyTransferService;
 import com.ghostchu.quickshop.addon.exchange.transfer.PlayerOperationSerialiser;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferRecoveryService;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeViewService;
+import com.ghostchu.quickshop.addon.exchange.web.PublicMarketCatalog;
+import com.ghostchu.quickshop.addon.exchange.web.PublicMarketWebConfig;
+import com.ghostchu.quickshop.addon.exchange.web.PublicMarketWebServer;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -187,10 +190,28 @@ public final class ExchangeRuntimeFactory {
               entry.getKey(), fromInclusive, toExclusive),
           entry.getValue()::trustedPriceState));
     }
+    ExchangeMarketDisplayDataSource displayDataSource =
+        new ExchangeMarketDisplayDataSource(displayMarkets, viewExecutor);
+    java.util.concurrent.atomic.AtomicReference<ExchangeRuntime> runtimeReference =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    Map<String, String> publicDisplayNames = new java.util.LinkedHashMap<>();
+    for (String marketId : registry.marketIds()) {
+      publicDisplayNames.put(marketId, registry.require(marketId).displayName());
+    }
+    PublicMarketWebServer publicWeb = new PublicMarketWebServer(
+        publicMarketWebConfig(addon.getConfig()),
+        new PublicMarketCatalog(publicDisplayNames, displayDataSource),
+        Clock.systemUTC(),
+        () -> {
+          ExchangeRuntime activeRuntime = runtimeReference.get();
+          return activeRuntime != null && activeRuntime.acceptingWrites();
+        });
+    publicWeb.start();
+    startupResources.add(publicWeb);
     MarketDisplayRegistry displayRegistry = MarketDisplayRegistry.load(
         addon.getDataFolder().toPath().resolve("displays.yml"));
     MarketDisplayService displayService = new MarketDisplayService(
-        new ExchangeMarketDisplayDataSource(displayMarkets, viewExecutor),
+        displayDataSource,
         new MarketChartSeriesBuilder(chartOptions.fixedInterval()),
         new MarketChartRenderer(chartOptions), new MarketChartCache(256),
         new MarketSignFormatter(), new FoliaDisplayScheduler(), Clock.systemUTC());
@@ -230,10 +251,16 @@ public final class ExchangeRuntimeFactory {
         addon.getDataFolder().toPath(),
         addon.getConfig().getString("operations.audit-export-directory", "audit"));
     AdminExchangeService administration = new AdminExchangeService(
-        markets, repository, new com.ghostchu.quickshop.addon.exchange.operations.AuditExporter(),
+        markets, repository,
+        (com.ghostchu.quickshop.addon.exchange.config.MarketDefinition definition) ->
+            new PersistentOrderService(
+                repository, rules(definition), limits(definition),
+                com.ghostchu.quickshop.addon.exchange.service.RecoveryHandler.NO_OP,
+                accountLimits(definition.risk()), marketData,
+                definition.structural().discoveryQuantity(),
+                definition.risk().trustedPricePolicy()),
+        new com.ghostchu.quickshop.addon.exchange.operations.AuditExporter(),
         auditDirectory);
-    java.util.concurrent.atomic.AtomicReference<ExchangeRuntime> runtimeReference =
-        new java.util.concurrent.atomic.AtomicReference<>();
     TransferReviewCoordinator transferReviews = new TransferReviewCoordinator(
         administration, inventory, work -> {
           ExchangeRuntime activeRuntime = runtimeReference.get();
@@ -282,7 +309,7 @@ public final class ExchangeRuntimeFactory {
               throw new IllegalStateException("timed out draining exchange view executor");
             }
           }, () -> runTrustedPriceMaintenance(
-              repository, registry, markets, Instant.now()));
+              repository, registry, markets, Instant.now()), publicWeb::close);
       runtimeReference.set(runtime);
       maintenance.scheduleWithFixedDelay(() -> runTrustedPriceMaintenance(runtime),
           1L, 1L, TimeUnit.MINUTES);
@@ -313,6 +340,20 @@ public final class ExchangeRuntimeFactory {
       throw new IllegalArgumentException(path + " must not be negative");
     }
     return configured;
+  }
+
+  static PublicMarketWebConfig publicMarketWebConfig(FileConfiguration config) {
+    Objects.requireNonNull(config, "config");
+    PublicMarketWebConfig defaults = PublicMarketWebConfig.defaults();
+    return new PublicMarketWebConfig(
+        config.getBoolean("web-api.enabled", defaults.enabled()),
+        config.getString("web-api.bind-address", defaults.bindAddress()),
+        config.getInt("web-api.port", defaults.port()),
+        Duration.ofSeconds(config.getLong(
+            "web-api.cache-seconds", defaults.cacheDuration().toSeconds())),
+        config.getInt("web-api.threads", defaults.threads()),
+        config.getInt("web-api.maximum-concurrent-requests",
+            defaults.maximumConcurrentRequests()));
   }
 
   static MarketChartOptions chartOptions(FileConfiguration config) {
@@ -645,7 +686,7 @@ public final class ExchangeRuntimeFactory {
     return world;
   }
 
-  private static MarketRules rules(MarketDefinition definition) {
+  static MarketRules rules(MarketDefinition definition) {
     MarketDefinition.StructuralRules structural = definition.structural();
     MarketDefinition.RiskRules risk = definition.risk();
     return new MarketRules(definition.marketId(), structural.currencyId(), structural.basePrice(),
@@ -654,7 +695,7 @@ public final class ExchangeRuntimeFactory {
         risk.makerFeeRate(), risk.takerFeeRate());
   }
 
-  private static RiskLimits limits(MarketDefinition definition) {
+  static RiskLimits limits(MarketDefinition definition) {
     MarketDefinition.RiskRules risk = definition.risk();
     return new RiskLimits(risk.priceCageRatio(), risk.defaultMarketSlippage(),
         risk.maximumMarketSlippage(), risk.levelOneMove(),

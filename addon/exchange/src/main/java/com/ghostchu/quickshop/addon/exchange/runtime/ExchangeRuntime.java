@@ -32,7 +32,9 @@ public final class ExchangeRuntime implements AutoCloseable {
   private final AdminCommandRouter.DisplayCommands displayAdministration;
   private final CheckedRunnable closeDisplays;
   private final CheckedRunnable trustedMaintenance;
+  private final CheckedRunnable closeWeb;
   private final AtomicBoolean acceptingWrites = new AtomicBoolean();
+  private boolean webClosed;
   private boolean displaysClosed;
   private boolean dispatcherClosed;
   private boolean operationalDataFlushed;
@@ -125,6 +127,20 @@ public final class ExchangeRuntime implements AutoCloseable {
                   MarketDisplayService displays,
                   AdminCommandRouter.DisplayCommands displayAdministration,
                   CheckedRunnable closeDisplays, CheckedRunnable trustedMaintenance) {
+    this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
+        views, administration, actions, transferReviews, displays, displayAdministration,
+        closeDisplays, trustedMaintenance, () -> {});
+  }
+
+  ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
+                  CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
+                  CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
+                  ExchangeViewService views, AdminExchangeService administration,
+                  ExchangeActionService actions, TransferReviewCoordinator transferReviews,
+                  MarketDisplayService displays,
+                  AdminCommandRouter.DisplayCommands displayAdministration,
+                  CheckedRunnable closeDisplays, CheckedRunnable trustedMaintenance,
+                  CheckedRunnable closeWeb) {
     this.writer = Objects.requireNonNull(writer, "writer");
     this.recoverBooks = Objects.requireNonNull(recoverBooks, "recoverBooks");
     this.recoverTransfers = Objects.requireNonNull(recoverTransfers, "recoverTransfers");
@@ -140,6 +156,7 @@ public final class ExchangeRuntime implements AutoCloseable {
     this.displayAdministration = displayAdministration;
     this.closeDisplays = Objects.requireNonNull(closeDisplays, "closeDisplays");
     this.trustedMaintenance = Objects.requireNonNull(trustedMaintenance, "trustedMaintenance");
+    this.closeWeb = Objects.requireNonNull(closeWeb, "closeWeb");
     writer.onLockLost(this::fenceAfterLockLoss);
   }
 
@@ -284,6 +301,10 @@ public final class ExchangeRuntime implements AutoCloseable {
   @Override
   public synchronized void close() throws Exception {
     acceptingWrites.set(false);
+    if (!webClosed) {
+      closeWeb.run();
+      webClosed = true;
+    }
     if (!displaysClosed) {
       closeDisplays.run();
       displaysClosed = true;

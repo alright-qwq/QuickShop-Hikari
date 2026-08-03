@@ -19,6 +19,7 @@ public final class AdminCommandRouter {
   private final TransferReviewCoordinator itemReviews;
   private final DisplayCommands displays;
   private final HandbookCommands handbooks;
+  private final ReloadCommands reloads;
 
   public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds) {
     this(administration, requestIds, work -> {
@@ -46,17 +47,33 @@ public final class AdminCommandRouter {
   public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds,
                             WriteExecutor writes, TransferReviewCoordinator itemReviews,
                             DisplayCommands displays, HandbookCommands handbooks) {
+    this(administration, requestIds, writes, itemReviews, displays, handbooks, null);
+  }
+
+  public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds,
+                            WriteExecutor writes, TransferReviewCoordinator itemReviews,
+                            DisplayCommands displays, HandbookCommands handbooks,
+                            ReloadCommands reloads) {
     this.administration = Objects.requireNonNull(administration, "administration");
     this.requestIds = Objects.requireNonNull(requestIds, "requestIds");
     this.writes = Objects.requireNonNull(writes, "writes");
     this.itemReviews = itemReviews;
     this.displays = displays;
     this.handbooks = handbooks;
+    this.reloads = reloads;
   }
 
   public void execute(CommandActor actor, String[] args) {
     Objects.requireNonNull(actor, "actor");
-    if (args == null || args.length < 2) {
+    if (args == null || args.length == 0) {
+      actor.message("admin-command-invalid");
+      return;
+    }
+    if ("reload".equalsIgnoreCase(args[0])) {
+      reload(actor);
+      return;
+    }
+    if (args.length < 2) {
       actor.message("admin-command-invalid");
       return;
     }
@@ -107,6 +124,32 @@ public final class AdminCommandRouter {
     }
     try {
       handbooks.give(actor, args[2]);
+    } catch (Exception failure) {
+      actor.message("admin-command-failed");
+    }
+  }
+
+  private void reload(CommandActor actor) {
+    if (!actor.hasPermission("quickshop.exchange.admin.reload")) {
+      actor.message("permission-denied");
+      return;
+    }
+    if (reloads == null) {
+      actor.message("admin-command-failed");
+      return;
+    }
+    try {
+      java.util.concurrent.atomic.AtomicReference<ReloadResult> holder =
+          new java.util.concurrent.atomic.AtomicReference<>();
+      boolean completed = writes.execute(
+          () -> holder.set(reloads.reload(actor.accountId(), requestIds.get())));
+      ReloadResult result = holder.get();
+      if (!completed || result == null) {
+        actor.message("admin-command-failed");
+        return;
+      }
+      actor.message("admin-reload-completed",
+          result.changedMarkets(), result.protectedMarkets());
     } catch (Exception failure) {
       actor.message("admin-command-failed");
     }
@@ -407,5 +450,20 @@ public final class AdminCommandRouter {
   @FunctionalInterface
   public interface CheckedWork {
     void run() throws Exception;
+  }
+
+  /** Re-reads configuration files and synchronizes runtime state within the writer fence. */
+  @FunctionalInterface
+  public interface ReloadCommands {
+    ReloadResult reload(UUID actorId, UUID requestId) throws Exception;
+  }
+
+  /** Immutable summary of a configuration reload operation. */
+  public record ReloadResult(int changedMarkets, int protectedMarkets) {
+    public ReloadResult {
+      if (changedMarkets < 0 || protectedMarkets < 0) {
+        throw new IllegalArgumentException("counts must not be negative");
+      }
+    }
   }
 }

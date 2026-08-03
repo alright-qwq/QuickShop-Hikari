@@ -163,6 +163,51 @@ class ExchangeRuntimeTest {
   }
 
   @Test
+  void stopsPublicWebBeforeDisplaysAndLaterShutdownPhases() throws Exception {
+    java.util.List<String> phases = new java.util.ArrayList<>();
+    TrackingGuard writer = new TrackingGuard(new AtomicBoolean(), () -> phases.add("writer"));
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {},
+        () -> phases.add("dispatcher"), () -> {}, () -> phases.add("operational"),
+        null, null, null, null, null, null, () -> phases.add("displays"), () -> {},
+        () -> phases.add("web"));
+
+    runtime.start();
+    runtime.close();
+    runtime.close();
+
+    assertThat(phases).containsExactly("web", "displays", "dispatcher", "operational", "writer");
+  }
+
+  @Test
+  void retriesPublicWebShutdownBeforeRunningLaterShutdownPhases() throws Exception {
+    java.util.concurrent.atomic.AtomicInteger webAttempts =
+        new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger displayAttempts =
+        new java.util.concurrent.atomic.AtomicInteger();
+    TrackingGuard writer = new TrackingGuard(new AtomicBoolean());
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {}, () -> {},
+        () -> {}, () -> {}, null, null, null, null, null, null,
+        displayAttempts::incrementAndGet, () -> {}, () -> {
+          if (webAttempts.incrementAndGet() == 1) {
+            throw new IllegalStateException("web shutdown failed");
+          }
+        });
+    runtime.start();
+
+    assertThatThrownBy(runtime::close)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("web shutdown failed");
+    assertThat(displayAttempts).hasValue(0);
+    assertThat(writer.held()).isTrue();
+
+    runtime.close();
+
+    assertThat(webAttempts).hasValue(2);
+    assertThat(displayAttempts).hasValue(1);
+    assertThat(runtime.closed()).isTrue();
+  }
+
+  @Test
   void stopsDisplaysAndSavesBindingsBeforeDispatcherDrain() throws Exception {
     java.util.List<String> phases = new java.util.ArrayList<>();
     TrackingGuard writer = new TrackingGuard(new AtomicBoolean());
@@ -370,8 +415,15 @@ class ExchangeRuntimeTest {
     private int closeCalls;
     private Runnable onLockLost = () -> {};
 
+    private final Runnable onClose;
+
     private TrackingGuard(AtomicBoolean dispatcherClosed) {
+      this(dispatcherClosed, () -> {});
+    }
+
+    private TrackingGuard(AtomicBoolean dispatcherClosed, Runnable onClose) {
       this.dispatcherClosed = dispatcherClosed;
+      this.onClose = onClose;
     }
 
     @Override
@@ -405,6 +457,7 @@ class ExchangeRuntimeTest {
     public void close() {
       closeCalls++;
       closedAfterDispatcher = dispatcherClosed.get();
+      onClose.run();
       held = false;
     }
 

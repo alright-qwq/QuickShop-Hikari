@@ -66,6 +66,22 @@ class ModuleSmokeTest {
   }
 
   @Test
+  void packagesSafePublicMarketWebDefaults() throws Exception {
+    YamlConfiguration config = YamlConfiguration.loadConfiguration(new File(
+        Main.class.getResource("/config.yml").toURI()));
+
+    assertThat(config.getBoolean("web-api.enabled")).isFalse();
+    assertThat(config.getString("web-api.bind-address")).isEqualTo("127.0.0.1");
+    assertThat(config.getInt("web-api.port")).isEqualTo(8765);
+    assertThat(config.getLong("web-api.cache-seconds")).isEqualTo(3L);
+    assertThat(config.getInt("web-api.threads")).isEqualTo(2);
+    assertThat(config.getInt("web-api.maximum-concurrent-requests")).isEqualTo(16);
+    assertThat(com.ghostchu.quickshop.addon.exchange.display.MarketChartPeriod.values())
+        .extracting(com.ghostchu.quickshop.addon.exchange.display.MarketChartPeriod::token)
+        .containsExactly("1h", "6h", "24h", "7d");
+  }
+
+  @Test
   void packagesDisplayDefaultsPermissionAndLocalizedMessages() throws Exception {
     YamlConfiguration config = YamlConfiguration.loadConfiguration(new File(
         Main.class.getResource("/config.yml").toURI()));
@@ -83,5 +99,18 @@ class ModuleSmokeTest {
     assertThat(messages.getString("en-US.display-map-created")).isNotBlank();
     assertThat(messages.getString("zh-CN.display-map-created")).isNotBlank();
     assertThat(messages.getString("zh-CN.display-operation-failed")).isNotBlank();
+  }
+
+  @Test
+  void packagesReloadPermissionAndLocalizedMessages() throws Exception {
+    YamlConfiguration plugin = YamlConfiguration.loadConfiguration(new File(
+        Main.class.getResource("/plugin.yml").toURI()));
+    YamlConfiguration messages = YamlConfiguration.loadConfiguration(new File(
+        Main.class.getResource("/messages.yml").toURI()));
+
+    assertThat(plugin.getString("permissions.quickshop.exchange.admin.reload.default"))
+        .isEqualTo("op");
+    assertThat(messages.getString("en-US.admin-reload-completed")).isNotBlank();
+    assertThat(messages.getString("zh-CN.admin-reload-completed")).isNotBlank();
   }
 }

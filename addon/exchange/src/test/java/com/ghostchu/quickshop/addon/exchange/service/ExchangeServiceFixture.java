@@ -128,7 +128,7 @@ public final class ExchangeServiceFixture {
         RecoveryHandler.NO_OP);
   }
 
-  PersistentOrderService restartedService() {
+  public PersistentOrderService restartedService() {
     return new PersistentOrderService(repository, rules,
         com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
         RecoveryHandler.NO_OP);
@@ -244,6 +244,71 @@ public final class ExchangeServiceFixture {
     };
     return new PersistentOrderService(uncertainCommit, rules,
         com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(), recovery);
+  }
+
+  PersistentOrderService serviceWithBehaviorTestLimits() {
+    var defaults = com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits.defaults();
+    var limits = new com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits(
+        defaults.maximumHolding(), defaults.maximumFrozenCurrency(), defaults.maximumOpenOrders(),
+        1000, 1000);
+    return new PersistentOrderService(repository, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP, limits, null, 100L);
+  }
+
+  PersistentOrderService serviceWithBehaviorClock(
+      java.util.concurrent.atomic.AtomicReference<Instant> clock) {
+    return serviceWithBehaviorClock(repository, clock);
+  }
+
+  PersistentOrderService serviceWithBehaviorTicker(
+      java.util.function.Supplier<Instant> clock) {
+    var defaults = com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits.defaults();
+    var limits = new com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits(
+        defaults.maximumHolding(), defaults.maximumFrozenCurrency(), defaults.maximumOpenOrders(),
+        1000, 1000);
+    return new PersistentOrderService(
+        repository, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP, SettlementObserver.NONE,
+        new com.ghostchu.quickshop.addon.exchange.core.model.TimeOrderedIdGenerator(
+            () -> clock.get().toEpochMilli(), new java.util.Random(1)),
+        clock, limits, null, 100L,
+        com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPricePolicy.defaults());
+  }
+
+  PersistentOrderService isolatedRestartedServiceWithBehaviorClock(
+      java.util.concurrent.atomic.AtomicReference<Instant> clock) {
+    Object isolatedKey = new Object();
+    ExchangeRepository isolated = new ExchangeRepository() {
+      @Override
+      public <T> T inTransaction(TransactionWork<T> work) throws SQLException {
+        return repository.inTransaction(work);
+      }
+
+      @Override
+      public Object coordinationKey() {
+        return isolatedKey;
+      }
+    };
+    return serviceWithBehaviorClock(isolated, clock);
+  }
+
+  private PersistentOrderService serviceWithBehaviorClock(
+      ExchangeRepository targetRepository,
+      java.util.concurrent.atomic.AtomicReference<Instant> clock) {
+    var defaults = com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits.defaults();
+    var limits = new com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits(
+        defaults.maximumHolding(), defaults.maximumFrozenCurrency(), defaults.maximumOpenOrders(),
+        1000, 1000);
+    return new PersistentOrderService(
+        targetRepository, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP, SettlementObserver.NONE,
+        new com.ghostchu.quickshop.addon.exchange.core.model.TimeOrderedIdGenerator(
+            () -> clock.get().toEpochMilli(), new java.util.Random(1)),
+        clock::get, limits, null, 100L,
+        com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPricePolicy.defaults());
   }
 
   PersistentOrderService serviceWithMarketData(
@@ -537,6 +602,10 @@ public final class ExchangeServiceFixture {
 
   public long reconciliationAlertCount() throws SQLException {
     return highAlertCount("RECONCILIATION_DIFFERENCE");
+  }
+
+  long behaviorAlertCount(String alertType) throws SQLException {
+    return highAlertCount(alertType);
   }
 
   private long highAlertCount(String alertType) throws SQLException {

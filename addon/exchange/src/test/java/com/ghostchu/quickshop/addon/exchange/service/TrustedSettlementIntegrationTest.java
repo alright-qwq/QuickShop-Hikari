@@ -5,8 +5,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
+import com.ghostchu.quickshop.addon.exchange.core.trust.BehaviorRiskAction;
+import com.ghostchu.quickshop.addon.exchange.core.trust.BehaviorRiskEvaluator;
+import com.ghostchu.quickshop.addon.exchange.core.trust.BehaviorRiskPolicy;
 import com.ghostchu.quickshop.addon.exchange.core.trust.LimitReason;
 import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
+import com.ghostchu.quickshop.addon.exchange.core.trust.TradeInfluence;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPricePolicy;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
 import com.ghostchu.quickshop.addon.exchange.marketdata.CandleAggregator;
@@ -18,6 +22,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class TrustedSettlementIntegrationTest {
@@ -92,6 +97,195 @@ class TrustedSettlementIntegrationTest {
   }
 
   @Test
+  void sustainedAlertWritesOnlyTheRiskEscalationWithoutRollingBackSettlement() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    PersistentOrderService service = fixture.serviceWithBehaviorTestLimits();
+    UUID accountA = fixture.accountWithCurrency("20000.00");
+    UUID accountB = fixture.accountWithItems(120);
+
+    for (int index = 0; index < 18; index++) {
+      trade(service, accountB, accountA, "115.00");
+      fixture.creditItems(accountB, 5);
+    }
+
+    assertThat(fixture.tradeCount()).isEqualTo(18);
+    assertThat(fixture.behaviorAlertCount("PAIR_BEHAVIOR_ALERT")).isEqualTo(1);
+    assertThat(fixture.marketStatus()).isEqualTo("OPEN");
+  }
+
+  @Test
+  void pairCooldownSkipsThatPairButStillExecutesAgainstAnotherSeller() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AtomicReference<Instant> clock = new AtomicReference<>(
+        Instant.parse("2026-07-31T12:00:00Z"));
+    PersistentOrderService service = fixture.serviceWithBehaviorClock(clock);
+    UUID buyer = fixture.accountWithCurrency("50000.00");
+    UUID suspiciousSeller = fixture.accountWithItems(200);
+    UUID otherSeller = fixture.accountWithItems(5);
+
+    for (int index = 0; index < 40; index++) {
+      trade(service, suspiciousSeller, buyer, "120.00");
+      fixture.creditItems(suspiciousSeller, 5);
+      clock.updateAndGet(value -> value.plusSeconds(60));
+    }
+    var riskSnapshot = fixture.repository().inTransaction(tx ->
+        tx.trustedMarketSnapshot("diamond-usd", Instant.EPOCH, Instant.EPOCH));
+    var pairDecision = new BehaviorRiskEvaluator(BehaviorRiskPolicy.defaults()).evaluate(
+        "diamond-usd", TradeInfluence.pairKey(buyer, suspiciousSeller),
+        riskSnapshot.state().liquidityTier(), riskSnapshot.influences(), clock.get());
+    assertThat(pairDecision.action()).isEqualTo(BehaviorRiskAction.PAIR_COOLDOWN);
+
+    service.place(order(suspiciousSeller, OrderSide.SELL, "99.00"));
+    service.place(order(otherSeller, OrderSide.SELL, "100.00"));
+
+    OrderReceipt receipt = service.place(order(buyer, OrderSide.BUY, "101.00"));
+
+    assertThat(receipt.trades()).singleElement()
+        .satisfies(trade -> assertThat(trade.sellerAccountId()).isEqualTo(otherSeller));
+    assertThat(fixture.behaviorAlertCount("PAIR_BEHAVIOR_ALERT")).isEqualTo(1);
+    assertThat(fixture.behaviorAlertCount("PAIR_BEHAVIOR_COOLDOWN")).isEqualTo(1);
+  }
+
+  @Test
+  void marketBuyReservesAgainstTheEligibleMakerSelectedAfterPairCooldown() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AtomicReference<Instant> clock = new AtomicReference<>(
+        Instant.parse("2026-07-31T12:00:00Z"));
+    PersistentOrderService service = fixture.serviceWithBehaviorClock(clock);
+    UUID buyer = fixture.accountWithCurrency("50000.00");
+    UUID suspiciousSeller = fixture.accountWithItems(200);
+    UUID otherSeller = fixture.accountWithItems(5);
+
+    for (int index = 0; index < 40; index++) {
+      trade(service, suspiciousSeller, buyer, "120.00");
+      fixture.creditItems(suspiciousSeller, 5);
+      clock.updateAndGet(value -> value.plusSeconds(60));
+    }
+    service.place(order(suspiciousSeller, OrderSide.SELL, "99.00"));
+    service.place(order(otherSeller, OrderSide.SELL, "100.00"));
+
+    OrderReceipt receipt = service.place(marketOrder(buyer, "101.00", 5));
+
+    assertThat(receipt.trades()).singleElement()
+        .satisfies(trade -> {
+          assertThat(trade.sellerAccountId()).isEqualTo(otherSeller);
+          assertThat(trade.price()).isEqualByComparingTo("100.00");
+        });
+    assertThat(fixture.frozenCurrency(buyer)).isZero();
+    assertThat(fixture.availableCurrency(buyer)).isEqualByComparingTo("25451.00");
+    assertThat(fixture.feeAccountBalance()).isEqualByComparingTo("73.50");
+    assertThat(fixture.marketStatus()).isEqualTo("OPEN");
+  }
+
+  @Test
+  void pairCooldownStartsInsideOneTakerOrderAndSkipsLaterMakersFromThatPair() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AtomicReference<Instant> clock = new AtomicReference<>(
+        Instant.parse("2026-07-31T12:00:00Z"));
+    PersistentOrderService service = fixture.serviceWithBehaviorClock(clock);
+    UUID buyer = fixture.accountWithCurrency("50000.00");
+    UUID suspiciousSeller = fixture.accountWithItems(205);
+
+    for (int index = 0; index < 39; index++) {
+      trade(service, suspiciousSeller, buyer, "120.00");
+      fixture.creditItems(suspiciousSeller, 5);
+      clock.updateAndGet(value -> value.plusSeconds(60));
+    }
+    service.place(order(suspiciousSeller, OrderSide.SELL, "120.00"));
+    service.place(order(suspiciousSeller, OrderSide.SELL, "120.00"));
+
+    OrderReceipt receipt = service.place(order(buyer, OrderSide.BUY, "120.00", 10));
+
+    assertThat(receipt.trades()).hasSize(1);
+    assertThat(receipt.trades().getFirst().sellerAccountId()).isEqualTo(suspiciousSeller);
+    assertThat(fixture.tradeCount()).isEqualTo(40);
+    assertThat(fixture.behaviorAlertCount("PAIR_BEHAVIOR_COOLDOWN")).isEqualTo(1);
+  }
+
+  @Test
+  void pairCooldownStartsInsideOneTakerOrderWithAdvancingWallClock() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AtomicReference<Instant> clock = new AtomicReference<>(
+        Instant.parse("2026-07-31T12:00:00Z"));
+    PersistentOrderService service = fixture.serviceWithBehaviorTicker(
+        () -> clock.getAndUpdate(value -> value.plusMillis(1)));
+    UUID buyer = fixture.accountWithCurrency("50000.00");
+    UUID suspiciousSeller = fixture.accountWithItems(205);
+
+    for (int index = 0; index < 39; index++) {
+      trade(service, suspiciousSeller, buyer, "120.00");
+      fixture.creditItems(suspiciousSeller, 5);
+      clock.updateAndGet(value -> value.plusSeconds(60));
+    }
+    service.place(order(suspiciousSeller, OrderSide.SELL, "120.00"));
+    service.place(order(suspiciousSeller, OrderSide.SELL, "120.00"));
+
+    OrderReceipt receipt = service.place(order(buyer, OrderSide.BUY, "120.00", 10));
+
+    assertThat(receipt.trades()).hasSize(1);
+    assertThat(receipt.trades().getFirst().sellerAccountId()).isEqualTo(suspiciousSeller);
+    assertThat(fixture.tradeCount()).isEqualTo(40);
+  }
+
+  @Test
+  void pairCooldownSurvivesAnIsolatedServiceRestart() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AtomicReference<Instant> clock = new AtomicReference<>(
+        Instant.parse("2026-07-31T12:00:00Z"));
+    PersistentOrderService service = fixture.serviceWithBehaviorClock(clock);
+    UUID buyer = fixture.accountWithCurrency("50000.00");
+    UUID suspiciousSeller = fixture.accountWithItems(200);
+    UUID otherSeller = fixture.accountWithItems(5);
+
+    for (int index = 0; index < 40; index++) {
+      trade(service, suspiciousSeller, buyer, "120.00");
+      fixture.creditItems(suspiciousSeller, 5);
+      clock.updateAndGet(value -> value.plusSeconds(60));
+    }
+
+    PersistentOrderService restarted = fixture.isolatedRestartedServiceWithBehaviorClock(clock);
+    restarted.recoverFromDatabase();
+    restarted.place(order(suspiciousSeller, OrderSide.SELL, "99.00"));
+    restarted.place(order(otherSeller, OrderSide.SELL, "100.00"));
+
+    OrderReceipt receipt = restarted.place(order(buyer, OrderSide.BUY, "101.00"));
+
+    assertThat(receipt.trades()).singleElement()
+        .satisfies(trade -> assertThat(trade.sellerAccountId()).isEqualTo(otherSeller));
+    assertThat(fixture.behaviorAlertCount("PAIR_BEHAVIOR_ALERT")).isEqualTo(1);
+    assertThat(fixture.behaviorAlertCount("PAIR_BEHAVIOR_COOLDOWN")).isEqualTo(1);
+
+    clock.updateAndGet(value -> value.plusSeconds(6 * 60L));
+    OrderReceipt recovered = restarted.place(order(buyer, OrderSide.BUY, "101.00"));
+
+    assertThat(recovered.trades()).singleElement()
+        .satisfies(trade -> assertThat(trade.sellerAccountId()).isEqualTo(suspiciousSeller));
+  }
+
+  @Test
+  void pairCooldownExpiresAndAllowsThatPairToTradeAgain() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AtomicReference<Instant> clock = new AtomicReference<>(
+        Instant.parse("2026-07-31T12:00:00Z"));
+    PersistentOrderService service = fixture.serviceWithBehaviorClock(clock);
+    UUID buyer = fixture.accountWithCurrency("50000.00");
+    UUID suspiciousSeller = fixture.accountWithItems(200);
+
+    for (int index = 0; index < 40; index++) {
+      trade(service, suspiciousSeller, buyer, "120.00");
+      fixture.creditItems(suspiciousSeller, 5);
+      clock.updateAndGet(value -> value.plusSeconds(60));
+    }
+    clock.updateAndGet(value -> value.plusSeconds(6 * 60L));
+    service.place(order(suspiciousSeller, OrderSide.SELL, "100.00"));
+
+    OrderReceipt receipt = service.place(order(buyer, OrderSide.BUY, "101.00"));
+
+    assertThat(receipt.trades()).singleElement()
+        .satisfies(trade -> assertThat(trade.sellerAccountId()).isEqualTo(suspiciousSeller));
+  }
+
+  @Test
   void postCandleFailureRollsBackEverySettlementWrite() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID seller = fixture.accountWithItems(5);
@@ -131,7 +325,16 @@ class TrustedSettlementIntegrationTest {
   }
 
   private static OrderRequest order(UUID account, OrderSide side, String price) {
+    return order(account, side, price, 5);
+  }
+
+  private static OrderRequest order(UUID account, OrderSide side, String price, long quantity) {
     return new OrderRequest(UUID.randomUUID(), account, "diamond-usd", side,
-        "LIMIT", new BigDecimal(price), null, 5);
+        "LIMIT", new BigDecimal(price), null, quantity);
+  }
+
+  private static OrderRequest marketOrder(UUID account, String boundary, long quantity) {
+    return new OrderRequest(UUID.randomUUID(), account, "diamond-usd", OrderSide.BUY,
+        "MARKET", null, new BigDecimal(boundary), quantity);
   }
 }

@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.runtime;
 
 import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
 import com.ghostchu.quickshop.addon.exchange.display.MarketChartOptions;
+import com.ghostchu.quickshop.addon.exchange.web.PublicMarketWebConfig;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -145,6 +146,37 @@ class ExchangeRuntimeFactoryTest {
     assertThat(ExchangeRuntimeFactory.displayLimit(0, "displays.max-signs")).isZero();
     assertThatIllegalArgumentException().isThrownBy(() ->
         ExchangeRuntimeFactory.displayLimit(-1, "displays.max-signs"));
+  }
+
+  @Test
+  void publicMarketWebConfigUsesSafeDefaults() {
+    org.bukkit.configuration.file.YamlConfiguration config =
+        new org.bukkit.configuration.file.YamlConfiguration();
+
+    PublicMarketWebConfig web = ExchangeRuntimeFactory.publicMarketWebConfig(config);
+
+    assertThat(web).isEqualTo(PublicMarketWebConfig.defaults());
+  }
+
+  @Test
+  void publicMarketWebConfigMapsExplicitResourceBounds() {
+    org.bukkit.configuration.file.YamlConfiguration config =
+        new org.bukkit.configuration.file.YamlConfiguration();
+    config.set("web-api.enabled", true);
+    config.set("web-api.bind-address", "127.0.0.1");
+    config.set("web-api.port", 9876);
+    config.set("web-api.cache-seconds", 7L);
+    config.set("web-api.threads", 3);
+    config.set("web-api.maximum-concurrent-requests", 24);
+
+    PublicMarketWebConfig web = ExchangeRuntimeFactory.publicMarketWebConfig(config);
+
+    assertThat(web.enabled()).isTrue();
+    assertThat(web.bindAddress()).isEqualTo("127.0.0.1");
+    assertThat(web.port()).isEqualTo(9876);
+    assertThat(web.cacheDuration()).isEqualTo(java.time.Duration.ofSeconds(7));
+    assertThat(web.threads()).isEqualTo(3);
+    assertThat(web.maximumConcurrentRequests()).isEqualTo(24);
   }
 
   @Test

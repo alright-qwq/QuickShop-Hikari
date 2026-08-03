@@ -3,6 +3,7 @@ package com.ghostchu.quickshop.addon.exchange.repository;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TradeInfluence;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceAdjustment;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TrustedPriceState;
@@ -37,6 +38,12 @@ public interface ExchangeTransaction {
   Optional<StoredRequestResult> requestResult(UUID accountId, UUID requestId) throws SQLException;
   void putRequestResult(StoredRequestResult result) throws SQLException;
   MarketState marketState(String marketId) throws SQLException;
+  default boolean marketExists(String marketId) throws SQLException {
+    throw new UnsupportedOperationException("market existence check is not supported");
+  }
+  default void insertNewMarket(MarketDefinition definition) throws SQLException {
+    throw new UnsupportedOperationException("market insertion is not supported");
+  }
   long marketStructuralVersion(String marketId) throws SQLException;
   MarketFeeSchedule marketFeeSchedule(String marketId) throws SQLException;
   MarketSnapshot marketSnapshot(MarketState state, Instant cutoff) throws SQLException;

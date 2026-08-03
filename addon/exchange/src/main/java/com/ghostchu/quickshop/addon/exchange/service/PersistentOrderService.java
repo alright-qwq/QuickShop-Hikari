@@ -24,6 +24,10 @@ import com.ghostchu.quickshop.addon.exchange.core.risk.OrderRateLimiter;
 import com.ghostchu.quickshop.addon.exchange.core.risk.OrderRiskService;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
 import com.ghostchu.quickshop.addon.exchange.core.risk.TradePermission;
+import com.ghostchu.quickshop.addon.exchange.core.trust.BehaviorRiskAction;
+import com.ghostchu.quickshop.addon.exchange.core.trust.BehaviorRiskDecision;
+import com.ghostchu.quickshop.addon.exchange.core.trust.BehaviorRiskEvaluator;
+import com.ghostchu.quickshop.addon.exchange.core.trust.BehaviorRiskPolicy;
 import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityClassifier;
 import com.ghostchu.quickshop.addon.exchange.core.trust.LiquidityTier;
 import com.ghostchu.quickshop.addon.exchange.core.trust.TradeInfluence;
@@ -64,6 +68,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiPredicate;
 import java.util.function.Supplier;
 
 public final class PersistentOrderService {
@@ -93,6 +98,7 @@ public final class PersistentOrderService {
   private final TrustedPricePolicy trustedPolicy;
   private final LiquidityClassifier liquidityClassifier;
   private final TrustedPriceEngine trustedPriceEngine;
+  private final BehaviorRiskEvaluator behaviorRiskEvaluator;
   private final MarketRuntimeState runtimeState;
 
   public MarketRules marketRules() {
@@ -222,6 +228,7 @@ public final class PersistentOrderService {
     this.trustedPolicy = Objects.requireNonNull(trustedPolicy, "trustedPolicy");
     this.liquidityClassifier = new LiquidityClassifier(trustedPolicy);
     this.trustedPriceEngine = new TrustedPriceEngine();
+    this.behaviorRiskEvaluator = new BehaviorRiskEvaluator(BehaviorRiskPolicy.defaults());
     this.ids = Objects.requireNonNull(ids, "ids");
     this.now = Objects.requireNonNull(now, "now");
     this.fees = new FeeCalculator(rules.priceScale());
@@ -455,9 +462,33 @@ public final class PersistentOrderService {
       reject(OrderRiskService.RejectReason.SELF_TRADE);
     }
 
+    AtomicLong matchSequence = new AtomicLong(beforeState.matchSequence());
+    ReferencePriceTracker transactionPrices = runtimeRisk.referencePrices();
+    TrustedPriceState transactionTrusted = runtimeRisk.trustedPriceState();
+    ArrayList<TradeInfluence> transactionInfluences =
+        new ArrayList<>(runtimeRisk.recentInfluences());
+    CircuitBreaker transactionBreaker = runtimeRisk.circuitBreaker();
+    AtomicReference<TrustedPriceState> plannedTrusted =
+        new AtomicReference<>(transactionTrusted);
+    ArrayList<TradeInfluence> plannedInfluences =
+        new ArrayList<>(transactionInfluences);
+    BiPredicate<Order, Order> executablePair = (takerOrder, makerOrder) ->
+        behaviorRiskEvaluator.evaluate(
+            rules.marketId(),
+            TradeInfluence.pairKey(takerOrder.accountId(), makerOrder.accountId()),
+            plannedTrusted.get().liquidityTier(), plannedInfluences, now.get()).action()
+            != BehaviorRiskAction.PAIR_COOLDOWN;
+    MatchingEngine engine = new MatchingEngine(transactionBook, rules, fees,
+        matchSequence::incrementAndGet, now, ids,
+        price -> riskLimits.insideCage(price, trustedReference),
+        order -> feeSchedule.rates(order.feeVersion()), executablePair,
+        trade -> advancePlannedRisk(trade, plannedTrusted, plannedInfluences));
+    MatchResult match = engine.submit(incoming);
+    if (match.selfTradeRejected()) {
+      reject(OrderRiskService.RejectReason.SELF_TRADE);
+    }
     Reservation reservation = incoming.type() == OrderType.MARKET
-        ? reservations.reserve(incoming, incomingRules, transactionBook,
-            price -> riskLimits.insideCage(price, trustedReference))
+        ? reservations.reserve(incoming, incomingRules, match.trades())
         : reservations.reserve(incoming, incomingRules);
 
     long holding = tx.existingInventory(request.accountId(), rules.marketId())
@@ -476,20 +507,7 @@ public final class PersistentOrderService {
     if (exposureRejection != null) {
       throw new IllegalStateException(exposureRejection.name());
     }
-
-    AtomicLong matchSequence = new AtomicLong(beforeState.matchSequence());
-    ReferencePriceTracker transactionPrices = runtimeRisk.referencePrices();
-    TrustedPriceState transactionTrusted = runtimeRisk.trustedPriceState();
-    ArrayList<TradeInfluence> transactionInfluences =
-        new ArrayList<>(runtimeRisk.recentInfluences());
-    CircuitBreaker transactionBreaker = runtimeRisk.circuitBreaker();
-    MatchingEngine engine = new MatchingEngine(transactionBook, rules, fees,
-        matchSequence::incrementAndGet, now, ids,
-        price -> riskLimits.insideCage(price, trustedReference),
-        order -> feeSchedule.rates(order.feeVersion()));
-    MatchResult match = engine.submit(incoming);
-    Order taker = match.selfTradeRejected()
-        ? incoming.withStatus(OrderStatus.REJECTED, now.get()) : match.finalOrder();
+    Order taker = match.finalOrder();
     lockAssets(tx, incoming, match);
     freeze(tx, incoming, reservation);
     reached(SettlementStage.AFTER_RESERVATION);
@@ -759,6 +777,7 @@ public final class PersistentOrderService {
     OrderType type = parseType(request.type());
     BigDecimal boundary = type == OrderType.LIMIT ? request.price() : request.slippageBoundary();
     OrderSide opposite = request.side() == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
+    long remaining = request.quantity();
     for (Order maker : book.executableOrders(opposite,
         price -> riskLimits.insideCage(price, referencePrice))) {
       boolean crosses = request.side() == OrderSide.BUY
@@ -769,6 +788,10 @@ public final class PersistentOrderService {
       }
       if (maker.accountId().equals(request.accountId())) {
         return true;
+      }
+      remaining -= Math.min(remaining, maker.remainingQuantity());
+      if (remaining == 0) {
+        return false;
       }
     }
     return false;
@@ -944,6 +967,20 @@ public final class PersistentOrderService {
     return new LedgerEntry(ids.get(), account, asset, amount, at);
   }
 
+  private void advancePlannedRisk(
+      Trade trade, AtomicReference<TrustedPriceState> plannedTrusted,
+      List<TradeInfluence> plannedInfluences) {
+    pruneExpiredInfluences(plannedInfluences, trade.executedAt());
+    long lot = Math.max(1L, Math.ceilDiv(discoveryQuantity, 20L));
+    TrustedPriceState classified = plannedTrusted.get().withLiquidityTier(
+        liquidityClassifier.classify(plannedInfluences, trade.executedAt(), lot).tier());
+    TrustedPriceEngine.Result trusted = trustedPriceEngine.evaluate(
+        classified, trustedPolicy, trade, plannedInfluences,
+        discoveryQuantity, rules.priceScale());
+    plannedInfluences.add(trusted.influence());
+    plannedTrusted.set(trusted.state());
+  }
+
   private RiskUpdate updateRiskState(
       ExchangeTransaction tx, MarketState before, long prioritySequence, long matchSequence,
       List<Trade> trades, ReferencePriceTracker prices, TrustedPriceState trustedPriceState,
@@ -969,8 +1006,23 @@ public final class PersistentOrderService {
           trade.marketId(), candleBucket(trade.executedAt()), trade.price(), trade.price(),
           trade.price(), trade.price(), trade.quantity(),
           trade.price().multiply(BigDecimal.valueOf(trade.quantity()))));
+      BehaviorRiskDecision previousBehavior = behaviorRiskEvaluator.evaluate(
+          rules.marketId(), trusted.influence().pairKey(), trusted.state().liquidityTier(),
+          recentInfluences, trade.executedAt());
       recentInfluences.add(trusted.influence());
       trustedPriceState = trusted.state();
+      BehaviorRiskDecision behavior = behaviorRiskEvaluator.evaluate(
+          rules.marketId(), trusted.influence().pairKey(), trustedPriceState.liquidityTier(),
+          recentInfluences, trade.executedAt());
+      if (behavior.action().isEscalationFrom(previousBehavior.action())) {
+        if (behavior.action() == BehaviorRiskAction.ALERT) {
+          tx.insertHighAlert(ids.get(), rules.marketId(), "PAIR_BEHAVIOR_ALERT",
+              encodeBehaviorAlert(behavior), trade.executedAt());
+        } else if (behavior.action() == BehaviorRiskAction.PAIR_COOLDOWN) {
+          tx.insertHighAlert(ids.get(), rules.marketId(), "PAIR_BEHAVIOR_COOLDOWN",
+              encodeBehaviorAlert(behavior), trade.executedAt());
+        }
+      }
 
       prices.record(trade.price(), trade.quantity(), trade.executedAt());
       lastPrice = trade.price();
@@ -1108,6 +1160,22 @@ public final class PersistentOrderService {
     alert.addProperty("level", 2);
     alert.addProperty("referencePrice", reference.toPlainString());
     alert.addProperty("tradePrice", tradePrice.toPlainString());
+    return alert.toString();
+  }
+
+  private static String encodeBehaviorAlert(BehaviorRiskDecision decision) {
+    JsonObject alert = new JsonObject();
+    alert.addProperty("action", decision.action().name());
+    alert.addProperty("pairKey", decision.pairKey());
+    alert.addProperty("pairTrades", decision.pairTrades());
+    alert.addProperty("marketTrades", decision.marketTrades());
+    alert.addProperty("pairConcentration", decision.pairConcentration().toPlainString());
+    alert.addProperty("directionalPressure", decision.directionalPressure().toPlainString());
+    JsonArray evidence = new JsonArray();
+    decision.evidence().stream().sorted().forEach(value -> evidence.add(value.name()));
+    alert.add("evidence", evidence);
+    decision.cooldownUntil().ifPresent(value ->
+        alert.addProperty("cooldownUntil", value.toString()));
     return alert.toString();
   }
 

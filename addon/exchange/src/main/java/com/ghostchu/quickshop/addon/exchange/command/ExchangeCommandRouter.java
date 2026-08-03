@@ -253,7 +253,8 @@ public final class ExchangeCommandRouter {
         || actor.hasPermission("quickshop.exchange.admin.recovery")
         || actor.hasPermission("quickshop.exchange.admin.audit")
         || actor.hasPermission("quickshop.exchange.admin.display")
-        || actor.hasPermission("quickshop.exchange.admin.handbook");
+        || actor.hasPermission("quickshop.exchange.admin.handbook")
+        || actor.hasPermission("quickshop.exchange.admin.reload");
   }
 
   private static void invalid(CommandActor actor) {
@@ -284,7 +285,7 @@ public final class ExchangeCommandRouter {
 
   private static List<String> completeAdmin(String[] args) {
     if (args.length == 2) {
-      return List.of("market", "order", "transfer", "audit", "display", "book");
+      return List.of("market", "order", "transfer", "audit", "display", "book", "reload");
     }
     if (args.length == 3 && "book".equalsIgnoreCase(args[1])) {
       return List.of("give");

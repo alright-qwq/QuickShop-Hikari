@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.persistence;
 
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.config.MarketConfigurationPersistence;
+import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.FeeRates;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
@@ -940,6 +941,62 @@ public final class JdbcExchangeRepository
               nullableInteger(result, "circuit_breaker_level"),
               result.getLong("version"));
         }
+      }
+    }
+
+    @Override
+    public boolean marketExists(String marketId) throws SQLException {
+      try (PreparedStatement query = connection.prepareStatement(
+          "SELECT market_id FROM " + tables.markets() + " WHERE market_id=?")) {
+        query.setString(1, marketId);
+        try (ResultSet result = query.executeQuery()) {
+          return result.next();
+        }
+      }
+    }
+
+    @Override
+    public void insertNewMarket(MarketDefinition definition) throws SQLException {
+      MarketDefinition.StructuralRules structural = definition.structural();
+      MarketDefinition.RiskRules risk = definition.risk();
+      try (PreparedStatement market = connection.prepareStatement(
+          "INSERT INTO " + tables.markets()
+              + " (market_id,currency_id,item_fingerprint,item_template,structural_payload,"
+              + "fee_schedule_payload,risk_payload,structural_version,risk_version,created_at)"
+              + " VALUES (?,?,?,?,?,?,?,?,?,?)");
+           PreparedStatement state = connection.prepareStatement(
+               "INSERT INTO " + tables.marketState()
+                   + " (market_id,status,priority_sequence,match_sequence,reference_price,"
+                   + "last_price,halted_until,discovery_quantity,circuit_breaker_level,version)"
+                   + " VALUES (?,?,?,?,?,?,?,?,?,?)")) {
+        market.setString(1, definition.marketId());
+        market.setString(2, structural.currencyId());
+        market.setString(3, definition.item().fingerprint() == null
+            ? definition.item().material() : definition.item().fingerprint());
+        market.setString(4, java.util.Optional.ofNullable(definition.item().encodedTemplate())
+            .orElse(""));
+        market.setString(5, "{}");
+        market.setString(6, "{\"makerFeeRate\":\"" + risk.makerFeeRate().toPlainString()
+            + "\",\"takerFeeRate\":\"" + risk.takerFeeRate().toPlainString()
+            + "\",\"currencyScale\":" + structural.currencyScale() + "}");
+        market.setString(7, "{}");
+        market.setLong(8, 1L);
+        market.setLong(9, 1L);
+        market.setLong(10, java.time.Instant.now().toEpochMilli());
+        market.executeUpdate();
+
+        state.setString(1, definition.marketId());
+        state.setString(2, definition.enabled()
+            ? MarketStatus.OPEN.name() : MarketStatus.CLOSED.name());
+        state.setLong(3, 0L);
+        state.setLong(4, 0L);
+        state.setString(5, structural.basePrice().toPlainString());
+        state.setNull(6, java.sql.Types.DECIMAL);
+        state.setNull(7, java.sql.Types.BIGINT);
+        state.setLong(8, 0L);
+        state.setInt(9, 0);
+        state.setLong(10, 0L);
+        state.executeUpdate();
       }
     }
 

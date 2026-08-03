@@ -11,6 +11,15 @@ economy:
 market-data:
   gui-refresh-ticks: 20
   candle-retention-days: 365
+web-api:
+  # Public read-only market data API for a same-host reverse proxy such as Caddy.
+  # Keep this loopback-only; expose HTTPS through the reverse proxy, never this listener directly.
+  enabled: false
+  bind-address: 127.0.0.1
+  port: 8765
+  cache-seconds: 3
+  threads: 2
+  maximum-concurrent-requests: 16
 gui:
   clock:
     enabled: true

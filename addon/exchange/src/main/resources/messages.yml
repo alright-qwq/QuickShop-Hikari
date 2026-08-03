@@ -10,6 +10,7 @@ en-US:
   inventory-full: Your inventory is full; the withdrawal remains ready to claim.
   admin-command-invalid: The administrator command or its arguments are invalid.
   admin-command-failed: The administrator request could not be completed.
+  admin-reload-completed: 'Exchange configuration reloaded: <0> markets changed, <1> protected.'
   admin-handbook-given: 'A trading handbook was given to <0>.'
   admin-handbook-player-not-found: 'Online player not found: <0>'
   handbook-title: Exchange Trading Handbook
@@ -177,6 +178,7 @@ zh-CN:
   inventory-full: '背包空间不足，提现将保留为待领取。'
   admin-command-invalid: '管理员命令或参数无效。'
   admin-command-failed: '管理员请求未能完成。'
+  admin-reload-completed: '交易所配置已重载：<0> 个市场状态已更新，<1> 个受保护市场已跳过。'
   admin-handbook-given: '已向 <0> 补发一本交易手册。'
   admin-handbook-player-not-found: '找不到在线玩家：<0>'
   handbook-title: '交易所交易手册'

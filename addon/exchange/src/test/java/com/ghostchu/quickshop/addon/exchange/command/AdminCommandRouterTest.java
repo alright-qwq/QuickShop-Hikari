@@ -30,6 +30,78 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class AdminCommandRouterTest {
   @Test
+  void reloadsConfigurationThroughWriterFenceWithDedicatedPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    java.util.concurrent.atomic.AtomicInteger reloads = new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger writes = new java.util.concurrent.atomic.AtomicInteger();
+    AdminCommandRouter router = new AdminCommandRouter(
+        new AdminExchangeService(Map.of(fixture.rules().marketId(), fixture.service())),
+        UUID::randomUUID,
+        work -> {
+          writes.incrementAndGet();
+          work.run();
+          return true;
+        },
+        null,
+        null,
+        null,
+        (actorId, requestId) -> {
+          reloads.incrementAndGet();
+          return new AdminCommandRouter.ReloadResult(1, 0);
+        });
+    Actor actor = new Actor("quickshop.exchange.admin.reload");
+
+    router.execute(actor, new String[] {"reload"});
+
+    assertThat(reloads).hasValue(1);
+    assertThat(writes).hasValue(1);
+    assertThat(actor.message).isEqualTo("admin-reload-completed");
+    assertThat(actor.arguments).containsExactly(1, 0);
+  }
+
+  @Test
+  void deniesReloadWithoutDedicatedPermissionAndReportsFailures() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    java.util.concurrent.atomic.AtomicInteger reloads = new java.util.concurrent.atomic.AtomicInteger();
+    AdminExchangeService administration = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()));
+    AdminCommandRouter.ReloadCommands failing = (actorId, requestId) -> {
+      reloads.incrementAndGet();
+      throw new IllegalStateException("invalid candidate");
+    };
+    AdminCommandRouter router = new AdminCommandRouter(
+        administration, UUID::randomUUID, work -> {
+          work.run();
+          return true;
+        }, null, null, null, failing);
+    Actor denied = new Actor("quickshop.exchange.admin.audit");
+    Actor permitted = new Actor("quickshop.exchange.admin.reload");
+
+    router.execute(denied, new String[] {"reload"});
+    router.execute(permitted, new String[] {"reload"});
+
+    assertThat(denied.message).isEqualTo("permission-denied");
+    assertThat(permitted.message).isEqualTo("admin-command-failed");
+    assertThat(reloads).hasValue(1);
+  }
+
+  @Test
+  void completesReloadSyntaxAndPermissionOpensAdminPage() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminCommandRouter administration = new AdminCommandRouter(
+        new AdminExchangeService(Map.of(fixture.rules().marketId(), fixture.service())),
+        UUID::randomUUID);
+    ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID, administration);
+    Actor actor = new Actor("quickshop.exchange.admin.reload");
+
+    assertThat(router.tabComplete(actor, new String[] {"admin", ""}))
+        .contains("reload");
+    router.execute(actor, new String[] {"admin"});
+
+    assertThat(actor.openedMenu).isEqualTo("admin");
+  }
+
+  @Test
   void completesDisplayCommandSyntax() {
     ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID);
     Actor actor = new Actor("quickshop.exchange.admin.display");

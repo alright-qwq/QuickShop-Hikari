@@ -124,10 +124,38 @@ public final class Main extends JavaPlugin {
         handbooks::give,
         (player, action, retired) -> QuickShop.folia().getScheduler()
             .runAtEntityLater(player, action, retired, 1L));
+    AdminCommandRouter.ReloadCommands reloadCommands = (actorId, requestId) -> {
+      File configFile = new File(getDataFolder(), "config.yml");
+      File marketsFile = new File(getDataFolder(), "markets.yml");
+      com.ghostchu.quickshop.addon.exchange.config.MarketRegistry candidate =
+          com.ghostchu.quickshop.addon.exchange.config.MarketRegistry.load(
+              configFile, marketsFile);
+      java.util.Set<String> currentMarkets = runtime.administration().marketIds();
+      java.util.Set<String> configMarkets = candidate.marketIds();
+      for (String marketId : configMarkets) {
+        if (!currentMarkets.contains(marketId)) {
+          runtime.administration().registerNewMarket(candidate.require(marketId));
+        }
+      }
+      for (String marketId : currentMarkets) {
+        if (!configMarkets.contains(marketId)) {
+          runtime.administration().unregisterMarket(marketId);
+        }
+      }
+      java.util.Map<String, Boolean> enabledStates = new java.util.LinkedHashMap<>();
+      for (String marketId : configMarkets) {
+        enabledStates.put(marketId, candidate.require(marketId).enabled());
+      }
+      var syncResult = runtime.administration().synchronizeConfiguredMarketStates(
+          actorId, requestId, enabledStates);
+      return new AdminCommandRouter.ReloadResult(
+          syncResult.changedMarkets().size(),
+          syncResult.protectedMarkets().size());
+    };
     ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID,
         new AdminCommandRouter(runtime.administration(), UUID::randomUUID,
             work -> runtime.runWhileWriting(work::run), runtime.transferReviews(),
-            runtime.displayAdministration(), handbookCommands), rollout);
+            runtime.displayAdministration(), handbookCommands, reloadCommands), rollout);
     var actors = (java.util.function.Function<org.bukkit.entity.Player,
         com.ghostchu.quickshop.addon.exchange.command.CommandActor>) player ->
         new BukkitCommandActor(player, messages, player.locale(),

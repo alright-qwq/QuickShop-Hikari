@@ -159,6 +159,28 @@ class PersistentOrderServiceTest {
   }
 
   @Test
+  void allowsOrderFilledBeforeItsOwnRestingLiquidityBecomesReachable() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID externalSeller = fixture.accountWithItems(1);
+    UUID account = fixture.accountWithItems(1);
+    fixture.creditCurrency(account, "1000.00");
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), externalSeller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("99.00"), null, 1));
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), account, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    OrderReceipt receipt = fixture.service().place(new OrderRequest(
+        UUID.randomUUID(), account, "diamond-usd", OrderSide.BUY, "LIMIT",
+        new BigDecimal("101.00"), null, 1));
+
+    assertThat(receipt.trades()).singleElement()
+        .satisfies(trade -> assertThat(trade.sellerAccountId()).isEqualTo(externalSeller));
+    assertThat(fixture.tradeCount()).isEqualTo(1);
+    assertThat(fixture.frozenItems(account)).isEqualTo(1);
+    assertThat(fixture.frozenCurrency(account)).isZero();
+  }
+
+  @Test
   void playerCancellationCannotCancelAnotherAccountOrder() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID owner = fixture.accountWithItems(1);

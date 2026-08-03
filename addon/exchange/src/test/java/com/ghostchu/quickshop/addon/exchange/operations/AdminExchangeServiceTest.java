@@ -93,6 +93,107 @@ class AdminExchangeServiceTest {
   }
 
   @Test
+  void synchronizesConfiguredEnabledStateWithoutOverridingProtectiveStatuses() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminExchangeService admin = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
+    UUID actor = UUID.randomUUID();
+
+    fixture.repository().inTransaction(tx -> {
+      var state = tx.marketState(fixture.rules().marketId());
+      tx.updateMarketState(new com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState(
+          state.marketId(), MarketStatus.CLOSED, state.prioritySequence(), state.matchSequence(),
+          state.referencePrice(), state.lastPrice(), state.haltedUntil(), state.discoveryQuantity(),
+          state.circuitBreakerLevel(), state.version() + 1), state.version());
+      return null;
+    });
+
+    var opened = admin.synchronizeConfiguredMarketStates(
+        actor, UUID.randomUUID(), Map.of(fixture.rules().marketId(), true));
+
+    assertThat(opened.changedMarkets()).containsExactly(fixture.rules().marketId());
+    assertThat(opened.protectedMarkets()).isEmpty();
+    MarketStatus openedStatus = fixture.repository().inTransaction(
+        tx -> tx.marketState(fixture.rules().marketId()).status());
+    assertThat(openedStatus).isEqualTo(MarketStatus.OPEN);
+
+    admin.pauseMarket(actor, UUID.randomUUID(), fixture.rules().marketId(), "operator protection");
+    var protectedResult = admin.synchronizeConfiguredMarketStates(
+        actor, UUID.randomUUID(), Map.of(fixture.rules().marketId(), false));
+
+    assertThat(protectedResult.changedMarkets()).isEmpty();
+    assertThat(protectedResult.protectedMarkets()).containsExactly(fixture.rules().marketId());
+    MarketStatus protectedStatus = fixture.repository().inTransaction(
+        tx -> tx.marketState(fixture.rules().marketId()).status());
+    assertThat(protectedStatus).isEqualTo(MarketStatus.PAUSED);
+    assertThat(fixture.repository().auditRecords(Instant.EPOCH, Instant.now().plusSeconds(1)))
+        .extracting(AuditRecord::action)
+        .contains("CONFIG_OPEN_MARKET")
+        .doesNotContain("CONFIG_CLOSE_MARKET");
+  }
+
+  @Test
+  void synchronizesOpenMarketToClosedAndIsIdempotentByRequestId() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminExchangeService admin = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
+    UUID actor = UUID.randomUUID();
+    UUID requestId = UUID.randomUUID();
+
+    var first = admin.synchronizeConfiguredMarketStates(
+        actor, requestId, Map.of(fixture.rules().marketId(), false));
+    var duplicate = admin.synchronizeConfiguredMarketStates(
+        actor, requestId, Map.of(fixture.rules().marketId(), false));
+
+    assertThat(first).isEqualTo(duplicate);
+    assertThat(first.changedMarkets()).containsExactly(fixture.rules().marketId());
+    MarketStatus closedStatus = fixture.repository().inTransaction(
+        tx -> tx.marketState(fixture.rules().marketId()).status());
+    assertThat(closedStatus).isEqualTo(MarketStatus.CLOSED);
+    assertThat(fixture.repository().auditRecords(Instant.EPOCH, Instant.now().plusSeconds(1)))
+        .extracting(AuditRecord::action)
+        .containsExactly("CONFIG_CLOSE_MARKET");
+  }
+
+  @Test
+  void registersAndUnregistersMarketsForConfigurationReload() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminExchangeService admin = new AdminExchangeService(
+        new java.util.LinkedHashMap<>(Map.of(fixture.rules().marketId(), fixture.service())),
+        fixture.repository());
+
+    assertThat(admin.marketIds()).containsExactly(fixture.rules().marketId());
+
+    admin.registerMarket("second_market", fixture.restartedService());
+    assertThat(admin.marketIds()).contains(fixture.rules().marketId(), "second_market");
+
+    admin.unregisterMarket(fixture.rules().marketId());
+    assertThat(admin.marketIds()).containsExactly("second_market");
+
+    MarketStatus closedStatus = fixture.repository().inTransaction(
+        tx -> tx.marketState(fixture.rules().marketId()).status());
+    assertThat(closedStatus).isEqualTo(MarketStatus.CLOSED);
+  }
+
+  @Test
+  void refusesToUnregisterMarketWithOpenOrders() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), seller,
+        fixture.rules().marketId(), OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+    AdminExchangeService admin = new AdminExchangeService(
+        new java.util.LinkedHashMap<>(Map.of(fixture.rules().marketId(), fixture.service())),
+        fixture.repository());
+
+    org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+        admin.unregisterMarket(fixture.rules().marketId()))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("open orders");
+
+    assertThat(admin.marketIds()).contains(fixture.rules().marketId());
+  }
+
+  @Test
   void refusesToResumeARecoveringMarket() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     fixture.repository().inTransaction(tx -> {
