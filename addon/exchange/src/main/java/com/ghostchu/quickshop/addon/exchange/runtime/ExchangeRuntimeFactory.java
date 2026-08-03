@@ -238,6 +238,9 @@ public final class ExchangeRuntimeFactory {
             "displays.max-map-walls"),
         displayLimit(addon.getConfig().getInt("displays.max-signs", 256),
             "displays.max-signs"), displayPersistence);
+    displayAdministration.failureReporter((cause, context) ->
+        addon.getLogger().log(java.util.logging.Level.SEVERE,
+            "Exchange display " + context + " failed", cause));
     Bukkit.getPluginManager().registerEvents(
         new MarketDisplayListener(displayRegistry, displayService), addon);
     if (addon.getConfig().getBoolean("displays.enabled", true)) {

@@ -70,6 +70,22 @@ class MarketDisplayAdministrationTest {
   }
 
   @Test
+  void reportsTheRootCauseWhenMapWallCreationFails() throws Exception {
+    Fixture fixture = fixture(4, 4);
+    java.io.IOException failure = new java.io.IOException("map view service unavailable");
+    fixture.targets.creationFailure = failure;
+    Throwable[] reported = new Throwable[1];
+    fixture.withReporter((cause, context) -> reported[0] = cause);
+
+    fixture.administration.createMap(fixture.actor, "market",
+        new MarketChartDimensions(1, 1), MarketChartMode.KLINE, MarketChartPeriod.ONE_DAY);
+
+    assertThat(fixture.registry.mapWalls()).isEmpty();
+    assertThat(fixture.actor.message).isEqualTo("display-operation-failed");
+    assertThat(reported[0]).isSameAs(failure);
+  }
+
+  @Test
   void waitsForOwnerScheduledFrameCreationBeforePersisting() throws Exception {
     Fixture fixture = fixture(4, 4);
     MarketChartDimensions dimensions = new MarketChartDimensions(1, 1);
@@ -263,6 +279,8 @@ class MarketDisplayAdministrationTest {
     private final int maxSigns;
     private MarketDisplayAdministration.CheckedRunnable saver;
     private MarketDisplayAdministration administration;
+    private java.util.function.BiConsumer<Throwable, String> reporter =
+        (cause, context) -> { };
 
     private Fixture(Path file, int maxWalls, int maxSigns,
                     MarketDisplayAdministration.CheckedRunnable saver) {
@@ -293,6 +311,12 @@ class MarketDisplayAdministrationTest {
               return CompletableFuture.completedFuture(null);
             }
           }, saver, UUID::randomUUID, maxWalls, maxSigns, persistenceExecutor);
+      administration.failureReporter(reporter);
+    }
+
+    private void withReporter(java.util.function.BiConsumer<Throwable, String> reporter) {
+      this.reporter = reporter;
+      rebuildAdministration();
     }
   }
 
@@ -316,6 +340,7 @@ class MarketDisplayAdministrationTest {
   private static final class Targets implements MarketDisplayAdministration.Targets {
     private List<MapFrameBinding> createdFrames = List.of();
     private List<MapFrameBinding> rolledBack = List.of();
+    private Throwable creationFailure;
     private CompletableFuture<MarketDisplayAdministration.CreatedMapWall> pendingCreation;
     private Optional<UUID> targetedFrame = Optional.empty();
     private Optional<DisplayLocation> targetedSign = Optional.empty();
@@ -329,6 +354,9 @@ class MarketDisplayAdministrationTest {
       createCalls++;
       if (pendingCreation != null) {
         return pendingCreation;
+      }
+      if (creationFailure != null) {
+        return CompletableFuture.failedFuture(creationFailure);
       }
       return CompletableFuture.completedFuture(new MarketDisplayAdministration.CreatedMapWall(
           createdFrames, () -> {

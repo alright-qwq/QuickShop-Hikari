@@ -9,6 +9,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
 /** Coordinates asynchronous administrator display mutations and rollback-safe persistence. */
@@ -23,6 +24,7 @@ public final class MarketDisplayAdministration
   private final int maximumMapWalls;
   private final int maximumSigns;
   private final Executor persistenceExecutor;
+  private BiConsumer<Throwable, String> failureReporter = (cause, context) -> { };
   private final Object operationLock = new Object();
   private CompletableFuture<Void> operationTail = CompletableFuture.completedFuture(null);
   private boolean closed;
@@ -69,6 +71,7 @@ public final class MarketDisplayAdministration
       creation = Objects.requireNonNull(targets.createMapWall(actor, dimensions),
           "map wall creation future");
     } catch (Exception failure) {
+      report(failure, "map create");
       actor.message("display-operation-failed");
       return;
     }
@@ -99,7 +102,7 @@ public final class MarketDisplayAdministration
             dispatchMessage(actor, "display-map-created");
           });
     }));
-    reportFailure(actor, operation);
+    reportFailure(actor, operation, "map create");
   }
 
   @Override
@@ -159,7 +162,7 @@ public final class MarketDisplayAdministration
             }).thenApply(restored -> (Void) null);
           }).thenCompose(next -> next);
     });
-    reportFailure(owner, operation);
+    reportFailure(owner, operation, "map remove");
   }
 
   @Override
@@ -196,7 +199,7 @@ public final class MarketDisplayAdministration
         return null;
       });
     });
-    reportFailure(owner, operation);
+    reportFailure(owner, operation, "sign bind");
   }
 
   @Override
@@ -232,7 +235,7 @@ public final class MarketDisplayAdministration
         return null;
       });
     });
-    reportFailure(owner, operation);
+    reportFailure(owner, operation, "sign remove");
   }
 
   private void updateTargetedMap(CommandActor actor,
@@ -261,7 +264,7 @@ public final class MarketDisplayAdministration
         return null;
       });
     });
-    reportFailure(actor, operation);
+    reportFailure(actor, operation, "map update");
   }
 
   private CompletableFuture<Void> saveAsync() {
@@ -351,11 +354,25 @@ public final class MarketDisplayAdministration
     Objects.requireNonNull(refresh, "display refresh future").exceptionally(ignored -> null);
   }
 
-  private static void reportFailure(CommandActor actor, CompletableFuture<Void> operation) {
+  public void failureReporter(BiConsumer<Throwable, String> failureReporter) {
+    this.failureReporter = Objects.requireNonNull(failureReporter, "failureReporter");
+  }
+
+  private void reportFailure(CommandActor actor, CompletableFuture<Void> operation,
+                             String context) {
     operation.exceptionally(failure -> {
       dispatchMessage(actor, "display-operation-failed");
+      report(unwrap(failure), context);
       return null;
     });
+  }
+
+  private void report(Throwable failure, String context) {
+    try {
+      failureReporter.accept(failure, context);
+    } catch (RuntimeException ignored) {
+      // Logging must never break display operations.
+    }
   }
 
   private static void dispatchMessage(CommandActor actor, String key) {

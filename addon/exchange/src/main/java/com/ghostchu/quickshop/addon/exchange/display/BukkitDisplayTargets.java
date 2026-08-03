@@ -104,8 +104,8 @@ public final class BukkitDisplayTargets implements MarketDisplayAdministration.T
     }
   }
 
-  private void createMaps(List<ItemFrame> frames, int index, List<MapFrameBinding> created,
-                          CompletableFuture<MarketDisplayAdministration.CreatedMapWall> result) {
+  void createMaps(List<ItemFrame> frames, int index, List<MapFrameBinding> created,
+                  CompletableFuture<MarketDisplayAdministration.CreatedMapWall> result) {
     if (index >= frames.size()) {
       List<MapFrameBinding> bindings = List.copyOf(created);
       result.complete(new MarketDisplayAdministration.CreatedMapWall(bindings,
@@ -113,13 +113,17 @@ public final class BukkitDisplayTargets implements MarketDisplayAdministration.T
       return;
     }
     ItemFrame frame = frames.get(index);
-    QuickShop.folia().getScheduler().runAtEntityLater(frame, () -> {
+    access.runAtEntity(frame, () -> {
       try {
         if (!frame.isValid() || !frame.getItem().getType().isAir()) {
           throw new IllegalStateException("item frame is unavailable or occupied");
         }
         World world = frame.getWorld();
         MapView map = access.createMap(world);
+        if (map == null) {
+          throw new IllegalStateException(
+              "the server did not provide a new map view for " + world.getName());
+        }
         prepareMap(map);
         ItemStack item = new ItemStack(Material.FILLED_MAP);
         MapMeta meta = (MapMeta) item.getItemMeta();
@@ -144,7 +148,7 @@ public final class BukkitDisplayTargets implements MarketDisplayAdministration.T
         if (rollbackFailure != null) failure.addSuppressed(rollbackFailure);
         result.completeExceptionally(failure);
       });
-    }, 1L);
+    });
   }
 
   private CompletableFuture<Void> clearFrames(List<MapFrameBinding> frames) {

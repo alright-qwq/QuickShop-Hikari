@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.bukkit.FluidCollisionMode;
@@ -127,6 +128,37 @@ class BukkitDisplayTargetsTest {
         .get(5, TimeUnit.SECONDS);
 
     assertThat(calls).containsExactly("world", "location", "chunk", "entity", "entity-scheduler");
+  }
+
+  @Test
+  void reportsAClearErrorWhenTheServerCannotCreateANewMapView() throws Exception {
+    WorldMock world = server.addSimpleWorld("display-create-world");
+    ItemFrame frame = proxy(ItemFrame.class, (method, arguments) -> switch (method.getName()) {
+      case "getWorld" -> world;
+      case "getLocation" -> new Location(world, 1, 64, 1);
+      case "getUniqueId" -> UUID.randomUUID();
+      case "getAttachedFace" -> BlockFace.EAST;
+      case "getItem" -> new org.bukkit.inventory.ItemStack(org.bukkit.Material.AIR);
+      case "isValid" -> true;
+      default -> defaultValue(method.getReturnType());
+    });
+    BukkitDisplayTargets targets = new BukkitDisplayTargets(new Access() {
+      @Override public World world(UUID worldId) { return world; }
+      @Override public void runAtLocation(Location location, Runnable action) { action.run(); }
+      @Override public boolean chunkLoaded(World owner, int chunkX, int chunkZ) { return true; }
+      @Override public Entity entity(World owner, UUID entityId) { return frame; }
+      @Override public void runAtEntity(ItemFrame owner, Runnable action, Runnable retired) {
+        action.run();
+      }
+      @Override public MapView createMap(World owner) { return null; }
+    });
+    CompletableFuture<MarketDisplayAdministration.CreatedMapWall> result =
+        new CompletableFuture<>();
+
+    targets.createMaps(List.of(frame), 0, new ArrayList<>(), result);
+
+    assertThatThrownBy(() -> result.get(5, TimeUnit.SECONDS))
+        .hasRootCauseMessage("the server did not provide a new map view for " + world.getName());
   }
 
   private interface Access extends BukkitDisplayTargets.WorldAccess {}
