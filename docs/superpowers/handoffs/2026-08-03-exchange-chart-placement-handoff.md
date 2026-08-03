@@ -2,7 +2,7 @@
 
 ## 1. 当前状态
 
-- 分支:`fix/exchange-safety`,已推送远端,最新提交 `5fef263b8`。
+- 分支:`fix/exchange-safety`,已推送远端,最新提交 `984de9273`。
 - 工作树:本文件外无未提交改动;`outputs/` 为本地产物目录(不入库)。
 - 全量测试:646 tests, 0 failures(`addon/exchange`)。
 - 兼容基线:QuickShop-Hikari 6.2.0.11 / Paper 26.1.2。
@@ -46,16 +46,16 @@
 9. **可信价存在时原始价整线**:`drawRawLatestMarker` 由 4px 刻度改为整条虚线。
 10. **2x1(WIDE)布局加时间轴**:压缩 volume 区,新增紧凑时间轴。
 
-### 未做(已知限制)
-- **中文标题**:PixelFont 是 3×5 位图字体,中文无法用该字号渲染,当前仍回退为
-  `compactText(..., "MARKET")`。如需支持,需要引入 CJK 位图字体或换更大的标题方案,
-  属独立较大改动,建议与用户确认是否必要。
+### 标题(已改进,仍有已知限制)
+- **中文标题回退为市场 ID**(提交 984de9273):PixelFont 是 3×5 位图字体,中文无法渲染,
+  但标题现在回退为 ASCII 的市场 ID(如 `MINECRAF...`),不再是无信息量的 `MARKET`。
+- 真正的 CJK 渲染需要引入位图字体或更大的标题方案,属独立较大改动,建议与用户确认是否必要。
 
 ## 4. 下一步建议
 
 1. 用户换新 JAR + 改 markets.yml + 重启,验证放置成功;若有失败日志,按第 2 节收集。
 2. 真机确认地图渲染内容(标题仍为 MARKET,时间/价格已本地化)。
-3. 若用户要中文标题,再评估 CJK 字体方案。
+3. 标题已回退为市场 ID;若用户要求显示中文名,再评估 CJK 字体方案。
 4. 后续大功能(管理员热操作 GUI 等)未展开。
 
 ## 5. 环境注意事项
@@ -68,3 +68,4 @@
   取 `addon/exchange/target/Addon-Exchange-6.3.0.0-SNAPSHOT-11.jar`(shaded 主构件,774KB),
   复制到 `outputs/` 下正确的文件名;`target/exchange-*.jar` 是旧未 shade 构件,不要发用户。
 - 全量测试:`mvn -o -f pom.xml -pl addon/exchange -am -Dapi.version=1.44 test`(646 tests)。
+- 最新 JAR 已重建:`outputs/exchange-6.3.0.0-SNAPSHOT-11-reload-with-market-add-remove.jar`(774527 字节)。
