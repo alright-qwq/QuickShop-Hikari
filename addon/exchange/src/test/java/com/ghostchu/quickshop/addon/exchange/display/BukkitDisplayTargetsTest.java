@@ -7,6 +7,7 @@ import com.ghostchu.quickshop.addon.exchange.command.BukkitCommandActor;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -14,6 +15,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -161,6 +164,42 @@ class BukkitDisplayTargetsTest {
         .hasRootCauseMessage("the server did not provide a new map view for " + world.getName());
   }
 
+
+  @Test
+  void rollsBackCreatedFramesWhenALaterFrameFails() throws Exception {
+    WorldMock world = server.addSimpleWorld("display-create-world");
+    Map<UUID, AtomicReference<org.bukkit.inventory.ItemStack>> items = new HashMap<>();
+    ItemFrame first = frameWithItem(world, 1, 64, 1, UUID.randomUUID(), items);
+    ItemFrame second = frameWithItem(world, 2, 64, 1, UUID.randomUUID(), items);
+    AtomicInteger mapViews = new AtomicInteger();
+    BukkitDisplayTargets targets = new BukkitDisplayTargets(new Access() {
+      @Override public World world(UUID worldId) { return world; }
+      @Override public void runAtLocation(Location location, Runnable action) { action.run(); }
+      @Override public boolean chunkLoaded(World owner, int chunkX, int chunkZ) { return true; }
+      @Override public Entity entity(World owner, UUID entityId) {
+        return first.getUniqueId().equals(entityId) ? first : second;
+      }
+      @Override public void runAtEntity(ItemFrame owner, Runnable action, Runnable retired) {
+        action.run();
+      }
+      @Override public MapView createMap(World owner) {
+        return mapViews.getAndIncrement() == 0 ? mapView(world, 42) : null;
+      }
+    });
+    CompletableFuture<MarketDisplayAdministration.CreatedMapWall> result =
+        new CompletableFuture<>();
+
+    targets.createMaps(List.of(first, second), 0, new ArrayList<>(), result);
+
+    assertThatThrownBy(() -> result.get(5, TimeUnit.SECONDS))
+        .hasRootCauseMessage("the server did not provide a new map view for " + world.getName());
+    assertThat(items.get(first.getUniqueId()).get().getType())
+        .isEqualTo(org.bukkit.Material.AIR);
+    assertThat(items.get(second.getUniqueId()).get().getType())
+        .isEqualTo(org.bukkit.Material.AIR);
+  }
+
+
   private interface Access extends BukkitDisplayTargets.WorldAccess {}
 
   private static void assertLayout(
@@ -190,8 +229,44 @@ class BukkitDisplayTargetsTest {
     });
   }
 
+  private static MapView mapView(World world, int id) {
+    return proxy(MapView.class, (method, arguments) -> switch (method.getName()) {
+      case "getId" -> id;
+      case "getWorld" -> world;
+      case "getRenderers" -> java.util.List.of();
+      case "removeRenderer" -> true;
+      case "setTrackingPosition" -> null;
+      case "setUnlimitedTracking" -> null;
+      case "setLocked" -> null;
+      default -> defaultValue(method.getReturnType());
+    });
+  }
+
+  private static ItemFrame frameWithItem(
+      World world, int x, int y, int z, UUID id,
+      Map<UUID, AtomicReference<org.bukkit.inventory.ItemStack>> items) {
+    AtomicReference<org.bukkit.inventory.ItemStack> item =
+        new AtomicReference<>(new org.bukkit.inventory.ItemStack(org.bukkit.Material.AIR));
+    items.put(id, item);
+    return proxy(ItemFrame.class, (method, arguments) -> switch (method.getName()) {
+      case "getWorld" -> world;
+      case "getLocation" -> new Location(world, x, y, z);
+      case "getUniqueId" -> id;
+      case "getAttachedFace" -> BlockFace.EAST;
+      case "getItem" -> item.get();
+      case "setItem" -> {
+        item.set((org.bukkit.inventory.ItemStack) arguments[0]);
+        yield null;
+      }
+      case "setItemDropChance" -> null;
+      case "isValid" -> true;
+      default -> defaultValue(method.getReturnType());
+    });
+  }
+
   @SuppressWarnings("unchecked")
   private static <T> T proxy(Class<T> type, Invocation invocation) {
+
     return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
         (ignored, method, arguments) -> invocation.invoke(method, arguments));
   }

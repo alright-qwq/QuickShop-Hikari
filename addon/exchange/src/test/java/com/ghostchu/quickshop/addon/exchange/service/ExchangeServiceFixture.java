@@ -1,6 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.service;
 
 import com.ghostchu.quickshop.addon.exchange.core.TestFixtures;
+import com.ghostchu.quickshop.addon.exchange.core.model.TimeOrderedIdGenerator;
 import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
 import com.ghostchu.quickshop.addon.exchange.config.MarketRegistry;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
@@ -100,6 +101,13 @@ public final class ExchangeServiceFixture {
 
   public PersistentOrderService service() {
     return service;
+  }
+
+  PersistentOrderService serviceWithClock(java.util.function.Supplier<Instant> now) {
+    return new PersistentOrderService(repository, rules,
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP,
+        new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), now);
   }
 
   PersistentOrderService serviceWithAccountLimits(

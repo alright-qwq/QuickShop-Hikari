@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -217,13 +218,17 @@ class PersistentOrderServiceTest {
   @Test
   void rejectsSixthOrderFromAccountWithinOneSecond() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    java.util.concurrent.atomic.AtomicReference<Instant> clock =
+        new java.util.concurrent.atomic.AtomicReference<>(
+            Instant.parse("2026-01-01T00:00:00Z"));
+    PersistentOrderService service = fixture.serviceWithClock(clock::get);
     UUID seller = fixture.accountWithItems(6);
     for (int index = 0; index < 5; index++) {
-      fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+      service.place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
           OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
     }
 
-    assertThatThrownBy(() -> fixture.service().place(new OrderRequest(
+    assertThatThrownBy(() -> service.place(new OrderRequest(
         UUID.randomUUID(), seller, "diamond-usd", OrderSide.SELL, "LIMIT",
         new BigDecimal("100.00"), null, 1)))
         .isInstanceOf(IllegalStateException.class)

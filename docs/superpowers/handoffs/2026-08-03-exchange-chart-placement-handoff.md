@@ -2,9 +2,9 @@
 
 ## 1. 当前状态
 
-- 分支:`fix/exchange-safety`,已推送远端,最新提交 `5968ff863`。
+- 分支:`fix/exchange-safety`,已推送远端,最新提交见 git log(本批新增测试加固提交)。
 - 工作树:本文件外无未提交改动;`outputs/` 为本地产物目录(不入库)。
-- 全量测试:648 tests, 0 failures(`addon/exchange`)。
+- 全量测试:649 tests, 0 failures(`addon/exchange`)。
 - 兼容基线:QuickShop-Hikari 6.2.0.11 / Paper 26.1.2。
 
 ## 2. 本轮已完成:图放不下来的修复(用户首要问题)
@@ -50,6 +50,17 @@
 - **中文标题回退为市场 ID**(提交 984de9273):PixelFont 是 3×5 位图字体,中文无法渲染,
   但标题现在回退为 ASCII 的市场 ID(如 `MINECRAF...`),不再是无信息量的 `MARKET`。
 - 真正的 CJK 渲染需要引入位图字体或更大的标题方案,属独立较大改动,建议与用户确认是否必要。
+
+## 5.5 本批测试加固(2026-08-04)
+
+1. `BukkitDisplayTargetsTest.rollsBackCreatedFramesWhenALaterFrameFails`:
+   多框地图墙创建到一半失败时,已创建的框必须回滚清空——这正是用户「打出放置命令后显示出现问题、已回退」
+   场景的回归保护,根因仍通过 `Exchange display map create failed` 日志上报。
+2. `PersistentOrderServiceTest.rejectsSixthOrderFromAccountWithinOneSecond` 改为注入固定时钟
+   (`ExchangeServiceFixture.serviceWithClock`),消除全量跑时的时序 flaky(5 笔 SQLite 下单在真实时钟下
+   可能跨过 1 秒窗口)。生产代码无需改动,仅测试注入。
+3. 已验证 FoliaLib 0.5.1 的 `runAtEntityLater(entity, action, retired, delay)` 四参重载在
+   Paper/Spigot 实现(`SpigotImplementation`)同样存在,非 Folia 服务器不会 NoSuchMethodError。
 
 ## 4. 下一步建议
 
