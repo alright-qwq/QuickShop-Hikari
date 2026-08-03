@@ -299,15 +299,30 @@ public final class BukkitDisplayTargets implements MarketDisplayAdministration.T
     for (FramePosition position : available) {
       indexed.put(horizontal(position, right) + ":" + position.y(), position);
     }
+    FramePosition anchor = indexed.get(left + ":" + top);
     List<FramePosition> result = new ArrayList<>();
     for (int row = 0; row < dimensions.rows(); row++) {
       for (int column = 0; column < dimensions.columns(); column++) {
         FramePosition position = indexed.get((left + column) + ":" + (top - row));
-        if (position == null) throw new IllegalArgumentException("incomplete item frame wall");
+        if (position == null) {
+          throw new IllegalArgumentException("incomplete item frame wall: missing frame at "
+              + "column " + column + ", row " + row + " (expected block "
+              + expectedBlock(anchor, right, column, row) + ", wall anchored at "
+              + (anchor == null ? "unknown" : "x=" + anchor.x() + ", y=" + anchor.y()
+                  + ", z=" + anchor.z()) + ", requested " + dimensions.columns() + "x"
+              + dimensions.rows() + ")");
+        }
         result.add(position);
       }
     }
     return List.copyOf(result);
+  }
+
+  private static String expectedBlock(FramePosition anchor, Vector right, int column, int row) {
+    if (anchor == null) return "unknown";
+    return "x=" + (anchor.x() + right.getBlockX() * column)
+        + ", y=" + (anchor.y() - row)
+        + ", z=" + (anchor.z() + right.getBlockZ() * column);
   }
 
   private static Vector rightVector(BlockFace attachedFace) {

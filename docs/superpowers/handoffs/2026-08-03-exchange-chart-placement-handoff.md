@@ -4,7 +4,7 @@
 
 - 分支:`fix/exchange-safety`,已推送远端,最新提交见 git log(本批新增测试加固提交)。
 - 工作树:本文件外无未提交改动;`outputs/` 为本地产物目录(不入库)。
-- 全量测试:649 tests, 0 failures(`addon/exchange`)。
+- 全量测试:650 tests, 0 failures(`addon/exchange`)。
 - 兼容基线:QuickShop-Hikari 6.2.0.11 / Paper 26.1.2。
 
 ## 2. 本轮已完成:图放不下来的修复(用户首要问题)
@@ -61,6 +61,18 @@
    可能跨过 1 秒窗口)。生产代码无需改动,仅测试注入。
 3. 已验证 FoliaLib 0.5.1 的 `runAtEntityLater(entity, action, retired, delay)` 四参重载在
    Paper/Spigot 实现(`SpigotImplementation`)同样存在,非 Folia 服务器不会 NoSuchMethodError。
+
+### 5.6 墙不完整诊断增强(2026-08-04)
+
+用户询问「同一面墙判定标准」后,针对「图放不下来」最常见的可自查原因补强诊断:
+- `BukkitDisplayTargets.layout` 缺格时,异常消息现在带缺的是第几列/第几行、缺格的预期世界坐标
+  (`expected block x=..., y=..., z=...`)以及墙左上角锚点坐标。
+- 玩家端新增参数化消息 `display-frame-wall-incomplete-detail`(中英双语):
+  「缺少第 X 列第 Y 行的展示框(应在 x,y,z 放置)」,玩家不用翻日志就能数格子定位。
+- 服务器日志仍保留完整堆栈与根因;`display-frame-wall-incomplete` 通用消息保留为无法解析细节时的兜底。
+- 判定标准不变:`getAttachedFace()` 相同 + 同朝向完整矩形;新增测试
+  `tellsThePlayerExactlyWhichFrameCellIsMissing` 与 `rejectsFloorAndCeilingFramesAndIncompleteWalls`
+  断言坐标细节。
 
 ## 4. 下一步建议
 

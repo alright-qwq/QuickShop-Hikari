@@ -100,6 +100,21 @@ class MarketDisplayAdministrationTest {
         .isEqualTo("display-operation-failed");
   }
 
+  @Test
+  void tellsThePlayerExactlyWhichFrameCellIsMissing() throws Exception {
+    Fixture fixture = fixture(4, 4);
+    fixture.targets.creationFailure = new IllegalArgumentException(
+        "incomplete item frame wall: missing frame at column 1, row 0 (expected block "
+            + "x=1, y=64, z=0, wall anchored at x=0, y=64, z=0, requested 2x1)");
+
+    fixture.administration.createMap(fixture.actor, "market",
+        new MarketChartDimensions(1, 1), MarketChartMode.KLINE, MarketChartPeriod.ONE_DAY);
+
+    assertThat(fixture.actor.message).isEqualTo("display-frame-wall-incomplete-detail");
+    assertThat(fixture.actor.messageArguments)
+        .containsExactly("1", "0", "1", "64", "0");
+  }
+
   private String messageFor(Throwable failure) {
     Fixture fixture = fixture(4, 4);
     fixture.targets.creationFailure = failure;
@@ -430,12 +445,16 @@ class MarketDisplayAdministrationTest {
   private static final class Actor implements CommandActor {
     private final UUID id = UUID.randomUUID();
     private String message;
+    private Object[] messageArguments = new Object[0];
     private int completionDispatches;
 
     @Override public UUID accountId() { return id; }
     @Override public boolean hasPermission(String permission) { return true; }
     @Override public boolean isPlayer() { return true; }
-    @Override public void message(String key, Object... arguments) { message = key; }
+    @Override public void message(String key, Object... arguments) {
+      message = key;
+      messageArguments = arguments;
+    }
     @Override public void dispatchCompletion(Runnable completion) {
       completionDispatches++;
       completion.run();

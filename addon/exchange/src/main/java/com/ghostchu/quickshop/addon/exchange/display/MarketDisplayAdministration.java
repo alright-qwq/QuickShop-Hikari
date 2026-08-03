@@ -10,6 +10,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.function.Supplier;
 
 /** Coordinates asynchronous administrator display mutations and rollback-safe persistence. */
@@ -24,6 +26,9 @@ public final class MarketDisplayAdministration
   private final int maximumMapWalls;
   private final int maximumSigns;
   private final Executor persistenceExecutor;
+  private static final Pattern MISSING_FRAME_CELL = Pattern.compile(
+      "incomplete item frame wall: missing frame at column (\\d+), row (\\d+) "
+          + "\\(expected block x=(-?\\d+), y=(-?\\d+), z=(-?\\d+)");
   private BiConsumer<Throwable, String> failureReporter = (cause, context) -> { };
   private final Object operationLock = new Object();
   private CompletableFuture<Void> operationTail = CompletableFuture.completedFuture(null);
@@ -373,7 +378,14 @@ public final class MarketDisplayAdministration
     if (message.contains("no item frame target")) {
       dispatchMessage(actor, "display-frame-target-missing");
     } else if (message.contains("incomplete item frame wall")) {
-      dispatchMessage(actor, "display-frame-wall-incomplete");
+      Matcher missing = MISSING_FRAME_CELL.matcher(message);
+      if (missing.find()) {
+        dispatchMessage(actor, "display-frame-wall-incomplete-detail",
+            missing.group(1), missing.group(2),
+            missing.group(3), missing.group(4), missing.group(5));
+      } else {
+        dispatchMessage(actor, "display-frame-wall-incomplete");
+      }
     } else if (message.contains("occupied")) {
       dispatchMessage(actor, "display-frame-occupied");
     } else if (message.contains("did not provide a new map view")) {
@@ -391,9 +403,9 @@ public final class MarketDisplayAdministration
     }
   }
 
-  private static void dispatchMessage(CommandActor actor, String key) {
+  private static void dispatchMessage(CommandActor actor, String key, Object... arguments) {
     try {
-      actor.dispatchCompletion(() -> actor.message(key));
+      actor.dispatchCompletion(() -> actor.message(key, arguments));
     } catch (RuntimeException ignored) {
       // The player became unavailable while the asynchronous operation completed.
     }

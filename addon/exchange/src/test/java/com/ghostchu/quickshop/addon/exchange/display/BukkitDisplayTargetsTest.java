@@ -100,7 +100,10 @@ class BukkitDisplayTargetsTest {
         .isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> BukkitDisplayTargets.layout(BlockFace.NORTH,
         List.of(frame(0, 64, 0)), new MarketChartDimensions(2, 1)))
-        .isInstanceOf(IllegalArgumentException.class);
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("column 1")
+        .hasMessageContaining("expected block x=1, y=64, z=0")
+        .hasMessageContaining("wall anchored at x=0, y=64, z=0");
   }
 
   @Test
