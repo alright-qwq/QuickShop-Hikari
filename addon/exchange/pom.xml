@@ -25,6 +25,16 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
+        <configuration>
+          <!--
+            Deploy the SHADED artifact only: QuickShop relocates TNML to
+            com.ghostchu.quickshop.shade.tne at runtime, and the shade step rewrites this
+            addon's TNML references to that relocated package. Making the shaded jar the
+            main artifact prevents deploying the unshaded jar, which fails on startup with
+            NoClassDefFoundError: net/tnemc/menu/core/Menu.
+          -->
+          <shadedArtifactAttached>false</shadedArtifactAttached>
+        </configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
