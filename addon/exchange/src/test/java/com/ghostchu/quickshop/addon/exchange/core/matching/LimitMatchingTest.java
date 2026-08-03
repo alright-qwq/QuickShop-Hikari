@@ -61,6 +61,34 @@ class LimitMatchingTest {
   }
 
   @Test
+  void pairRestrictionSkipsOnlyThatCounterpartyAndKeepsOtherLiquidityAvailable() {
+    OrderBook book = new OrderBook();
+    AtomicLong matches = new AtomicLong();
+    UUID buyer = UUID.randomUUID();
+    UUID restrictedSeller = UUID.randomUUID();
+    UUID availableSeller = UUID.randomUUID();
+    MatchingEngine engine = new MatchingEngine(
+        book, TestFixtures.rules(), new FeeCalculator(2), matches::incrementAndGet,
+        () -> Instant.parse("2026-07-26T00:00:00Z"), UUID::randomUUID,
+        ignored -> true, ignored -> new com.ghostchu.quickshop.addon.exchange.core.model.FeeRates(
+            TestFixtures.rules().makerFeeRate(), TestFixtures.rules().takerFeeRate()),
+        (incoming, maker) -> !(incoming.accountId().equals(buyer)
+            && maker.accountId().equals(restrictedSeller)));
+    engine.submit(order(OrderSide.SELL, "99.00", 1, 1, restrictedSeller,
+        "diamond-usd", UUID.randomUUID()));
+    engine.submit(order(OrderSide.SELL, "100.00", 1, 2, availableSeller,
+        "diamond-usd", UUID.randomUUID()));
+
+    MatchResult result = engine.submit(order(OrderSide.BUY, "101.00", 1, 3, buyer,
+        "diamond-usd", UUID.randomUUID()));
+
+    assertThat(result.trades()).singleElement()
+        .satisfies(trade -> assertThat(trade.sellerAccountId()).isEqualTo(availableSeller));
+    assertThat(book.best(OrderSide.SELL)).get()
+        .extracting(Order::accountId).isEqualTo(restrictedSeller);
+  }
+
+  @Test
   void rejectsDuplicateCrossMarketAndNonOpenIncomingOrdersWithoutMutation() {
     OrderBook book = new OrderBook();
     MatchingEngine engine = engine(book);

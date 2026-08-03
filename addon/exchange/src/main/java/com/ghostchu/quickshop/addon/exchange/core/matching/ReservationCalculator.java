@@ -5,8 +5,11 @@ import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
+import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 
 public final class ReservationCalculator {
@@ -36,12 +39,18 @@ public final class ReservationCalculator {
 
   public Reservation reserve(Order order, MarketRules rules, OrderBook book,
                              Predicate<BigDecimal> executablePrice) {
+    return reserve(order, rules, book, executablePrice, (incoming, maker) -> true);
+  }
+
+  public Reservation reserve(Order order, MarketRules rules, OrderBook book,
+                             Predicate<BigDecimal> executablePrice,
+                             BiPredicate<Order, Order> executablePair) {
     validate(order, rules);
     if (order.side() == OrderSide.SELL || order.type() == OrderType.LIMIT) {
       return reserve(order, rules);
     }
-    if (book == null || executablePrice == null) {
-      throw new IllegalArgumentException("book and executable price guard are required");
+    if (book == null || executablePrice == null || executablePair == null) {
+      throw new IllegalArgumentException("book and executable guards are required");
     }
 
     long remaining = order.remainingQuantity();
@@ -51,6 +60,9 @@ public final class ReservationCalculator {
       validateExecutableMaker(maker, order);
       if (maker.limitPrice().compareTo(order.slippageBoundary()) > 0) {
         break;
+      }
+      if (!executablePair.test(order, maker)) {
+        continue;
       }
       long quantity = Math.min(remaining, maker.remainingQuantity());
       BigDecimal fillNotional = maker.limitPrice().multiply(BigDecimal.valueOf(quantity));
@@ -62,6 +74,32 @@ public final class ReservationCalculator {
       }
     }
     return new Reservation(notional.add(feesForFills), 0);
+  }
+
+  public Reservation reserve(Order order, MarketRules rules, List<Trade> trades) {
+    validate(order, rules);
+    if (order.side() == OrderSide.SELL || order.type() == OrderType.LIMIT) {
+      return reserve(order, rules);
+    }
+    if (trades == null) {
+      throw new IllegalArgumentException("market buy trades are required");
+    }
+    BigDecimal frozen = BigDecimal.ZERO;
+    long quantity = 0;
+    for (Trade trade : trades) {
+      if (trade == null || !order.marketId().equals(trade.marketId())
+          || !order.accountId().equals(trade.buyerAccountId())
+          || !order.orderId().equals(trade.takerOrderId())) {
+        throw new IllegalArgumentException("trade does not belong to market buy order");
+      }
+      BigDecimal notional = trade.price().multiply(BigDecimal.valueOf(trade.quantity()));
+      frozen = frozen.add(notional).add(trade.takerFee());
+      quantity = Math.addExact(quantity, trade.quantity());
+    }
+    if (quantity > order.remainingQuantity()) {
+      throw new IllegalArgumentException("market buy trades exceed order quantity");
+    }
+    return new Reservation(frozen, 0);
   }
 
   private static void validate(Order order, MarketRules rules) {

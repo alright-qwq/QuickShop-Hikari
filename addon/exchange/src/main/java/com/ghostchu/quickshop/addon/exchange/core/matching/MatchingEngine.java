@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.LongSupplier;
 import java.util.function.Function;
+import java.util.function.BiPredicate;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -29,6 +31,8 @@ public final class MatchingEngine {
   private final Supplier<UUID> tradeIds;
   private final Predicate<BigDecimal> executablePrice;
   private final Function<Order, FeeRates> feeRates;
+  private final BiPredicate<Order, Order> executablePair;
+  private final Consumer<Trade> plannedTrade;
 
   public MatchingEngine(OrderBook book, MarketRules rules, FeeCalculator fees, LongSupplier matchSequence,
                         Supplier<Instant> now, Supplier<UUID> tradeIds) {
@@ -46,8 +50,28 @@ public final class MatchingEngine {
                         Supplier<Instant> now, Supplier<UUID> tradeIds,
                         Predicate<BigDecimal> executablePrice,
                         Function<Order, FeeRates> feeRates) {
+    this(book, rules, fees, matchSequence, now, tradeIds, executablePrice, feeRates,
+        (incoming, maker) -> true, ignored -> { });
+  }
+
+  public MatchingEngine(OrderBook book, MarketRules rules, FeeCalculator fees, LongSupplier matchSequence,
+                        Supplier<Instant> now, Supplier<UUID> tradeIds,
+                        Predicate<BigDecimal> executablePrice,
+                        Function<Order, FeeRates> feeRates,
+                        BiPredicate<Order, Order> executablePair) {
+    this(book, rules, fees, matchSequence, now, tradeIds, executablePrice, feeRates,
+        executablePair, ignored -> { });
+  }
+
+  public MatchingEngine(OrderBook book, MarketRules rules, FeeCalculator fees, LongSupplier matchSequence,
+                        Supplier<Instant> now, Supplier<UUID> tradeIds,
+                        Predicate<BigDecimal> executablePrice,
+                        Function<Order, FeeRates> feeRates,
+                        BiPredicate<Order, Order> executablePair,
+                        Consumer<Trade> plannedTrade) {
     if (book == null || rules == null || fees == null || matchSequence == null || now == null
-        || tradeIds == null || executablePrice == null || feeRates == null) {
+        || tradeIds == null || executablePrice == null || feeRates == null
+        || executablePair == null || plannedTrade == null) {
       throw new IllegalArgumentException("matching dependencies are required");
     }
     this.book = book;
@@ -58,6 +82,8 @@ public final class MatchingEngine {
     this.tradeIds = tradeIds;
     this.executablePrice = executablePrice;
     this.feeRates = feeRates;
+    this.executablePair = executablePair;
+    this.plannedTrade = plannedTrade;
   }
 
   public MatchResult submit(Order incoming) {
@@ -84,21 +110,12 @@ public final class MatchingEngine {
     ArrayList<Order> makers = new ArrayList<>();
     ArrayList<Trade> trades = new ArrayList<>();
     Order taker = incoming;
-    for (Order maker : executionPlan.makers()) {
-      long quantity = Math.min(taker.remainingQuantity(), maker.remainingQuantity());
-      Instant executedAt = now.get();
-      Order nextTaker = taker.withRemaining(taker.remainingQuantity() - quantity, executedAt);
-      Order changedMaker = maker.withRemaining(maker.remainingQuantity() - quantity, executedAt);
-      UUID buyer = incoming.side() == OrderSide.BUY ? incoming.accountId() : maker.accountId();
-      UUID seller = incoming.side() == OrderSide.SELL ? incoming.accountId() : maker.accountId();
-      BigDecimal notional = maker.limitPrice().multiply(BigDecimal.valueOf(quantity));
-      BigDecimal makerFee = fees.fee(notional, feeRates.apply(maker).makerRate());
-      BigDecimal takerFee = fees.fee(notional, feeRates.apply(incoming).takerRate());
-      Trade trade = new Trade(tradeIds.get(), incoming.marketId(), maker.orderId(), incoming.orderId(),
-          buyer, seller, maker.limitPrice(), quantity,
-          makerFee, takerFee, matchSequence.getAsLong(), executedAt);
-      taker = nextTaker;
-      makers.add(changedMaker);
+    for (PlannedFill fill : executionPlan.fills()) {
+      Trade trade = fill.trade();
+      Order maker = fill.maker();
+      taker = taker.withRemaining(taker.remainingQuantity() - trade.quantity(), trade.executedAt());
+      makers.add(maker.withRemaining(
+          maker.remainingQuantity() - trade.quantity(), trade.executedAt()));
       trades.add(trade);
     }
     if (taker.type() == OrderType.MARKET && taker.remainingQuantity() > 0) {
@@ -157,7 +174,7 @@ public final class MatchingEngine {
   }
 
   private ExecutionPlan planExecution(Order incoming, OrderSide opposite) {
-    ArrayList<Order> makers = new ArrayList<>();
+    ArrayList<PlannedFill> fills = new ArrayList<>();
     long remaining = incoming.remainingQuantity();
     for (Order maker : book.executableOrders(opposite, executablePrice)) {
       if (!maker.marketId().equals(incoming.marketId())) {
@@ -169,13 +186,27 @@ public final class MatchingEngine {
       if (maker.accountId().equals(incoming.accountId())) {
         return new ExecutionPlan(List.of(), remaining > 0);
       }
-      makers.add(maker);
-      remaining -= Math.min(remaining, maker.remainingQuantity());
+      if (!executablePair.test(incoming, maker)) {
+        continue;
+      }
+      long quantity = Math.min(remaining, maker.remainingQuantity());
+      Instant executedAt = now.get();
+      UUID buyer = incoming.side() == OrderSide.BUY ? incoming.accountId() : maker.accountId();
+      UUID seller = incoming.side() == OrderSide.SELL ? incoming.accountId() : maker.accountId();
+      BigDecimal notional = maker.limitPrice().multiply(BigDecimal.valueOf(quantity));
+      BigDecimal makerFee = fees.fee(notional, feeRates.apply(maker).makerRate());
+      BigDecimal takerFee = fees.fee(notional, feeRates.apply(incoming).takerRate());
+      Trade trade = new Trade(tradeIds.get(), incoming.marketId(), maker.orderId(), incoming.orderId(),
+          buyer, seller, maker.limitPrice(), quantity,
+          makerFee, takerFee, matchSequence.getAsLong(), executedAt);
+      fills.add(new PlannedFill(maker, trade));
+      plannedTrade.accept(trade);
+      remaining -= quantity;
       if (remaining == 0) {
         break;
       }
     }
-    return new ExecutionPlan(makers, false);
+    return new ExecutionPlan(fills, false);
   }
 
   private static boolean crosses(Order taker, Order maker) {
@@ -186,9 +217,17 @@ public final class MatchingEngine {
         : maker.limitPrice().compareTo(boundary) >= 0;
   }
 
-  private record ExecutionPlan(List<Order> makers, boolean selfTradeRejected) {
+  private record PlannedFill(Order maker, Trade trade) {
+    private PlannedFill {
+      if (maker == null || trade == null) {
+        throw new IllegalArgumentException("planned fill is required");
+      }
+    }
+  }
+
+  private record ExecutionPlan(List<PlannedFill> fills, boolean selfTradeRejected) {
     private ExecutionPlan {
-      makers = List.copyOf(makers);
+      fills = List.copyOf(fills);
     }
   }
 }
