@@ -38,6 +38,10 @@ en-US:
   display-market-unknown: The requested Exchange market does not exist.
   display-limit-reached: The configured market display capacity has been reached.
   display-operation-failed: The market display operation failed; check the server log for the root cause.
+  display-frame-target-missing: Look directly at an empty item frame on the wall and try again.
+  display-frame-wall-incomplete: The item frame wall is not a complete rectangle on one wall; check the frames and try again.
+  display-frame-occupied: Every item frame on the wall must be empty before creating a map wall.
+  display-map-view-unavailable: The server could not create a new map view; check the server log.
   ui-data-unavailable: Exchange data is currently unavailable.
   ui-history-trade-title: '<0> trade @ <1>'
   ui-history-trade-quantity: 'Quantity: <0>'
@@ -206,6 +210,10 @@ zh-CN:
   display-market-unknown: '指定的交易所市场不存在。'
   display-limit-reached: '已达到配置允许的行情展示容量上限。'
   display-operation-failed: '行情展示操作失败；详情请查看服务器日志中的 Exchange display 报错。'
+  display-frame-target-missing: '请正对一个墙上的空物品展示框后重试。'
+  display-frame-wall-incomplete: '物品展示框墙不是同一面墙上的完整矩形；请检查展示框后重试。'
+  display-frame-occupied: '创建行情地图墙前，墙上每个物品展示框都必须是空的。'
+  display-map-view-unavailable: '服务器无法创建新的地图视图；请查看服务器日志。'
   ui-data-unavailable: '交易所数据暂时不可用。'
   ui-history-trade-title: '<0> 成交 @ <1>'
   ui-history-trade-quantity: '数量：<0>'

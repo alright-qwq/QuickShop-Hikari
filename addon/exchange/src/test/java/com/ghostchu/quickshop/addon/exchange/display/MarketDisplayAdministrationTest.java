@@ -86,6 +86,29 @@ class MarketDisplayAdministrationTest {
   }
 
   @Test
+  void tellsThePlayerWhyTheMapWallCouldNotBePlaced() throws Exception {
+    assertThat(messageFor(new IllegalArgumentException("no item frame target")))
+        .isEqualTo("display-frame-target-missing");
+    assertThat(messageFor(new IllegalArgumentException("incomplete item frame wall")))
+        .isEqualTo("display-frame-wall-incomplete");
+    assertThat(messageFor(new IllegalStateException("item frame wall contains occupied frames")))
+        .isEqualTo("display-frame-occupied");
+    assertThat(messageFor(new IllegalStateException(
+        "the server did not provide a new map view for world")))
+        .isEqualTo("display-map-view-unavailable");
+    assertThat(messageFor(new java.io.IOException("unexpected")))
+        .isEqualTo("display-operation-failed");
+  }
+
+  private String messageFor(Throwable failure) {
+    Fixture fixture = fixture(4, 4);
+    fixture.targets.creationFailure = failure;
+    fixture.administration.createMap(fixture.actor, "market",
+        new MarketChartDimensions(1, 1), MarketChartMode.KLINE, MarketChartPeriod.ONE_DAY);
+    return fixture.actor.message;
+  }
+
+  @Test
   void reportsRefreshFailureInsteadOfClaimingTheWallWasCreated() throws Exception {
     Fixture fixture = fixture(4, 4);
     java.io.IOException failure = new java.io.IOException("renderer unavailable");

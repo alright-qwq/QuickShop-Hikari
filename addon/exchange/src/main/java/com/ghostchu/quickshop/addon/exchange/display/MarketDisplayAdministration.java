@@ -362,10 +362,25 @@ public final class MarketDisplayAdministration
   private void reportFailure(CommandActor actor, CompletableFuture<Void> operation,
                              String context) {
     operation.exceptionally(failure -> {
-      dispatchMessage(actor, "display-operation-failed");
+      dispatchFailure(actor, failure);
       report(unwrap(failure), context);
       return null;
     });
+  }
+
+  private static void dispatchFailure(CommandActor actor, Throwable failure) {
+    String message = String.valueOf(unwrap(failure).getMessage());
+    if (message.contains("no item frame target")) {
+      dispatchMessage(actor, "display-frame-target-missing");
+    } else if (message.contains("incomplete item frame wall")) {
+      dispatchMessage(actor, "display-frame-wall-incomplete");
+    } else if (message.contains("occupied")) {
+      dispatchMessage(actor, "display-frame-occupied");
+    } else if (message.contains("did not provide a new map view")) {
+      dispatchMessage(actor, "display-map-view-unavailable");
+    } else {
+      dispatchMessage(actor, "display-operation-failed");
+    }
   }
 
   private void report(Throwable failure, String context) {
