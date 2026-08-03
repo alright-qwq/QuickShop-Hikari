@@ -69,8 +69,10 @@ public final class AdaptiveChartIntervalSelector {
                                          MarketChartInterval interval) {
     List<List<Candle>> runs = splitRuns(aggregated, interval);
     if (runs.size() > target) {
-      // Every active run needs a representative to preserve the sparse timeline and its gaps.
-      return aggregated;
+      // Runs outnumber the budget: keep one representative per active run so the sparse
+      // timeline and its gaps are preserved instead of merging across inactive periods.
+      List<Candle> representatives = runs.stream().map(run -> aggregate(run, interval)).toList();
+      return List.copyOf(representatives);
     }
     int[] groups = new int[runs.size()];
     int totalGroups = 0;

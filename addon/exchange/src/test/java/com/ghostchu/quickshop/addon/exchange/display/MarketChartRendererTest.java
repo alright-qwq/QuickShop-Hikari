@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.display;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -130,6 +131,20 @@ class MarketChartRendererTest {
   @Test
   void fallsBackToMarketLabelWhenDisplayNameHasNoAsciiGlyphs() {
     assertThat(MarketChartRenderer.compactText("钻石市场", 8)).isEqualTo("MARKET");
+  }
+
+  @Test
+  void formatsAxisTimesInLocalZoneWithDateForMultiDayCharts() {
+    ZoneId shanghai = ZoneId.of("Asia/Shanghai");
+    ChartCandle eveningUtc = candleAt("2026-07-30T16:00:00Z", "10", "12", "9", "11", 1);
+    ChartCandle nextDay = candleAt("2026-07-31T15:00:00Z", "10", "12", "9", "11", 1);
+
+    assertThat(MarketChartRenderer.timeLabel(eveningUtc, shanghai, false))
+        .isEqualTo("00:00");
+    assertThat(MarketChartRenderer.timeLabel(eveningUtc, shanghai, true))
+        .isEqualTo("07-31 00:00");
+    assertThat(MarketChartRenderer.timeLabel(nextDay, shanghai, true))
+        .isEqualTo("07-31 23:00");
   }
 
   private static MarketChartSeries series(List<ChartCandle> candles, String min, String max) {

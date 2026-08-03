@@ -93,6 +93,31 @@ class AdaptiveChartIntervalSelectorTest {
     assertThat(selection.gaps()).isEmpty();
   }
 
+  @Test
+  void downsamplesSparseDailyRunsToTheChartBudget() {
+    List<Candle> source = new ArrayList<>();
+    for (int run = 0; run < 20; run++) {
+      Instant start = Instant.parse("2026-01-01T00:00:00Z")
+          .plusSeconds(run * 7L * 86_400L);
+      for (int day = 0; day < 6; day++) {
+        source.add(candleAt(start.plusSeconds(day * 86_400L), run * 6 + day + 1));
+      }
+    }
+
+    AdaptiveChartIntervalSelector.Selection selection = selector.select(source,
+        new MarketChartDimensions(1, 1));
+
+    assertThat(selection.interval()).isEqualTo(MarketChartInterval.ONE_DAY);
+    assertThat(selection.candles()).hasSize(20);
+    assertThat(selection.candles()).isNotEmpty();
+    assertThat(selection.gaps()).hasSize(19);
+    assertThat(selection.candles().stream().mapToLong(Candle::volume).sum())
+        .isEqualTo(source.stream().mapToLong(Candle::volume).sum());
+    assertThat(selection.candles().stream().map(Candle::high).max(BigDecimal::compareTo)
+        .orElseThrow()).isEqualTo(source.stream().map(Candle::high).max(BigDecimal::compareTo)
+            .orElseThrow());
+  }
+
   private static List<Candle> consecutiveFiveMinuteCandles(int count) {
     List<Candle> candles = new ArrayList<>(count);
     Instant start = Instant.parse("2026-07-31T00:00:00Z");

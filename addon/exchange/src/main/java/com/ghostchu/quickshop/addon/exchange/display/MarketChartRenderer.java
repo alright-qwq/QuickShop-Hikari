@@ -3,7 +3,7 @@ package com.ghostchu.quickshop.addon.exchange.display;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
@@ -11,16 +11,22 @@ import java.util.Objects;
 
 /** Pure Java professional market chart renderer for vanilla map pixels. */
 public final class MarketChartRenderer {
-  private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm")
-      .withZone(ZoneOffset.UTC);
+  private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
+  private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("MM-dd HH:mm");
   private final MarketChartOptions options;
+  private final ZoneId zone;
 
   public MarketChartRenderer() {
-    this(MarketChartOptions.defaults());
+    this(MarketChartOptions.defaults(), ZoneId.systemDefault());
   }
 
   public MarketChartRenderer(MarketChartOptions options) {
+    this(options, ZoneId.systemDefault());
+  }
+
+  MarketChartRenderer(MarketChartOptions options, ZoneId zone) {
     this.options = Objects.requireNonNull(options, "options");
+    this.zone = Objects.requireNonNull(zone, "zone");
   }
 
   public String optionsFingerprint() {
@@ -242,16 +248,23 @@ public final class MarketChartRenderer {
     }
   }
 
-  private static void drawTimeAxis(Canvas canvas, MarketChartLayout.Rect area,
+  private void drawTimeAxis(Canvas canvas, MarketChartLayout.Rect area,
                                    List<ChartCandle> candles) {
     ChartCandle first = candles.getFirst();
     ChartCandle last = candles.getLast();
-    String left = TIME.format(first.bucketStart());
-    String right = TIME.format(last.bucketStart());
+    boolean multiDay = first.bucketStart().atZone(zone).toLocalDate()
+        .isBefore(last.bucketStart().atZone(zone).toLocalDate());
+    String left = timeLabel(first, zone, multiDay);
+    String right = timeLabel(last, zone, multiDay);
     PixelFont.draw(canvas::set, left, area.left(), area.top() + 2, MarketChartPalette.AXIS_TEXT);
     PixelFont.draw(canvas::set, right,
         Math.max(area.left(), area.right() - PixelFont.width(right) + 1), area.top() + 2,
         MarketChartPalette.AXIS_TEXT);
+  }
+
+  static String timeLabel(ChartCandle candle, ZoneId zone, boolean multiDay) {
+    var local = candle.bucketStart().atZone(zone);
+    return (multiDay ? DATE_TIME : TIME).format(local);
   }
 
   private static int[] candlePositions(MarketChartLayout.Rect plot, List<ChartCandle> candles,

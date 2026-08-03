@@ -103,6 +103,21 @@ class MarketChartRendererV2Test {
   }
 
   @Test
+  void rendersEverySupportedLetterWithFullWidthPixels() {
+    for (char letter = 'A'; letter <= 'Z'; letter++) {
+      int[] columns = new int[3];
+      int[] rows = new int[5];
+      PixelFont.draw((x, y, color) -> {
+        columns[x % 4] = 1;
+        rows[y] = 1;
+      }, String.valueOf(letter), 0, 0, MarketChartPalette.AXIS_TEXT);
+
+      assertThat(columns).as("letter " + letter).containsExactly(1, 1, 1);
+      assertThat(rows).as("letter " + letter).containsExactly(1, 1, 1, 1, 1);
+    }
+  }
+
+  @Test
   void writesReviewArtifactsWhenRequested() throws IOException {
     if (!Boolean.getBoolean("chart.review.output")) {
       return;
