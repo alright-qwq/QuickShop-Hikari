@@ -27,7 +27,7 @@ en-US:
   admin-transfer-review-list: 'Transfers awaiting review:\n<0>'
   admin-transfer-review-detail: 'Transfer review detail: <0>'
   display-player-only: This display command can only be used by an in-game player.
-  display-map-created: The market map wall was created and its first refresh was queued.
+  display-map-created: The market map wall was created and its first chart render completed.
   display-map-updated: The targeted market map wall was updated and refreshed.
   display-map-removed: The targeted market map wall binding and managed maps were removed.
   display-sign-bound: The targeted sign was bound to the market and refreshed.
@@ -37,7 +37,7 @@ en-US:
   display-target-invalid: The targeted frame wall or sign cannot be used for this operation.
   display-market-unknown: The requested Exchange market does not exist.
   display-limit-reached: The configured market display capacity has been reached.
-  display-operation-failed: The market display operation failed and was rolled back where possible.
+  display-operation-failed: The market display operation failed; check the server log for the root cause.
   ui-data-unavailable: Exchange data is currently unavailable.
   ui-history-trade-title: '<0> trade @ <1>'
   ui-history-trade-quantity: 'Quantity: <0>'
@@ -195,7 +195,7 @@ zh-CN:
   admin-transfer-review-list: '等待审核的转账：\n<0>'
   admin-transfer-review-detail: '转账审核详情：<0>'
   display-player-only: '展示管理命令只能由游戏内玩家执行。'
-  display-map-created: '行情地图墙已创建，并已安排首次刷新。'
+  display-map-created: '行情地图墙已创建，首次图表渲染已完成。'
   display-map-updated: '目标行情地图墙已更新并安排刷新。'
   display-map-removed: '目标行情地图墙绑定和受管理地图已解除。'
   display-sign-bound: '目标告示牌已绑定市场并安排刷新。'
@@ -205,7 +205,7 @@ zh-CN:
   display-target-invalid: '目标展示框墙或告示牌不能用于此操作。'
   display-market-unknown: '指定的交易所市场不存在。'
   display-limit-reached: '已达到配置允许的行情展示容量上限。'
-  display-operation-failed: '行情展示操作失败；系统已尽可能回滚变更。'
+  display-operation-failed: '行情展示操作失败；详情请查看服务器日志中的 Exchange display 报错。'
   ui-data-unavailable: '交易所数据暂时不可用。'
   ui-history-trade-title: '<0> 成交 @ <1>'
   ui-history-trade-quantity: '数量：<0>'
