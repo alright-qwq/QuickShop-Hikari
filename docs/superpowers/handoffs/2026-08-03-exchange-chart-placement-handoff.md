@@ -2,9 +2,9 @@
 
 ## 1. 当前状态
 
-- 分支:`fix/exchange-safety`,已推送远端,最新提交 `9c45b4f22`。
+- 分支:`fix/exchange-safety`,已推送远端,最新提交 `a5746f842`。
 - 工作树:本文件外无未提交改动;`outputs/` 为本地产物目录(不入库)。
-- 全量测试:646 tests, 0 failures(`addon/exchange`)。
+- 全量测试:647 tests, 0 failures(`addon/exchange`)。
 - 兼容基线:QuickShop-Hikari 6.2.0.11 / Paper 26.1.2。
 
 ## 2. 本轮已完成:图放不下来的修复(用户首要问题)
