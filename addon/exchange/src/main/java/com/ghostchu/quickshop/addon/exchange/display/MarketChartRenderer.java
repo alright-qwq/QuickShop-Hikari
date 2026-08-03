@@ -215,14 +215,21 @@ public final class MarketChartRenderer {
                                     MarketChartLayout.Rect priceAxis,
                                     MarketChartSeries series) {
     BigDecimal range = series.maximumPrice().subtract(series.minimumPrice());
-    for (int fraction = 0; fraction <= 4; fraction += 2) {
+    for (int fraction = 0; fraction <= 4; fraction++) {
       BigDecimal price = series.maximumPrice().subtract(range.multiply(
           BigDecimal.valueOf(fraction)).divide(BigDecimal.valueOf(4), 8, RoundingMode.HALF_UP));
-      int y = plot.top() + fraction * (plot.height() - 1) / 4;
+      int y = priceLabelY(plot, fraction);
       String label = trimToPixels(compactPrice(price), priceAxis.width());
       PixelFont.draw(canvas::set, label, priceAxis.left() + 1,
           Math.min(priceAxis.bottom() - 4, y), MarketChartPalette.AXIS_TEXT);
     }
+  }
+
+  static int priceLabelY(MarketChartLayout.Rect plot, int fraction) {
+    if (fraction < 0 || fraction > 4) {
+      throw new IllegalArgumentException("price axis fraction must be between 0 and 4");
+    }
+    return plot.top() + fraction * (plot.height() - 1) / 4;
   }
 
   private static void drawVolume(Canvas canvas, MarketChartLayout.Rect area,

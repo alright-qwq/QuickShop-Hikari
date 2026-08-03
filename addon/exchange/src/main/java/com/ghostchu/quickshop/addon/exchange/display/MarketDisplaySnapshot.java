@@ -37,7 +37,6 @@ public record MarketDisplaySnapshot(String marketId, String displayName, MarketQ
 
   public String fingerprint() {
     StringBuilder fingerprint = new StringBuilder()
-        .append(quote.asOf()).append('|')
         .append(quote.lastPrice()).append('|')
         .append(quote.change24h()).append('|')
         .append(quote.bestBid()).append('|')

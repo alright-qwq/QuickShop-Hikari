@@ -121,6 +121,35 @@ class MarketChartRendererTest {
   }
 
   @Test
+  void rendersFallingVolumeBarsInTheirOwnColor() {
+    MarketChartSeries falling = series(List.of(
+        candle("12", "12", "10", "10")), "10", "12");
+
+    MarketChartImage image = renderer.render(falling, MarketChartMode.KLINE,
+        new MarketChartDimensions(2, 1), "DIAMOND", MarketChartPeriod.ONE_HOUR,
+        new BigDecimal("10"), new BigDecimal("-0.10"));
+
+    assertThat(count(image, MarketChartPalette.VOLUME_FALL)).isPositive();
+  }
+
+  @Test
+  void drawsPriceLabelsAtEveryHorizontalGridLine() {
+    MarketChartImage image = renderer.render(series(List.of(
+        candle("10", "12", "9", "11")), "9", "12"), MarketChartMode.KLINE,
+        new MarketChartDimensions(2, 2), "DIAMOND", MarketChartPeriod.ONE_HOUR,
+        new BigDecimal("11"), new BigDecimal("0.10"));
+    MarketChartLayout.Rect plot = MarketChartLayout.forDimensions(
+        new MarketChartDimensions(2, 2)).plot();
+    int axisLeft = plot.right() + 1;
+
+    for (int fraction = 1; fraction < 4; fraction++) {
+      int gridY = plot.top() + fraction * (plot.height() - 1) / 4;
+      assertThat(axisTextAt(image, axisLeft, gridY)).as("label at grid " + fraction + "/4")
+          .isPositive();
+    }
+  }
+
+  @Test
   void formatsExtremePricesWithinTheTinyPixelAxisBudget() {
     assertThat(MarketChartRenderer.compactPrice(new BigDecimal("123456789")))
         .isEqualTo("1.23E8");
@@ -166,6 +195,16 @@ class MarketChartRendererTest {
     long count = 0;
     for (byte pixel : image.pixels()) {
       if (pixel == color) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private static long axisTextAt(MarketChartImage image, int fromX, int y) {
+    long count = 0;
+    for (int x = fromX; x < image.width(); x++) {
+      if (image.pixels()[y * image.width() + x] == MarketChartPalette.AXIS_TEXT) {
         count++;
       }
     }

@@ -11,7 +11,7 @@ public final class MarketChartPalette {
   public static final byte AXIS_TEXT = 24;
   public static final byte LATEST_PRICE = 16;
   public static final byte VOLUME_RISE = 17;
-  public static final byte VOLUME_FALL = 29;
+  public static final byte VOLUME_FALL = 13;
   public static final byte HIGHLIGHT = 115;
   public static final byte TRUSTED_REFERENCE = 122;
   public static final byte GAP_MARKER = 87;

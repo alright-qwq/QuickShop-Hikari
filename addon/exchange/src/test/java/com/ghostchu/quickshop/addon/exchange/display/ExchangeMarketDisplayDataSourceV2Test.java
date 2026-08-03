@@ -44,6 +44,30 @@ class ExchangeMarketDisplayDataSourceV2Test {
     }
   }
 
+  @Test
+  void overridesStaleTrustedPointAtTheEvaluationInstant() throws Exception {
+    Instant now = Instant.parse("2026-07-31T12:00:00Z");
+    Instant stateAt = now.minusNanos(1);
+    TrustedPriceState state = new TrustedPriceState("diamond", bd("101"), bd("101"), now,
+        LiquidityTier.STABLE, 1, 4, 9);
+    try (var executor = Executors.newSingleThreadExecutor()) {
+      ExchangeMarketDisplayDataSource source = new ExchangeMarketDisplayDataSource(
+          Map.of("diamond", new ExchangeMarketDisplayDataSource.MarketAccess(
+              "Diamond", () -> quote(now), (from, to) -> List.of(),
+              (from, to) -> List.of(),
+              (from, to) -> List.of(new TrustedPricePoint(stateAt, bd("100"))),
+              () -> state)), executor);
+
+      MarketDisplaySnapshot snapshot = source.snapshot(
+          "diamond", MarketChartPeriod.ONE_HOUR, now).get(5, TimeUnit.SECONDS);
+
+      assertThat(snapshot.trustedPoints())
+          .extracting(TrustedPricePoint::price)
+          .containsExactly(bd("101"));
+      assertThat(snapshot.trustedPoints().getFirst().at()).isEqualTo(stateAt);
+    }
+  }
+
   private static MarketQuote quote(Instant now) {
     return new MarketQuote("diamond", bd("100"), bd("101"), LiquidityTier.STABLE,
         bd("99"), bd("102"), bd("0"), 7, bd("700"), MarketStatus.OPEN, now);

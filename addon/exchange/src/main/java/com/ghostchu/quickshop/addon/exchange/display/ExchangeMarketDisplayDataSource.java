@@ -57,7 +57,7 @@ public final class ExchangeMarketDisplayDataSource implements MarketDisplayDataS
           trustedPoints.forEach(point -> byTime.put(point.at(), point));
           if (byTime.isEmpty()
               || byTime.lastEntry().getValue().price().compareTo(trustedState.trustedPrice()) != 0) {
-            byTime.putIfAbsent(stateAt, new TrustedPricePoint(stateAt, trustedState.trustedPrice()));
+            byTime.put(stateAt, new TrustedPricePoint(stateAt, trustedState.trustedPrice()));
           }
           trustedPoints = List.copyOf(byTime.values());
         }
