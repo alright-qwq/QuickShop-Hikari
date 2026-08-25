@@ -5,10 +5,8 @@ import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
 import com.ghostchu.quickshop.addon.exchange.config.MarketRegistry;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
+import com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits;
 import com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits;
-import com.ghostchu.quickshop.addon.exchange.core.service.CommandResult;
-import com.ghostchu.quickshop.addon.exchange.core.service.MarketDispatcher;
-import com.ghostchu.quickshop.addon.exchange.core.service.RequestResultStore;
 import com.ghostchu.quickshop.addon.exchange.marketdata.CandleAggregator;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
 import com.ghostchu.quickshop.addon.exchange.persistence.ConnectionProvider;
@@ -24,6 +22,7 @@ import com.ghostchu.quickshop.addon.exchange.platform.TransferLoginListener;
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
 import com.ghostchu.quickshop.addon.exchange.service.PersistentOrderService;
+import com.ghostchu.quickshop.addon.exchange.service.ExchangeActionService;
 import com.ghostchu.quickshop.addon.exchange.service.RecoveryHandler;
 import com.ghostchu.quickshop.addon.exchange.transfer.ItemTransferService;
 import com.ghostchu.quickshop.addon.exchange.transfer.MoneyTransferService;
@@ -45,7 +44,6 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -71,14 +69,22 @@ public final class ExchangeRuntimeFactory {
     database.writer().acquire();
     try {
       TableNames tables = new TableNames(quickShop.getDbPrefix());
-      new MigrationRunner(database.connections(), database.dialect(), tables).migrate();
-      JdbcExchangeRepository repository = new JdbcExchangeRepository(
-          database.connections(), database.dialect(), tables);
-
       File marketsFile = new File(addon.getDataFolder(), "markets.yml");
       File configFile = new File(addon.getDataFolder(), "config.yml");
       MarketRegistry configured = MarketRegistry.load(configFile, marketsFile);
-      registerMarkets(database.connections(), tables, configured);
+      java.util.concurrent.atomic.AtomicReference<JdbcExchangeRepository> bootstrapped =
+          new java.util.concurrent.atomic.AtomicReference<>();
+      boolean startupOwned = database.writer().runWhileHeld(() -> {
+        new MigrationRunner(database.connections(), database.dialect(), tables).migrate();
+        JdbcExchangeRepository repository = new JdbcExchangeRepository(
+            database.connections(), database.dialect(), tables);
+        registerMarkets(database.connections(), tables, configured);
+        bootstrapped.set(repository);
+      });
+      if (!startupOwned || bootstrapped.get() == null) {
+        throw new IllegalStateException("exchange writer lock was lost during database bootstrap");
+      }
+      JdbcExchangeRepository repository = bootstrapped.get();
       MarketRegistry registry = MarketRegistry.load(configFile, marketsFile, repository);
 
     MarketDataService marketData = new MarketDataService(new CandleAggregator(), repository);
@@ -88,57 +94,129 @@ public final class ExchangeRuntimeFactory {
       MarketRules rules = rules(definition);
       RiskLimits limits = limits(definition);
       markets.put(marketId, new PersistentOrderService(
-          repository, rules, limits, RecoveryHandler.NO_OP, marketData));
+          repository, rules, limits, RecoveryHandler.NO_OP,
+          accountLimits(definition.risk()), marketData));
     }
 
     PlayerOperationSerialiser playerOperations = new PlayerOperationSerialiser();
     NamespacedKey marker = new NamespacedKey(addon, "exchange-transfer");
     FoliaInventoryGateway inventory = new FoliaInventoryGateway(quickShop, marker);
-    new MoneyTransferService(repository, repository,
+    MoneyTransferService moneyTransfers = new MoneyTransferService(repository, repository,
         new QuickShopEconomyGateway(quickShop, economyWorld()), playerOperations,
         Clock.systemUTC(), UUID::randomUUID);
-    new ItemTransferService(repository, repository, inventory,
+    ItemTransferService itemTransfers = new ItemTransferService(repository, repository, inventory,
         marketId -> itemTemplate(registry.require(marketId)), playerOperations,
         Clock.systemUTC(), UUID::randomUUID);
+    ExchangeActionService actions = new ExchangeActionService(markets, moneyTransfers, itemTransfers);
+    DrainingExecutor recoveryExecutor = new DrainingExecutor(
+        "qs-exchange-recovery-", Duration.ofSeconds(30));
+    DrainingExecutor recoveryFenceExecutor = new DrainingExecutor(
+        "qs-exchange-recovery-fence-", Duration.ofSeconds(30));
     TransferRecoveryService transfers = new TransferRecoveryService(
-        repository, repository, inventory, Runnable::run);
-    Bukkit.getPluginManager().registerEvents(new TransferLoginListener(transfers), addon);
+        repository, repository, inventory, recoveryExecutor);
     Bukkit.getPluginManager().registerEvents(new ContainerShopPolicyListener(registry), addon);
 
-    MarketDispatcher dispatcher = new MarketDispatcher(requestResults(), command ->
-        new CommandResult(command.requestId(), "accepted"));
+    AutoCloseable dispatcher = () -> {};
     ScheduledExecutorService maintenance = Executors.newSingleThreadScheduledExecutor(
         Thread.ofPlatform().daemon(true).name("qs-exchange-maintenance-", 0).factory());
     Map<String, ExchangeViewService.MarketView> marketViews = new java.util.LinkedHashMap<>();
+    Map<String, com.ghostchu.quickshop.addon.exchange.ui.TransferTarget> transferTargets =
+        new java.util.LinkedHashMap<>();
     for (Map.Entry<String, PersistentOrderService> entry : markets.entrySet()) {
       MarketDefinition definition = registry.require(entry.getKey());
       marketViews.put(entry.getKey(), new ExchangeViewService.MarketView(
           entry.getKey(), definition.displayName(), entry.getValue()));
+      String currencyId = definition.structural().currencyId();
+      transferTargets.putIfAbsent("currency:" + currencyId,
+          com.ghostchu.quickshop.addon.exchange.ui.TransferTarget.currency(currencyId));
+      transferTargets.put("item:" + entry.getKey(),
+          com.ghostchu.quickshop.addon.exchange.ui.TransferTarget.item(
+              entry.getKey(), definition.displayName()));
     }
-    ExchangeViewService views = new ExchangeViewService(marketViews, marketData, maintenance);
-    AdminExchangeService administration = new AdminExchangeService(repository, markets);
+    ExchangeViewService views = new ExchangeViewService(marketViews, marketData, maintenance,
+        repository, java.util.List.copyOf(transferTargets.values()));
+    java.nio.file.Path auditDirectory = requireAuditDirectory(
+        addon.getDataFolder().toPath(),
+        addon.getConfig().getString("operations.audit-export-directory", "audit"));
+    AdminExchangeService administration = new AdminExchangeService(
+        markets, repository, new com.ghostchu.quickshop.addon.exchange.operations.AuditExporter(),
+        auditDirectory);
     Runnable resumeHalted = () -> resumeExpiredHalts(repository, registry.marketIds(), database.writer());
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
-    maintenance.scheduleWithFixedDelay(() -> {
-      if (database.writer().held()) {
-        marketData.flush(Instant.now());
-      }
-    }, 1L, 1L, TimeUnit.MINUTES);
+    maintenance.scheduleWithFixedDelay(() -> flushWhileOwned(
+        database.writer(), marketData, Instant.now()), 1L, 1L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(marketData::publishPlayerUpdates,
         1L, 1L, TimeUnit.SECONDS);
 
-      return new ExchangeRuntime(database.writer(),
+      ExchangeRuntime runtime = new ExchangeRuntime(database.writer(),
           () -> recoverMarkets(markets), transfers::recoverAllMoneyTransfers, dispatcher,
-          () -> markAllRecovering(repository, registry.marketIds()),
+          lockLossFence(),
           () -> {
             maintenance.shutdownNow();
-            marketData.flush(Instant.now());
+            recoveryFenceExecutor.close();
+            recoveryExecutor.close();
             playerOperations.close();
-          }, views, administration);
+            runWhileOwnedOrThrow(database.writer(), () -> marketData.flush(Instant.now()));
+          }, views, administration, actions);
+      Bukkit.getPluginManager().registerEvents(new TransferLoginListener(accountId ->
+          runtime.callAsyncWhileWriting(() -> transfers.recoverPlayer(accountId),
+              recoveryFenceExecutor)), addon);
+      return runtime;
     } catch (Exception failure) {
       database.writer().close();
       throw failure;
     }
+  }
+
+  static void flushWhileOwned(SingleWriterGuard writer, MarketDataService marketData, Instant at) {
+    runWhileOwned(writer, () -> marketData.flush(at));
+  }
+
+  static void runWhileOwned(SingleWriterGuard writer, ExchangeRuntime.CheckedRunnable work) {
+    try {
+      writer.runWhileHeld(work::run);
+    } catch (Exception ignored) {
+      // The next owned maintenance tick or startup recovery retries durable publication.
+    }
+  }
+
+  static void runWhileOwnedOrThrow(SingleWriterGuard writer, ExchangeRuntime.CheckedRunnable work)
+      throws Exception {
+    if (!writer.runWhileHeld(work::run)) {
+      throw new IllegalStateException("exchange writer lock is unavailable during final flush");
+    }
+  }
+
+  static ExchangeRuntime.CheckedRunnable lockLossFence() {
+    return () -> {
+      // Ownership is already untrusted. Only the runtime's local accepting-writes flag may change;
+      // persistent recovery state is established by the next process after it legitimately acquires.
+    };
+  }
+
+  static Path requireAuditDirectory(Path dataFolder, String configured) {
+    if (dataFolder == null || configured == null || configured.isBlank()) {
+      throw new IllegalArgumentException("audit export directory is required");
+    }
+    Path root = dataFolder.toAbsolutePath().normalize();
+    if (isWindowsAbsolutePath(configured)) {
+      throw new IllegalArgumentException("audit export directory must be relative to addon data");
+    }
+    Path relative = Path.of(configured);
+    if (relative.isAbsolute()) {
+      throw new IllegalArgumentException("audit export directory must be relative to addon data");
+    }
+    Path candidate = root.resolve(relative).normalize();
+    if (!candidate.startsWith(root) || candidate.equals(root)) {
+      throw new IllegalArgumentException("audit export directory must stay inside addon data");
+    }
+    return candidate;
+  }
+
+  private static boolean isWindowsAbsolutePath(String value) {
+    return value.length() >= 3 && Character.isLetter(value.charAt(0))
+        && value.charAt(1) == ':'
+        && (value.charAt(2) == '/' || value.charAt(2) == '\\');
   }
 
   static Path requireLocalSqlitePath(Path dataFolder, String jdbcUrl) {
@@ -264,22 +342,6 @@ public final class ExchangeRuntimeFactory {
     }
   }
 
-  private static void markAllRecovering(JdbcExchangeRepository repository, Collection<String> marketIds)
-      throws SQLException {
-    repository.inTransaction(tx -> {
-      for (String marketId : marketIds) {
-        MarketState state = tx.marketState(marketId);
-        if (state.status() != MarketStatus.RECOVERING) {
-          tx.updateMarketState(new MarketState(marketId, MarketStatus.RECOVERING,
-              state.prioritySequence(), state.matchSequence(), state.referencePrice(),
-              state.lastPrice(), state.haltedUntil(), state.discoveryQuantity(),
-              state.circuitBreakerLevel(), state.version() + 1), state.version());
-        }
-      }
-      return null;
-    });
-  }
-
   private static void resumeExpiredHalts(JdbcExchangeRepository repository,
                                           Collection<String> marketIds,
                                           SingleWriterGuard writer) {
@@ -343,22 +405,11 @@ public final class ExchangeRuntimeFactory {
         Duration.ofSeconds(risk.levelTwoHaltSeconds()));
   }
 
-  private static RequestResultStore requestResults() {
-    Map<RequestKey, CommandResult> results = new ConcurrentHashMap<>();
-    return new RequestResultStore() {
-      @Override
-      public Optional<CommandResult> find(UUID accountId, UUID requestId) {
-        return Optional.ofNullable(results.get(new RequestKey(accountId, requestId)));
-      }
-
-      @Override
-      public CommandResult putIfAbsent(UUID accountId, UUID requestId, CommandResult result) {
-        return results.computeIfAbsent(new RequestKey(accountId, requestId), ignored -> result);
-      }
-    };
+  static AccountOrderLimits accountLimits(MarketDefinition.RiskRules risk) {
+    java.util.Objects.requireNonNull(risk, "risk");
+    return new AccountOrderLimits(risk.maxAccountHolding(), risk.maxFrozenCurrency(),
+        risk.maxOpenOrders(), risk.operationsPerSecond(), risk.operationsPerMinute());
   }
 
   private record Database(ConnectionProvider connections, SqlDialect dialect, SingleWriterGuard writer) {}
-
-  private record RequestKey(UUID accountId, UUID requestId) {}
 }

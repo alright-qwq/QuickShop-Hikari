@@ -8,6 +8,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 
 public interface ExchangeRepository {
   <T> T inTransaction(TransactionWork<T> work) throws SQLException;
@@ -43,6 +45,30 @@ public interface ExchangeRepository {
   default List<AuditRecord> auditRecords(Instant fromInclusive, Instant toExclusive)
       throws SQLException {
     throw new UnsupportedOperationException("audit records are not supported by this repository");
+  }
+
+  /** Reads a bounded page of a player's currently cancellable orders. */
+  default List<ExchangeTransaction.PersistedOrder> accountOpenOrders(
+      UUID accountId, int limit, int offset) throws SQLException {
+    throw new UnsupportedOperationException("account order reads are not supported by this repository");
+  }
+
+  default List<AccountAssetBalance> accountAssets(UUID accountId) throws SQLException {
+    throw new UnsupportedOperationException("account asset reads are not supported by this repository");
+  }
+
+  default List<Trade> accountTrades(UUID accountId, int limit, int offset) throws SQLException {
+    throw new UnsupportedOperationException("account trade reads are not supported by this repository");
+  }
+
+  default List<TransferRecord> accountTransfers(UUID accountId, int limit, int offset)
+      throws SQLException {
+    throw new UnsupportedOperationException("account transfer reads are not supported by this repository");
+  }
+
+  default List<AccountLedgerEntry> accountLedgerEntries(
+      UUID accountId, int limit, int offset) throws SQLException {
+    throw new UnsupportedOperationException("account ledger reads are not supported by this repository");
   }
 
   @FunctionalInterface

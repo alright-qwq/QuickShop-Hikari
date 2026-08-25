@@ -27,7 +27,6 @@ public final class SubCommandExchange implements CommandHandler<Player> {
   @Override
   public List<String> onTabComplete(@NotNull Player sender, @NotNull String commandLabel,
                                     @NotNull CommandParser parser) {
-    return parser.getArgs().size() <= 1
-        ? List.of("open", "market", "order", "orders", "assets", "history") : List.of();
+    return router.tabComplete(actors.apply(sender), parser.getArgs().toArray(String[]::new));
   }
 }

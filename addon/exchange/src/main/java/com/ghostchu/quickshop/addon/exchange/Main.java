@@ -4,11 +4,15 @@ import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.command.BukkitCommandActor;
 import com.ghostchu.quickshop.addon.exchange.command.AdminCommandRouter;
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeCommandRouter;
+import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.command.QseAliasCommand;
+import com.ghostchu.quickshop.addon.exchange.command.RolloutPolicy;
 import com.ghostchu.quickshop.addon.exchange.command.SubCommandExchange;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import com.ghostchu.quickshop.addon.exchange.runtime.ExchangeRuntime;
 import com.ghostchu.quickshop.addon.exchange.runtime.ExchangeRuntimeFactory;
+import com.ghostchu.quickshop.addon.exchange.runtime.RuntimeExchangeRequestSubmitter;
+import com.ghostchu.quickshop.addon.exchange.ui.ExchangeMenuListener;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeMenuService;
 import com.ghostchu.quickshop.api.command.CommandContainer;
 import java.io.File;
@@ -17,6 +21,7 @@ import java.util.UUID;
 import java.util.logging.Level;
 import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class Main extends JavaPlugin {
@@ -24,12 +29,19 @@ public final class Main extends JavaPlugin {
   private CommandContainer exchangeCommand;
   private PluginCommand qseCommand;
   private ExchangeMenuService menus;
+  private ExchangeMenuListener menuListener;
+
+  static java.util.List<String> firstRunResources() {
+    return java.util.List.of("markets.yml", "messages.yml");
+  }
 
   @Override
   public void onEnable() {
     saveDefaultConfig();
-    if (!new java.io.File(getDataFolder(), "markets.yml").isFile()) {
-      saveResource("markets.yml", false);
+    for (String resource : firstRunResources()) {
+      if (!new File(getDataFolder(), resource).isFile()) {
+        saveResource(resource, false);
+      }
     }
     if (!getConfig().getBoolean("enabled", false)) {
       getLogger().info("QuickShop Exchange is disabled in config.yml");
@@ -63,14 +75,28 @@ public final class Main extends JavaPlugin {
   private void registerPlayerEntrypoints() {
     AddonMessageService messages = AddonMessageService.load(
         new File(getDataFolder(), "messages.yml"));
-    menus = new ExchangeMenuService(runtime.views());
+    RolloutPolicy rollout = rolloutPolicy();
+    menus = new ExchangeMenuService(runtime.views(), new RuntimeExchangeRequestSubmitter(runtime),
+        rollout, messages);
+    menuListener = new ExchangeMenuListener(menus);
+    Bukkit.getPluginManager().registerEvents(menuListener, this);
     ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID,
         new AdminCommandRouter(runtime.administration(), UUID::randomUUID,
-            work -> runtime.runWhileWriting(work::run)));
+            work -> runtime.runWhileWriting(work::run)), rollout);
     var actors = (java.util.function.Function<org.bukkit.entity.Player,
         com.ghostchu.quickshop.addon.exchange.command.CommandActor>) player ->
         new BukkitCommandActor(player, messages, player.locale(),
-            (menu, page) -> menus.open(player, menu, page));
+            new BukkitCommandActor.MenuOpener() {
+              @Override
+              public void open(String menu, int page) {
+                menus.open(player, menu, page);
+              }
+
+              @Override
+              public void open(ExchangeMenuRequest request) {
+                menus.open(player, request);
+              }
+            });
     exchangeCommand = CommandContainer.builder()
         .prefix("exchange")
         .permission("quickshop.exchange.use")
@@ -86,6 +112,19 @@ public final class Main extends JavaPlugin {
     qseCommand.setTabCompleter(alias);
   }
 
+  private RolloutPolicy rolloutPolicy() {
+    boolean enabled = getConfig().getBoolean("rollout.whitelist-enabled", true);
+    java.util.Set<UUID> allowed = new java.util.HashSet<>();
+    for (String value : getConfig().getStringList("rollout.allowed-players")) {
+      try {
+        allowed.add(UUID.fromString(value.trim()));
+      } catch (IllegalArgumentException invalid) {
+        throw new IllegalArgumentException("invalid rollout player UUID: " + value, invalid);
+      }
+    }
+    return new RolloutPolicy(enabled, allowed);
+  }
+
   private void unregisterPlayerEntrypoints() {
     if (exchangeCommand != null) {
       QuickShop.getInstance().getCommandManager().unregisterCmd(exchangeCommand);
@@ -99,6 +138,10 @@ public final class Main extends JavaPlugin {
     if (menus != null) {
       menus.close();
       menus = null;
+    }
+    if (menuListener != null) {
+      HandlerList.unregisterAll(menuListener);
+      menuListener = null;
     }
   }
 }

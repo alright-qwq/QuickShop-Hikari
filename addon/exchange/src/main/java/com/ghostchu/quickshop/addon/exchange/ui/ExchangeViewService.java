@@ -1,6 +1,12 @@
 package com.ghostchu.quickshop.addon.exchange.ui;
 
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
+import com.ghostchu.quickshop.addon.exchange.core.model.Order;
+import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
+import com.ghostchu.quickshop.addon.exchange.repository.AccountAssetBalance;
+import com.ghostchu.quickshop.addon.exchange.repository.AccountLedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.service.PersistentOrderService;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -8,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -16,13 +23,32 @@ public final class ExchangeViewService {
   private final Map<String, MarketView> markets;
   private final MarketDataService marketData;
   private final Executor executor;
+  private final ExchangeRepository repository;
+  private final List<TransferTarget> transferTargets;
   private final MarketListPresenter presenter = new MarketListPresenter();
 
   public ExchangeViewService(Map<String, MarketView> markets, MarketDataService marketData,
                              Executor executor) {
+    this(markets, marketData, executor, null, List.of());
+  }
+
+  public ExchangeViewService(Map<String, MarketView> markets, MarketDataService marketData,
+                             Executor executor, ExchangeRepository repository) {
+    this(markets, marketData, executor, repository, List.of());
+  }
+
+  public ExchangeViewService(Map<String, MarketView> markets, MarketDataService marketData,
+                             Executor executor, ExchangeRepository repository,
+                             List<TransferTarget> transferTargets) {
     this.markets = Map.copyOf(new LinkedHashMap<>(markets));
     this.marketData = Objects.requireNonNull(marketData, "marketData");
     this.executor = Objects.requireNonNull(executor, "executor");
+    this.repository = repository;
+    this.transferTargets = List.copyOf(Objects.requireNonNull(transferTargets, "transferTargets"));
+  }
+
+  public List<TransferTarget> transferTargets() {
+    return transferTargets;
   }
 
   public CompletableFuture<List<MarketRow>> marketRows() {
@@ -37,6 +63,107 @@ public final class ExchangeViewService {
         }
       }
       return presenter.rows(entries);
+    }, executor);
+  }
+
+  public CompletableFuture<MarketRow> marketRow(String marketId) {
+    if (marketId == null || marketId.isBlank()) {
+      throw new IllegalArgumentException("marketId is required");
+    }
+    MarketView market = markets.get(marketId);
+    if (market == null) {
+      throw new IllegalArgumentException("unknown market: " + marketId);
+    }
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
+            market.displayName(), market.service().marketQuote(marketData)))).getFirst();
+      } catch (SQLException failure) {
+        throw new IllegalStateException("failed to load market quote: " + marketId, failure);
+      }
+    }, executor);
+  }
+
+  public CompletableFuture<List<Order>> accountOrders(UUID accountId, int limit, int offset) {
+    if (accountId == null || limit < 1 || limit > 36 || offset < 0) {
+      throw new IllegalArgumentException("invalid account order page");
+    }
+    if (repository == null) {
+      return CompletableFuture.failedFuture(
+          new IllegalStateException("account views are not configured"));
+    }
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return repository.accountOpenOrders(accountId, limit, offset).stream()
+            .map(com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder::order)
+            .toList();
+      } catch (SQLException failure) {
+        throw new IllegalStateException("failed to load account orders", failure);
+      }
+    }, executor);
+  }
+
+  public CompletableFuture<List<AccountAssetBalance>> accountAssets(UUID accountId) {
+    Objects.requireNonNull(accountId, "accountId");
+    if (repository == null) {
+      return CompletableFuture.failedFuture(new IllegalStateException("account views are not configured"));
+    }
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return repository.accountAssets(accountId);
+      } catch (SQLException failure) {
+        throw new IllegalStateException("failed to load account assets", failure);
+      }
+    }, executor);
+  }
+
+  public CompletableFuture<List<Trade>> accountTrades(UUID accountId, int limit, int offset) {
+    if (accountId == null || limit < 1 || limit > 36 || offset < 0) {
+      throw new IllegalArgumentException("invalid account trade page");
+    }
+    if (repository == null) {
+      return CompletableFuture.failedFuture(new IllegalStateException("account views are not configured"));
+    }
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return repository.accountTrades(accountId, limit, offset);
+      } catch (SQLException failure) {
+        throw new IllegalStateException("failed to load account trades", failure);
+      }
+    }, executor);
+  }
+
+  public CompletableFuture<List<TransferRecord>> accountTransfers(
+      UUID accountId, int limit, int offset) {
+    if (accountId == null || limit < 1 || limit > 36 || offset < 0) {
+      throw new IllegalArgumentException("invalid account transfer page");
+    }
+    if (repository == null) {
+      return CompletableFuture.failedFuture(new IllegalStateException("account views are not configured"));
+    }
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return repository.accountTransfers(accountId, limit, offset);
+      } catch (SQLException failure) {
+        throw new IllegalStateException("failed to load account transfers", failure);
+      }
+    }, executor);
+  }
+
+  public CompletableFuture<List<AccountLedgerEntry>> accountLedger(
+      UUID accountId, int limit, int offset) {
+    if (accountId == null || limit < 1 || limit > 36 || offset < 0) {
+      throw new IllegalArgumentException("invalid account ledger page");
+    }
+    if (repository == null) {
+      return CompletableFuture.failedFuture(new IllegalStateException("account views are not configured"));
+    }
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return repository.accountLedgerEntries(accountId, limit, offset);
+      } catch (SQLException failure) {
+        throw new IllegalStateException("failed to load account ledger", failure);
+      }
     }, executor);
   }
 

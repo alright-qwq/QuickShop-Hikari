@@ -506,13 +506,23 @@ public final class ExchangeServiceFixture {
   }
 
   long highAlertCount() throws SQLException {
+    return highAlertCount("CIRCUIT_BREAKER_LEVEL_2");
+  }
+
+  public long reconciliationAlertCount() throws SQLException {
+    return highAlertCount("RECONCILIATION_DIFFERENCE");
+  }
+
+  private long highAlertCount(String alertType) throws SQLException {
     try (Connection connection = connections.open();
          PreparedStatement query = connection.prepareStatement(
              "SELECT COUNT(*) FROM " + tables.auditAlerts()
-                 + " WHERE severity='HIGH' AND alert_type='CIRCUIT_BREAKER_LEVEL_2'");
-         ResultSet result = query.executeQuery()) {
-      result.next();
-      return result.getLong(1);
+                 + " WHERE severity='HIGH' AND alert_type=?")) {
+      query.setString(1, alertType);
+      try (ResultSet result = query.executeQuery()) {
+        result.next();
+        return result.getLong(1);
+      }
     }
   }
 

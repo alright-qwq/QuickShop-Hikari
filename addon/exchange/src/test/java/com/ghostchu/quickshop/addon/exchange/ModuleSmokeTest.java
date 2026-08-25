@@ -25,4 +25,11 @@ class ModuleSmokeTest {
     assertThat(configUrl.toExternalForm())
         .startsWith(codeSourceUrl.toExternalForm());
   }
+
+  @Test
+  void packagesAllFirstRunConfigurationResources() {
+    assertThat(Main.class.getResource("/markets.yml")).isNotNull();
+    assertThat(Main.class.getResource("/messages.yml")).isNotNull();
+    assertThat(Main.firstRunResources()).containsExactly("markets.yml", "messages.yml");
+  }
 }

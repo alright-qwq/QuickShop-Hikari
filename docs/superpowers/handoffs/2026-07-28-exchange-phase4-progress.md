@@ -1,121 +1,87 @@
 # Exchange Phase 4 Progress Handoff (2026-07-28)
 
-## Authorization
-
-The repository author authorized the user to use AI for development and release. This authorization
-overrides the repository AI prohibition for this work; normal engineering and safety constraints
-remain in force.
-
 ## Workspace
 
-- Worktree: `/private/tmp/QuickShop-Hikari-exchange-order-book`
+- Worktree: `C:\Users\ztrnb\Documents\QuickShop-Hikari\.worktrees\exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current local head before this handoff commit: `4d1c1ffbd`.
-- The last confirmed pushed head is `aa897d2db`. Local commit `4d1c1ffbd` is awaiting a
-  normal-push retry because HTTPS pushes are currently completing without advancing the local
-  remote-tracking ref. Do not force-push. Retry `git push origin codex/exchange-order-book`
-  until `git status -sb` is no longer ahead.
+- Current HEAD: `d90e69a72c81dcf65587316a90b684e1adfba50d`
+- State: substantial uncommitted WIP; do not reset, commit, or push without explicit user approval.
+- Preserve the pre-existing deletions of `AGENTS.md` and `EULA.md`; do not restore or include them accidentally.
 
-The authoritative Phase 4 plan is:
+The authoritative plan remains:
 
 `docs/superpowers/plans/2026-07-26-exchange-04-addon-ui-operations.md`
 
-The SDD ledger is:
+## Whitelist MVP Implemented
 
-`.superpowers/sdd/2026-07-26-exchange-04-addon-ui-operations/progress.md`
+- Production runtime wiring, SQLite file lock and MySQL advisory writer lock.
+- Writer-fenced database bootstrap, startup recovery, login recovery, player/admin mutations, maintenance/final candle flush, and bounded drain for recovery, player custody, and GUI submission.
+- Lock loss now applies a strictly local write fence; an instance with untrusted ownership performs no further database mutation. Final flush failure retains writer ownership rather than reporting a successful shutdown.
+- Limit GTC and protected market IOC orders, cancellation, currency/item deposits and withdrawals.
+- `/qse`, `/quickshop exchange`, rollout whitelist, precise player/admin permissions.
+- TNML market/detail/order/assets/history/confirmation pages with generation-safe async updates,
+  single-use confirmation, identity/permission/rollout rechecks, and zh-CN/en-US messages.
+- Folia-sensitive GUI shutdown closes inventories through each player's entity scheduler and does not fall back to unsafe cross-thread inventory access if scheduling is rejected.
+- Account/market risk, candles/ticker, transaction settlement, durable idempotency, double-entry ledger.
+- Admin market pause/resume, force-cancel, audit CSV export, and evidence-based
+  `REVIEW_REQUIRED` transfer resolution.
+- Reconciliation now runs behind the runtime writer fence. The report, affected-market CAS pause,
+  HIGH `RECONCILIATION_DIFFERENCE` alert, append-only `RECONCILIATION_AUTO_PAUSE` audit, and
+  request receipt are one database transaction. Currency differences map to all markets using the
+  currency; item differences map to the market; under-reserved or unmapped differences conservatively
+  pause all configured markets.
 
-## Recent Phase 4 Commits
+## Latest Verification
 
-- `3e38d15b0` immutable fee schedules persisted and used by historical orders.
-- `7dbb3c5ed` guarded market reload persists structural/risk/fee versions atomically.
-- `5f214b5e8` transaction-level rate and market-order slippage rejection.
-- `3eb97c2a8` transaction-level open-order and frozen-currency/holding exposure limits. Risk
-  snapshots use non-creating JDBC reads so rejected checks do not create irrelevant balance rows.
-- `8f34c3dc0` tested runtime start/close ordering; dispatcher drains before writer release.
-- `a1f1e9cd9` message service replaces the `messages.yml` `<requestId>` placeholder.
-- `53fc3e641` Bukkit `Player` to command-router adapter with injected menu port.
-- `76d61c399` rolling OHLCV ticker and SQLite/MySQL candle persistence.
-- `e8d968a72` guarded structural currency-scale reload and atomic publish coverage.
-- `a2c17dfde` committed-trade market-data publication, protected book quotes/depth, idle flush and
-  rollover de-duplication.
-- `457e3acd0`, `809f6e753`, `bbe0f4494` runtime writer guards, lock-loss fencing, Factory/Main
-  assembly, fresh-install `markets.yml` provisioning, and lock acquisition before mutable database
-  bootstrap.
-- `8c89a42a5` explicit preflight and transaction-snapshot risk rejections for cage, market status,
-  and self trade.
-- `d8dc9060d` player-update coalescing, per-trade audit feed, scheduled candle flush, order
-  confirmation model, and UI refresh coordinator.
-- `5ba3ab22d` deployment and recovery operations guide.
-- `169c63bd4` asynchronous TNML market list, shared `/quickshop exchange` and `/qse`
-  entry points, and clean command/menu lifecycle teardown.
-- `4b9a01699` durable request receipt reads on a non-settlement JDBC connection, so fresh
-  preflight cage rejects stay out of the market mutex while retries retain idempotency.
-- `4cf4e2a96` writer-fence gate around scheduled HALTED-market recovery; lock-loss
-  publication cannot interleave with a recovery transaction.
-- `258414408`, `4c1d2b782`, and `7a6d2bdb3` protect exchange-only container shops and add
-  bounded CSV export plus immutable persisted operator audit records.
-- `e7aa05bfe` adds audited force cancellation. It releases the persisted reservation, updates
-  the order atomically, writes an immutable audit row, preserves trade history, and rebuilds the
-  in-memory book under the market serialization lock.
-- `aa897d2db` wires `/qse admin order cancel <orderId> <reason>` and the equivalent QuickShop
-  command through independent admin permission checks and `SingleWriterGuard.runWhileHeld`.
-- `4d1c1ffbd` adds audited `market pause|resume <marketId> <reason>` administration and command
-  handling. It is locally verified but still requires the normal-push retry above.
+Final security-focused regressions cover runtime writer ownership, login recovery, lock-loss fencing,
+Folia GUI shutdown, and final-confirmation rollout checks.
 
-## Handoff Commit Contents
+Complete Exchange module:
 
-This handoff commit also includes a small, targeted Task 9 start:
-
-- `ExchangeMetrics`, `MetricSnapshot`, and `ExchangeMetricsTest` provide bounded per-market queue
-  and matching-latency p50/p95/p99 snapshots. They intentionally do not accept player, account,
-  or order identifiers as metric labels.
-- The focused `ExchangeMetricsTest` passed with the standard reactor command. Full verify is run
-  immediately before this commit; this is only the metrics base, not Task 9 completion.
-
-## Verification
-
-The latest complete verification after the force-cancel, command-routing, and pause/resume work
-was:
-
-```bash
-/opt/homebrew/bin/mvn -o -q -pl addon/exchange -am -Dapi.version=1.44 verify
+```text
+Tests run: 321, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
 ```
 
-Result: full Exchange verification exited 0 at `4d1c1ffbd`. Maven emits pre-existing effective-model
-and JDK native access warnings; use Surefire counts and exit status as the test authority.
+Complete dependency reactor:
 
-## Remaining Work
+```bash
+mvn.cmd -o -f <worktree>\pom.xml -pl addon/exchange -am -Dapi.version=1.44 verify
+```
 
-Do not call Phase 4 complete. The following are still incomplete:
+Result: all 7 reactor modules succeeded; Exchange ran 321/321 tests and produced the shaded addon.
+The online command previously stalled at `Scanning for projects...`; root non-recursive validation
+and offline reactor validation both complete immediately, so the stall is remote repository/model
+metadata access rather than a source or POM failure. Use offline verification when the dependency
+cache is complete.
 
-1. Task 1 is complete: its scoped re-review found no remaining issues after `e8d968a72`.
-2. Task 2 preflight retry remediation is in `4b9a01699`; it needs a final scoped review of the
-   separate read-only receipt lookup and decorator fallback.
-3. Task 3 scheduled HALTED recovery fencing is in `4cf4e2a96`; it needs a final scoped review of
-   `SingleWriterGuard.runWhileHeld` and MySQL lock-loss linearization.
-4. Task 4 has both `/qse` and QuickShop command-manager registration/unregistration. Audited force
-   cancellation and market pause/resume are production-wired; market create/enable/close,
-   reconciliation, review resolution, audit status/export and full command completion remain.
-5. Task 5 now constructs market data in the production factory, passes it to persistent order
-   services, schedules minute flushes, and offers per-trade audit plus coalesced player update
-   APIs. It still needs a scoped re-review and actual UI/player callback registration.
-6. Tasks 6-7 have `OrderConfirmation`, `GuiRefreshCoordinator`, production read-only market views,
-   and a TNML market-list page. Detail/order/account/admin pages, player-close subscriptions and
-   fixed-request-id confirmation submission remain unimplemented.
-7. Task 8 has immutable audit storage/export, container policy, force-cancel and pause/resume. It
-   still lacks atomic close-all-orders, reconciliation pause/alert behavior, transfer review
-   resolution and remaining routes. Task 9 has only an uncommitted low-cardinality metrics base;
-   alert persistence/detection and runtime wiring are absent. Task 10 has the operations guide
-   only; end-to-end and load acceptance are absent.
+`git diff --check` exits 0. Windows reports LF-to-CRLF conversion warnings only.
 
-## Next AI Direction
+Final addon artifact:
 
-1. Retry normal push until the `4d1c1ffbd` and this handoff commit are visible remotely.
-2. Continue Task 8 before broader UI work: implement close-market as one serialized transaction
-   that cancels every active order, releases stored reservations, changes market state and appends
-   audit records. Do not bypass `PersistentOrderService`, or its in-memory book will become stale.
-3. Then implement reconciliation/transfer-review actions, complete Task 9 alerts/metrics wiring,
-   and finally fill the remaining TNML pages and lifecycle callback cleanup.
+`addon/exchange/target/Addon-Exchange-6.3.0.0-SNAPSHOT-11.jar`
 
-Follow the plan task-by-task, using TDD and a fresh `gpt-5.6-sol` task reviewer where service access
-is available. Do not rely on the partial Task 3/4 implementations as production wiring.
+The JAR was rechecked after the final reactor build: 453,383 bytes, modified
+`2026-07-28T21:32:10+08:00`. It contains `plugin.yml`, `config.yml`, `markets.yml`, `messages.yml`,
+and the persistence schema/migration classes (`SchemaV1`, `SchemaV2`, `SchemaV3`,
+`MigrationRunner`).
+
+## Release Position
+
+This is an automated-test-complete whitelist MVP release candidate, not yet an unattended public
+production release. Before real-money/economy rollout, execute the checklist in
+`docs/exchange-operations.md` on actual Paper and Folia servers, and complete one real SQLite and one
+real MySQL end-to-end cycle. Also verify MySQL second-writer rejection, SQLite file locking,
+restart/recovery, full-inventory withdrawal, plugin disable during custody activity, and an injected
+reconciliation difference.
+
+Phase 4 full scope still has non-MVP gaps: comprehensive metrics snapshots, abnormal-trading
+detection, dedicated end-to-end IT, and load IT. These do not invalidate a tightly controlled
+whitelist RC, but they remain blockers for broad public rollout.
+
+## Next Steps
+
+1. Perform Paper/Folia and SQLite/MySQL manual acceptance from `docs/exchange-operations.md`.
+2. Resolve any environment findings and rerun the offline reactor verification.
+3. Review the complete uncommitted diff and explicitly exclude `AGENTS.md`/`EULA.md` from any commit.
+4. Only after user approval, create a focused commit and push normally; never force-push.

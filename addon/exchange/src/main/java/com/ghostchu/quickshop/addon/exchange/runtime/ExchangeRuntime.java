@@ -3,9 +3,15 @@ package com.ghostchu.quickshop.addon.exchange.runtime;
 import com.ghostchu.quickshop.addon.exchange.core.service.MarketDispatcher;
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferRecoveryService;
+import com.ghostchu.quickshop.addon.exchange.service.ExchangeActionService;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeViewService;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Coordinates writer ownership, recovery and orderly dispatcher shutdown. */
 public final class ExchangeRuntime implements AutoCloseable {
@@ -17,6 +23,7 @@ public final class ExchangeRuntime implements AutoCloseable {
   private final CheckedRunnable afterDispatcherClosed;
   private final ExchangeViewService views;
   private final AdminExchangeService administration;
+  private final ExchangeActionService actions;
   private final AtomicBoolean acceptingWrites = new AtomicBoolean();
 
   public ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
@@ -46,13 +53,22 @@ public final class ExchangeRuntime implements AutoCloseable {
                   CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
                   ExchangeViewService views) {
     this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
-        views, null);
+        views, null, null);
   }
 
   ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
                   CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
                   CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
                   ExchangeViewService views, AdminExchangeService administration) {
+    this(writer, recoverBooks, recoverTransfers, dispatcher, onLockLost, afterDispatcherClosed,
+        views, administration, null);
+  }
+
+  ExchangeRuntime(SingleWriterGuard writer, CheckedRunnable recoverBooks,
+                  CheckedRunnable recoverTransfers, AutoCloseable dispatcher,
+                  CheckedRunnable onLockLost, CheckedRunnable afterDispatcherClosed,
+                  ExchangeViewService views, AdminExchangeService administration,
+                  ExchangeActionService actions) {
     this.writer = Objects.requireNonNull(writer, "writer");
     this.recoverBooks = Objects.requireNonNull(recoverBooks, "recoverBooks");
     this.recoverTransfers = Objects.requireNonNull(recoverTransfers, "recoverTransfers");
@@ -62,6 +78,7 @@ public final class ExchangeRuntime implements AutoCloseable {
         "afterDispatcherClosed");
     this.views = views;
     this.administration = administration;
+    this.actions = actions;
     writer.onLockLost(this::fenceAfterLockLoss);
   }
 
@@ -70,8 +87,13 @@ public final class ExchangeRuntime implements AutoCloseable {
       writer.acquire();
     }
     try {
-      recoverBooks.run();
-      recoverTransfers.run();
+      boolean recovered = writer.runWhileHeld(() -> {
+        recoverBooks.run();
+        recoverTransfers.run();
+      });
+      if (!recovered) {
+        throw new IllegalStateException("exchange writer lock was lost during startup recovery");
+      }
       acceptingWrites.set(true);
     } catch (Exception failure) {
       writer.close();
@@ -97,6 +119,13 @@ public final class ExchangeRuntime implements AutoCloseable {
     return administration;
   }
 
+  public ExchangeActionService actions() {
+    if (actions == null) {
+      throw new IllegalStateException("runtime actions are not configured");
+    }
+    return actions;
+  }
+
   /** Executes a command mutation while writer ownership remains fenced. */
   public boolean runWhileWriting(CheckedRunnable work) throws Exception {
     Objects.requireNonNull(work, "work");
@@ -114,6 +143,44 @@ public final class ExchangeRuntime implements AutoCloseable {
     return held && completed.get();
   }
 
+  /** Executes a value-producing mutation under the same writer fence. */
+  public <T> Optional<T> callWhileWriting(CheckedSupplier<T> work) throws Exception {
+    Objects.requireNonNull(work, "work");
+    if (!acceptingWrites()) {
+      return Optional.empty();
+    }
+    AtomicReference<T> result = new AtomicReference<>();
+    AtomicBoolean completed = new AtomicBoolean();
+    boolean held = writer.runWhileHeld(() -> {
+      if (!acceptingWrites()) {
+        return;
+      }
+      result.set(work.get());
+      completed.set(true);
+    });
+    return held && completed.get() ? Optional.ofNullable(result.get()) : Optional.empty();
+  }
+
+  /** Keeps writer ownership fenced until the asynchronous mutation reaches a terminal result. */
+  public <T> CompletableFuture<Optional<T>> callAsyncWhileWriting(
+      CheckedSupplier<CompletableFuture<T>> work) {
+    return callAsyncWhileWriting(work, java.util.concurrent.ForkJoinPool.commonPool());
+  }
+
+  /** Uses the caller-owned executor so its lifecycle can be drained before runtime shutdown. */
+  public <T> CompletableFuture<Optional<T>> callAsyncWhileWriting(
+      CheckedSupplier<CompletableFuture<T>> work, Executor executor) {
+    Objects.requireNonNull(work, "work");
+    Objects.requireNonNull(executor, "executor");
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return callWhileWriting(() -> work.get().join());
+      } catch (Exception failure) {
+        throw new CompletionException(failure);
+      }
+    }, executor);
+  }
+
   private void fenceAfterLockLoss() {
     acceptingWrites.set(false);
     try {
@@ -126,19 +193,18 @@ public final class ExchangeRuntime implements AutoCloseable {
   @Override
   public void close() throws Exception {
     acceptingWrites.set(false);
-    try {
-      dispatcher.close();
-    } finally {
-      try {
-        afterDispatcherClosed.run();
-      } finally {
-        writer.close();
-      }
-    }
+    dispatcher.close();
+    afterDispatcherClosed.run();
+    writer.close();
   }
 
   @FunctionalInterface
   public interface CheckedRunnable {
     void run() throws Exception;
+  }
+
+  @FunctionalInterface
+  public interface CheckedSupplier<T> {
+    T get() throws Exception;
   }
 }

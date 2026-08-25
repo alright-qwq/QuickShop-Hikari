@@ -5,7 +5,12 @@ import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.service.ExchangeServiceFixture;
 import com.ghostchu.quickshop.addon.exchange.service.OrderReceipt;
 import com.ghostchu.quickshop.addon.exchange.service.OrderRequest;
+import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
+import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferStatus;
+import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferType;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -46,24 +51,161 @@ class AdminCommandRouterTest {
   }
 
   @Test
-  void pausesAMarketWithTheDedicatedMarketPermission() throws Exception {
+  void pausesAndResumesMarketsWithTheDedicatedMarketPermission() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
-    Actor actor = new Actor("quickshop.exchange.admin.market");
     AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
-        fixture.repository(), Map.of(fixture.rules().marketId(), fixture.service())),
-        UUID::randomUUID);
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()), UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.market");
+
+    router.execute(actor, new String[] {"market", "pause", fixture.rules().marketId(),
+        "scheduled maintenance"});
+    String paused = fixture.repository().inTransaction(
+        tx -> tx.marketState(fixture.rules().marketId()).status().name());
+    assertThat(paused).isEqualTo("PAUSED");
+    assertThat(actor.message).isEqualTo("request-accepted");
+
+    router.execute(actor, new String[] {"market", "resume", fixture.rules().marketId(),
+        "maintenance completed"});
+    String resumed = fixture.repository().inTransaction(
+        tx -> tx.marketState(fixture.rules().marketId()).status().name());
+    assertThat(resumed).isEqualTo("OPEN");
+    assertThat(actor.message).isEqualTo("request-accepted");
+  }
+
+  @Test
+  void deniesMarketMutationWithoutTheDedicatedPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()), UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.orders");
 
     router.execute(actor, new String[] {"market", "pause", fixture.rules().marketId(),
         "scheduled maintenance"});
 
-    assertThat(fixture.marketStatus()).isEqualTo("PAUSED");
+    assertThat(actor.message).isEqualTo("permission-denied");
+    String status = fixture.repository().inTransaction(
+        tx -> tx.marketState(fixture.rules().marketId()).status().name());
+    assertThat(status).isEqualTo("OPEN");
+  }
+
+  @Test
+  void reconcilesAndExportsAuditWithTheDedicatedAuditPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    var directory = Files.createTempDirectory("exchange-admin-route-audit-");
+    AdminExchangeService administration = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository(),
+        new com.ghostchu.quickshop.addon.exchange.operations.AuditExporter(), directory);
+    java.util.concurrent.atomic.AtomicInteger writes = new java.util.concurrent.atomic.AtomicInteger();
+    AdminCommandRouter router = new AdminCommandRouter(administration, UUID::randomUUID, work -> {
+      writes.incrementAndGet();
+      work.run();
+      return true;
+    });
+    Actor actor = new Actor("quickshop.exchange.admin.audit");
+
+    router.execute(actor, new String[] {"audit", "reconcile"});
+    assertThat(actor.message).isEqualTo("admin-reconciliation-balanced");
+    assertThat(writes).hasValue(1);
+
+    router.execute(actor, new String[] {"audit", "export", "0",
+        Long.toString(Instant.now().plusSeconds(1).getEpochSecond())});
+    assertThat(actor.message).isEqualTo("admin-audit-exported");
+    assertThat(Files.list(directory)).hasSize(1);
+  }
+
+  @Test
+  void deniesAuditOperationsWithoutTheDedicatedPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()), UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.market");
+
+    router.execute(actor, new String[] {"audit", "reconcile"});
+
+    assertThat(actor.message).isEqualTo("permission-denied");
+  }
+
+  @Test
+  void listsAndShowsReviewedTransfersWithoutEnteringTheWriterFence() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    TransferRecord reviewed = reviewedMoneyDeposit(fixture);
+    java.util.concurrent.atomic.AtomicInteger writes = new java.util.concurrent.atomic.AtomicInteger();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()),
+        UUID::randomUUID, work -> {
+          writes.incrementAndGet();
+          work.run();
+          return true;
+        });
+    Actor actor = new Actor("quickshop.exchange.admin.recovery");
+
+    router.execute(actor, new String[] {"transfer", "review", "list"});
+    assertThat(actor.message).isEqualTo("admin-transfer-review-list");
+    assertThat(actor.arguments).singleElement().asString().contains(reviewed.transferId().toString());
+
+    router.execute(actor, new String[] {"transfer", "review", "show",
+        reviewed.transferId().toString()});
+    assertThat(actor.message).isEqualTo("admin-transfer-review-detail");
+    assertThat(actor.arguments).singleElement().asString()
+        .contains(reviewed.transferId().toString(), "MONEY_DEPOSIT", "REVIEW_REQUIRED");
+    assertThat(writes).hasValue(0);
+  }
+
+  @Test
+  void resolvesReviewedTransferThroughWriterFenceWithRecoveryPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    TransferRecord reviewed = reviewedMoneyDeposit(fixture);
+    java.util.concurrent.atomic.AtomicInteger writes = new java.util.concurrent.atomic.AtomicInteger();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()),
+        UUID::randomUUID, work -> {
+          writes.incrementAndGet();
+          work.run();
+          return true;
+        });
+    Actor actor = new Actor("quickshop.exchange.admin.recovery");
+
+    router.execute(actor, new String[] {"transfer", "review", "resolve",
+        reviewed.transferId().toString(), "success", "economy", "receipt", "provider-001"});
+
     assertThat(actor.message).isEqualTo("request-accepted");
+    assertThat(writes).hasValue(1);
+    assertThat(fixture.repository().find(reviewed.transferId()).orElseThrow().status())
+        .isEqualTo(TransferStatus.COMPLETED);
+  }
+
+  @Test
+  void deniesTransferReviewWithoutRecoveryPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    TransferRecord reviewed = reviewedMoneyDeposit(fixture);
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()), UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.audit");
+
+    router.execute(actor, new String[] {"transfer", "review", "show",
+        reviewed.transferId().toString()});
+
+    assertThat(actor.message).isEqualTo("permission-denied");
+  }
+
+  private static TransferRecord reviewedMoneyDeposit(ExchangeServiceFixture fixture)
+      throws Exception {
+    TransferRecord prepared = fixture.repository().create(TransferRecord.prepared(
+        UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), TransferType.MONEY_DEPOSIT,
+        fixture.rules().currencyId(), new BigDecimal("12.00"), Instant.EPOCH));
+    TransferRecord processing = fixture.repository().transition(
+        prepared.transferId(), prepared.version(), TransferStatus.PREPARED,
+        TransferStatus.PROCESSING, null);
+    return fixture.repository().transition(processing.transferId(), processing.version(),
+        TransferStatus.PROCESSING, TransferStatus.REVIEW_REQUIRED,
+        "economy withdrawal result unknown");
   }
 
   private static final class Actor implements CommandActor {
     private final UUID accountId = UUID.randomUUID();
     private final Set<String> permissions = new HashSet<>();
     private String message;
+    private Object[] arguments = new Object[0];
 
     private Actor(String... permissions) {
       this.permissions.addAll(Set.of(permissions));
@@ -71,7 +213,10 @@ class AdminCommandRouterTest {
 
     @Override public UUID accountId() { return accountId; }
     @Override public boolean hasPermission(String permission) { return permissions.contains(permission); }
-    @Override public void message(String key, Object... arguments) { message = key; }
+    @Override public void message(String key, Object... arguments) {
+      message = key;
+      this.arguments = arguments;
+    }
     @Override public void openMenu(String menuName, int page) { }
   }
 }

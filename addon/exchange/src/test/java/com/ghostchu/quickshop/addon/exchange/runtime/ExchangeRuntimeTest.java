@@ -1,9 +1,20 @@
 package com.ghostchu.quickshop.addon.exchange.runtime;
 
+import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
+import com.ghostchu.quickshop.addon.exchange.ui.ExchangeRequestSubmitter;
+import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ExchangeRuntimeTest {
   @Test
@@ -53,6 +64,23 @@ class ExchangeRuntimeTest {
   }
 
   @Test
+  void keepsStartupRecoveryInsideTheWriterFence() throws Exception {
+    TrackingGuard writer = new TrackingGuard(new AtomicBoolean());
+    AtomicBoolean bookRecoveryFenced = new AtomicBoolean();
+    AtomicBoolean transferRecoveryFenced = new AtomicBoolean();
+    ExchangeRuntime runtime = new ExchangeRuntime(writer,
+        () -> bookRecoveryFenced.set(writer.runningGuardedWork()),
+        () -> transferRecoveryFenced.set(writer.runningGuardedWork()),
+        () -> {});
+
+    runtime.start();
+
+    assertThat(bookRecoveryFenced).isTrue();
+    assertThat(transferRecoveryFenced).isTrue();
+    runtime.close();
+  }
+
+  @Test
   void flushesOperationalDataAfterDispatcherDrainAndBeforeWriterRelease() throws Exception {
     AtomicBoolean dispatcherClosed = new AtomicBoolean();
     AtomicBoolean flushedAfterDispatcher = new AtomicBoolean();
@@ -68,10 +96,117 @@ class ExchangeRuntimeTest {
     assertThat(writer.closedAfterDispatcher()).isTrue();
   }
 
+  @Test
+  void keepsWriterHeldWhenOperationalDrainFails() throws Exception {
+    AtomicBoolean dispatcherClosed = new AtomicBoolean();
+    TrackingGuard writer = new TrackingGuard(dispatcherClosed);
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {},
+        () -> dispatcherClosed.set(true), () -> {},
+        () -> { throw new IllegalStateException("drain failed"); });
+    runtime.start();
+
+    assertThatThrownBy(runtime::close)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("drain failed");
+
+    assertThat(runtime.acceptingWrites()).isFalse();
+    assertThat(writer.held()).isTrue();
+  }
+
+  @Test
+  void returnsWriteResultOnlyWhileTheWriterFenceIsHeld() throws Exception {
+    TrackingGuard writer = new TrackingGuard(new AtomicBoolean());
+    ExchangeRuntime runtime = new ExchangeRuntime(writer, () -> {}, () -> {}, () -> {});
+
+    assertThat(runtime.callWhileWriting(() -> "not-run")).isEmpty();
+    runtime.start();
+    assertThat(runtime.callWhileWriting(() -> "committed")).contains("committed");
+
+    writer.loseLock();
+    assertThat(runtime.callWhileWriting(() -> "not-run")).isEmpty();
+  }
+
+  @Test
+  void holdsWriterFenceUntilAnAsynchronousMutationCompletes() throws Exception {
+    var database = Files.createTempFile("exchange-async-writer-", ".sqlite");
+    LocalSingleWriterGuard first = new LocalSingleWriterGuard(database);
+    LocalSingleWriterGuard second = new LocalSingleWriterGuard(database);
+    ExchangeRuntime runtime = new ExchangeRuntime(first, () -> {}, () -> {}, () -> {});
+    runtime.start();
+    CountDownLatch started = new CountDownLatch(1);
+    CompletableFuture<String> mutation = new CompletableFuture<>();
+
+    CompletableFuture<java.util.Optional<String>> fenced = runtime.callAsyncWhileWriting(() -> {
+      started.countDown();
+      return mutation;
+    });
+    assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();
+    Thread closer = Thread.ofPlatform().start(() -> {
+      try {
+        runtime.close();
+      } catch (Exception failure) {
+        throw new AssertionError(failure);
+      }
+    });
+    Thread.sleep(50L);
+
+    assertThat(closer.isAlive()).isTrue();
+    assertThatThrownBy(second::acquire).isInstanceOf(IllegalStateException.class);
+    mutation.complete("completed");
+    assertThat(fenced.join()).contains("completed");
+    closer.join(2_000L);
+    second.acquire();
+    second.close();
+  }
+
+  @Test
+  void rejectsGuiConfirmationWhenWriterIsUnavailableWithoutChangingRequestId() {
+    ExchangeRuntime runtime = new ExchangeRuntime(new TrackingGuard(new AtomicBoolean()),
+        () -> {}, () -> {}, () -> {});
+    UUID requestId = UUID.randomUUID();
+    ExchangeMenuRequest request = ExchangeMenuRequest.order(new ExchangeMenuRequest.OrderDraft(
+        requestId, UUID.randomUUID(), "diamond-usd", OrderSide.BUY, OrderType.LIMIT,
+        new BigDecimal("100.00"), null, 1));
+
+    ExchangeRequestSubmitter.SubmissionResult result =
+        new RuntimeExchangeRequestSubmitter(runtime, Runnable::run).submit(request).join();
+
+    assertThat(result.requestId()).isEqualTo(requestId);
+    assertThat(result.outcome()).isEqualTo(ExchangeRequestSubmitter.Outcome.REJECTED);
+    assertThat(result.reference()).isEqualTo("writer unavailable");
+  }
+
+  @Test
+  void rejectsNonConfirmableRequestInsteadOfInventingRequestId() {
+    ExchangeRuntime runtime = new ExchangeRuntime(new TrackingGuard(new AtomicBoolean()),
+        () -> {}, () -> {}, () -> {});
+
+    assertThatThrownBy(() -> new RuntimeExchangeRequestSubmitter(runtime, Runnable::run)
+        .submit(ExchangeMenuRequest.page("markets")).join())
+        .hasCauseInstanceOf(IllegalArgumentException.class)
+        .hasRootCauseMessage("request is not confirmable");
+  }
+
+  @Test
+  void closingTheGuiSubmitterRejectsLateConfirmations() {
+    ExchangeRuntime runtime = new ExchangeRuntime(new TrackingGuard(new AtomicBoolean()),
+        () -> {}, () -> {}, () -> {});
+    RuntimeExchangeRequestSubmitter submitter = new RuntimeExchangeRequestSubmitter(runtime);
+    ExchangeMenuRequest request = ExchangeMenuRequest.cancel(
+        UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+
+    submitter.close();
+
+    assertThatThrownBy(() -> submitter.submit(request))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("closed");
+  }
+
   private static final class TrackingGuard implements SingleWriterGuard {
     private final AtomicBoolean dispatcherClosed;
     private boolean held;
     private boolean closedAfterDispatcher;
+    private boolean runningGuardedWork;
     private Runnable onLockLost = () -> {};
 
     private TrackingGuard(AtomicBoolean dispatcherClosed) {
@@ -92,6 +227,20 @@ class ExchangeRuntimeTest {
     }
 
     @Override
+    public boolean runWhileHeld(GuardedWork work) throws Exception {
+      if (!held) {
+        return false;
+      }
+      runningGuardedWork = true;
+      try {
+        work.run();
+        return true;
+      } finally {
+        runningGuardedWork = false;
+      }
+    }
+
+    @Override
     public void close() {
       closedAfterDispatcher = dispatcherClosed.get();
       held = false;
@@ -109,6 +258,10 @@ class ExchangeRuntimeTest {
 
     private boolean closedAfterDispatcher() {
       return closedAfterDispatcher;
+    }
+
+    private boolean runningGuardedWork() {
+      return runningGuardedWork;
     }
   }
 }
