@@ -1,6 +1,8 @@
 package com.ghostchu.quickshop.addon.exchange.ui;
 
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote;
+import java.math.BigDecimal;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -12,6 +14,38 @@ public final class MarketListPresenter {
       return new MarketRow(entry.marketId(), entry.displayName(), quote.lastPrice(),
           quote.bestBid(), quote.bestAsk(), quote.change24h(), quote.volume24h(), quote.status());
     }).toList());
+  }
+
+  public MarketOverviewSnapshot overview(List<Entry> entries) {
+    List<Entry> safeEntries = List.copyOf(Objects.requireNonNull(entries, "entries"));
+    long totalVolume = safeEntries.stream().mapToLong(entry -> entry.quote().volume24h())
+        .reduce(0L, Math::addExact);
+    BigDecimal totalNotional = safeEntries.stream().map(entry -> entry.quote().notional24h())
+        .reduce(BigDecimal.ZERO, BigDecimal::add);
+    int rising = (int) safeEntries.stream()
+        .filter(entry -> entry.quote().change24h().signum() > 0).count();
+    int falling = (int) safeEntries.stream()
+        .filter(entry -> entry.quote().change24h().signum() < 0).count();
+    return new MarketOverviewSnapshot(safeEntries.size(), rising, falling, totalVolume, totalNotional,
+        row(select(safeEntries, Comparator.comparing((Entry entry) -> entry.quote().notional24h())
+            .reversed().thenComparing(Entry::marketId))),
+        row(select(safeEntries, Comparator.comparing((Entry entry) -> entry.quote().change24h())
+            .reversed().thenComparing(Entry::marketId))),
+        row(select(safeEntries, Comparator.comparing((Entry entry) -> entry.quote().change24h())
+            .thenComparing(Entry::marketId))));
+  }
+
+  private static Entry select(List<Entry> entries, Comparator<Entry> comparator) {
+    return entries.stream().min(comparator).orElse(null);
+  }
+
+  private static MarketRow row(Entry entry) {
+    if (entry == null) {
+      return null;
+    }
+    MarketQuote quote = entry.quote();
+    return new MarketRow(entry.marketId(), entry.displayName(), quote.lastPrice(),
+        quote.bestBid(), quote.bestAsk(), quote.change24h(), quote.volume24h(), quote.status());
   }
 
   public record Entry(String marketId, String displayName, MarketQuote quote) {

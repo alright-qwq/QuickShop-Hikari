@@ -174,6 +174,37 @@ class PersistentOrderServiceTest {
   }
 
   @Test
+  void replaysPlayerCancellationAfterTheOrderIsAlreadyCancelled() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    UUID requestId = UUID.randomUUID();
+    OrderReceipt order = fixture.service().place(new OrderRequest(UUID.randomUUID(), seller,
+        "diamond-usd", OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    OrderReceipt first = fixture.service().cancel(seller, requestId, order.orderId());
+    OrderReceipt replay = fixture.service().cancel(seller, requestId, order.orderId());
+
+    assertThat(replay).isEqualTo(first);
+  }
+
+  @Test
+  void rejectsReusingCancellationRequestIdForAnotherOrder() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(2);
+    UUID requestId = UUID.randomUUID();
+    OrderReceipt firstOrder = fixture.service().place(new OrderRequest(UUID.randomUUID(), seller,
+        "diamond-usd", OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+    OrderReceipt secondOrder = fixture.service().place(new OrderRequest(UUID.randomUUID(), seller,
+        "diamond-usd", OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    fixture.service().cancel(seller, requestId, firstOrder.orderId());
+
+    assertThatThrownBy(() -> fixture.service().cancel(seller, requestId, secondOrder.orderId()))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("request id belongs to another cancellation target");
+  }
+
+  @Test
   void rejectsMarketOrderWhoseProtectionExceedsConfiguredMaximumSlippage() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID seller = fixture.accountWithItems(1);
@@ -317,6 +348,92 @@ class PersistentOrderServiceTest {
         OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
 
     assertThat(service.marketQuote(marketData).bestAsk()).isEqualByComparingTo("100.00");
+  }
+
+  @Test
+  void exposesBestFiveBidAndAskLevelsFromTheCommittedOrderBook() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketDataService marketData = new MarketDataService(new CandleAggregator());
+    PersistentOrderService service = fixture.serviceWithMarketData(marketData);
+    UUID firstBuyer = fixture.accountWithCurrency("1000.00");
+    UUID secondBuyer = fixture.accountWithCurrency("1000.00");
+    UUID seller = fixture.accountWithItems(3);
+    service.place(new OrderRequest(UUID.randomUUID(), firstBuyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("99.00"), null, 2));
+    service.place(new OrderRequest(UUID.randomUUID(), secondBuyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("98.00"), null, 1));
+    service.place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("101.00"), null, 3));
+
+    var depth = service.marketDepth(marketData, 5);
+
+    assertThat(depth.bids()).extracting(MarketDataService.DepthLevel::price)
+        .containsExactly(new BigDecimal("99.00"), new BigDecimal("98.00"));
+    assertThat(depth.asks()).extracting(MarketDataService.DepthLevel::price)
+        .containsExactly(new BigDecimal("101.00"));
+  }
+
+  @Test
+  void capturesQuoteAndDepthFromOneCommittedMarketBookSnapshot() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    UUID seller = fixture.accountWithItems(2);
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), buyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("99.00"), null, 2));
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("101.00"), null, 2));
+
+    PersistentOrderService.MarketBookSnapshot snapshot = fixture.service().marketBookSnapshot(
+        new MarketDataService(new CandleAggregator()), 5);
+
+    assertThat(snapshot.status()).isEqualTo(MarketStatus.OPEN);
+    assertThat(snapshot.bestBid()).isEqualByComparingTo("99.00");
+    assertThat(snapshot.bestAsk()).isEqualByComparingTo("101.00");
+    assertThat(snapshot.bids()).extracting(MarketDataService.DepthLevel::price)
+        .containsExactly(snapshot.bestBid());
+    assertThat(snapshot.asks()).extracting(MarketDataService.DepthLevel::price)
+        .containsExactly(snapshot.bestAsk());
+  }
+
+  @Test
+  void doesNotHoldTheMarketWriteLockWhileLoadingSnapshotStatus() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    CountDownLatch statusReadStarted = new CountDownLatch(1);
+    CountDownLatch releaseStatusRead = new CountDownLatch(1);
+    PersistentOrderService blockingSnapshot = fixture.serviceWithTransactionEntry(() -> {
+      statusReadStarted.countDown();
+      try {
+        if (!releaseStatusRead.await(5, TimeUnit.SECONDS)) {
+          throw new IllegalStateException("status read was not released");
+        }
+      } catch (InterruptedException failure) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException("interrupted while waiting for status read", failure);
+      }
+    });
+    UUID seller = fixture.accountWithItems(1);
+    ExecutorService workers = Executors.newFixedThreadPool(2);
+    try {
+      Future<?> snapshot = workers.submit(() -> {
+        try {
+          blockingSnapshot.marketBookSnapshot(new MarketDataService(new CandleAggregator()), 5);
+        } catch (SQLException failure) {
+          throw new IllegalStateException(failure);
+        }
+      });
+      assertThat(statusReadStarted.await(1, TimeUnit.SECONDS)).isTrue();
+
+      Future<OrderReceipt> placed = workers.submit(() -> fixture.service().place(new OrderRequest(
+          UUID.randomUUID(), seller, "diamond-usd", OrderSide.SELL, "LIMIT",
+          new BigDecimal("100.00"), null, 1)));
+
+      assertThat(placed.get(1, TimeUnit.SECONDS).status()).isEqualTo("OPEN");
+      releaseStatusRead.countDown();
+      snapshot.get(1, TimeUnit.SECONDS);
+    } finally {
+      releaseStatusRead.countDown();
+      workers.shutdownNow();
+    }
   }
 
   @Test

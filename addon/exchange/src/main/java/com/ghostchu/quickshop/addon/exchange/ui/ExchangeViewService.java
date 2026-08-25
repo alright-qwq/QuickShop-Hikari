@@ -1,6 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.ui;
 
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
+import com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
@@ -8,7 +9,11 @@ import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountAssetBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountLedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.service.PersistentOrderService;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.SQLException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,6 +22,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 /** Background-only read facade used by exchange UI pages. */
 public final class ExchangeViewService {
@@ -51,19 +57,27 @@ public final class ExchangeViewService {
     return transferTargets;
   }
 
+  public void subscribeMarketUpdates(UUID playerId, Consumer<MarketDataService.PlayerUpdate> consumer) {
+    marketData.subscribePlayer(playerId, consumer);
+  }
+
+  public void unsubscribeMarketUpdates(UUID playerId) {
+    marketData.unsubscribePlayer(playerId);
+  }
+
   public CompletableFuture<List<MarketRow>> marketRows() {
+    return marketList().thenApply(MarketListSnapshot::markets);
+  }
+
+  public CompletableFuture<MarketListSnapshot> marketList() {
     return CompletableFuture.supplyAsync(() -> {
-      List<MarketListPresenter.Entry> entries = new ArrayList<>();
-      for (MarketView market : markets.values()) {
-        try {
-          entries.add(new MarketListPresenter.Entry(market.marketId(), market.displayName(),
-              market.service().marketQuote(marketData)));
-        } catch (SQLException failure) {
-          throw new IllegalStateException("failed to load market quote: " + market.marketId(), failure);
-        }
-      }
-      return presenter.rows(entries);
+      List<MarketListPresenter.Entry> entries = loadMarketEntries();
+      return new MarketListSnapshot(presenter.rows(entries), presenter.overview(entries));
     }, executor);
+  }
+
+  public CompletableFuture<MarketOverviewSnapshot> marketOverview() {
+    return marketList().thenApply(MarketListSnapshot::overview);
   }
 
   public CompletableFuture<MarketRow> marketRow(String marketId) {
@@ -80,6 +94,29 @@ public final class ExchangeViewService {
             market.displayName(), market.service().marketQuote(marketData)))).getFirst();
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + marketId, failure);
+      }
+    }, executor);
+  }
+
+  public CompletableFuture<MarketDashboardSnapshot> marketDashboard(String marketId) {
+    MarketView market = requiredMarket(marketId);
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        PersistentOrderService.MarketBookSnapshot book = market.service()
+            .marketBookSnapshot(marketData, 5);
+        MarketQuote quote = marketData.quote(marketId, book.referencePrice(), book.bestBid(),
+            book.bestAsk(), book.status(), book.asOf());
+        MarketRow row = presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
+            market.displayName(), quote))).getFirst();
+        Instant asOf = book.asOf();
+        List<com.ghostchu.quickshop.addon.exchange.marketdata.Candle> candles =
+            marketData.recentCandles(marketId, asOf.minus(Duration.ofMinutes(9)),
+                asOf.plusSeconds(60));
+        BigDecimal spread = spread(quote.bestBid(), quote.bestAsk());
+        return new MarketDashboardSnapshot(row, candles, book.bids(), book.asks(), spread,
+            spreadPercent(spread, quote.bestBid(), quote.bestAsk()));
+      } catch (SQLException failure) {
+        throw new IllegalStateException("failed to load market dashboard: " + marketId, failure);
       }
     }, executor);
   }
@@ -165,6 +202,42 @@ public final class ExchangeViewService {
         throw new IllegalStateException("failed to load account ledger", failure);
       }
     }, executor);
+  }
+
+  private List<MarketListPresenter.Entry> loadMarketEntries() {
+    List<MarketListPresenter.Entry> entries = new ArrayList<>();
+    for (MarketView market : markets.values()) {
+      try {
+        entries.add(new MarketListPresenter.Entry(market.marketId(), market.displayName(),
+            market.service().marketQuote(marketData)));
+      } catch (SQLException failure) {
+        throw new IllegalStateException("failed to load market quote: " + market.marketId(), failure);
+      }
+    }
+    return List.copyOf(entries);
+  }
+
+  private MarketView requiredMarket(String marketId) {
+    if (marketId == null || marketId.isBlank()) {
+      throw new IllegalArgumentException("marketId is required");
+    }
+    MarketView market = markets.get(marketId);
+    if (market == null) {
+      throw new IllegalArgumentException("unknown market: " + marketId);
+    }
+    return market;
+  }
+
+  private static BigDecimal spread(BigDecimal bid, BigDecimal ask) {
+    return bid == null || ask == null ? null : ask.subtract(bid);
+  }
+
+  private static BigDecimal spreadPercent(BigDecimal spread, BigDecimal bid, BigDecimal ask) {
+    if (spread == null) {
+      return null;
+    }
+    BigDecimal midpoint = bid.add(ask).divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
+    return midpoint.signum() == 0 ? null : spread.divide(midpoint, 8, RoundingMode.HALF_UP);
   }
 
   public record MarketView(String marketId, String displayName, PersistentOrderService service) {

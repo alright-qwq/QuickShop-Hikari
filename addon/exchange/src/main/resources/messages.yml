@@ -32,6 +32,37 @@ en-US:
   ui-market-bid-ask: 'Bid / Ask: <0> / <1>'
   ui-market-volume: '24h volume: <0>'
   ui-market-status: 'Status: <0>'
+  ui-market-spread: 'Spread: <0> (<1>)'
+  ui-nav-markets: Markets
+  ui-nav-assets: Assets
+  ui-nav-orders: My orders
+  ui-overview-title: Market overview
+  ui-overview-markets: 'Markets: <0>'
+  ui-overview-breadth: '24h rising / falling: <0> / <1>'
+  ui-overview-volume: '24h total volume: <0>'
+  ui-overview-notional: '24h total notional: <0>'
+  ui-overview-active: 'Most active: <0>'
+  ui-overview-gainer: 'Top gainer: <0>'
+  ui-overview-loser: 'Top loser: <0>'
+  ui-depth-bid: Bid depth
+  ui-depth-ask: Ask depth
+  ui-depth-empty: No depth
+  ui-depth-price: 'Price: <0>'
+  ui-depth-quantity: 'Quantity: <0>'
+  ui-depth-cumulative: 'Cumulative: <0>'
+  ui-depth-executable: Executable now
+  ui-depth-protected: Outside price cage
+  ui-trend-title: '1m trade: <0>'
+  ui-trend-up: Up
+  ui-trend-down: Down
+  ui-trend-flat: Flat
+  ui-trend-empty: No recent trade
+  ui-trend-time: 'Bucket: <0>'
+  ui-trend-open: 'Open: <0>'
+  ui-trend-high: 'High: <0>'
+  ui-trend-low: 'Low: <0>'
+  ui-trend-close: 'Close: <0>'
+  ui-trend-volume: 'Volume: <0>'
   ui-assets-available: 'Available: <0>'
   ui-assets-frozen: 'Frozen: <0>'
   ui-assets-deposit-action: 'Left click: deposit'
@@ -117,6 +148,37 @@ zh-CN:
   ui-market-bid-ask: '买一 / 卖一：<0> / <1>'
   ui-market-volume: '24 小时成交量：<0>'
   ui-market-status: '状态：<0>'
+  ui-market-spread: '价差：<0>（<1>）'
+  ui-nav-markets: 市场列表
+  ui-nav-assets: 我的资产
+  ui-nav-orders: 我的订单
+  ui-overview-title: 全服大盘
+  ui-overview-markets: '市场数：<0>'
+  ui-overview-breadth: '24 小时上涨 / 下跌：<0> / <1>'
+  ui-overview-volume: '24 小时总成交量：<0>'
+  ui-overview-notional: '24 小时总成交额：<0>'
+  ui-overview-active: '最活跃：<0>'
+  ui-overview-gainer: '涨幅第一：<0>'
+  ui-overview-loser: '跌幅第一：<0>'
+  ui-depth-bid: 买盘深度
+  ui-depth-ask: 卖盘深度
+  ui-depth-empty: 暂无深度
+  ui-depth-price: '价格：<0>'
+  ui-depth-quantity: '数量：<0>'
+  ui-depth-cumulative: '累计：<0>'
+  ui-depth-executable: 当前可成交
+  ui-depth-protected: 当前超出价格笼子
+  ui-trend-title: '1 分钟成交：<0>'
+  ui-trend-up: 上涨
+  ui-trend-down: 下跌
+  ui-trend-flat: 平盘
+  ui-trend-empty: 暂无最近成交
+  ui-trend-time: '时间桶：<0>'
+  ui-trend-open: '开盘：<0>'
+  ui-trend-high: '最高：<0>'
+  ui-trend-low: '最低：<0>'
+  ui-trend-close: '收盘：<0>'
+  ui-trend-volume: '成交量：<0>'
   ui-assets-available: '可用：<0>'
   ui-assets-frozen: '冻结：<0>'
   ui-assets-deposit-action: '左键：充值'

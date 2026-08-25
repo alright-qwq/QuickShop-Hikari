@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.ui;
 
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -65,5 +66,17 @@ class ExchangeMenuContextStoreTest {
     store.close();
 
     assertThat(store.get(player)).isEmpty();
+  }
+
+  @Test
+  void notifiesTheOwnerWhenNavigationLeavesTheLiveMarketViews() {
+    AtomicReference<UUID> unsubscribed = new AtomicReference<>();
+    ExchangeMenuContextStore store = new ExchangeMenuContextStore(unsubscribed::set);
+    UUID player = UUID.randomUUID();
+
+    store.put(player, ExchangeMenuRequest.market("diamond-usd"));
+    store.put(player, ExchangeMenuRequest.page("assets"));
+
+    assertThat(unsubscribed).hasValue(player);
   }
 }

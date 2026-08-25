@@ -4,6 +4,7 @@ import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import com.ghostchu.quickshop.QuickShop;
 import org.bukkit.entity.Player;
 
 /** Bukkit adapter that keeps the command router independent from player and menu APIs. */
@@ -34,6 +35,12 @@ public final class BukkitCommandActor implements CommandActor {
   @Override
   public void message(String key, Object... arguments) {
     player.sendMessage(messages.message(key, locale, arguments));
+  }
+
+  @Override
+  public void executeAtOwner(Runnable action) {
+    Objects.requireNonNull(action, "action");
+    QuickShop.folia().getScheduler().runAtEntityLater(player, action, 1L);
   }
 
   @Override

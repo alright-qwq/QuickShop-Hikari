@@ -69,6 +69,26 @@ class AdminExchangeServiceTest {
   }
 
   @Test
+  void replaysForceCancelBeforeValidatingReason() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID buyer = fixture.accountWithCurrency("500.00");
+    OrderReceipt receipt = fixture.service().place(new OrderRequest(
+        UUID.randomUUID(), buyer, fixture.rules().marketId(), OrderSide.BUY, "LIMIT",
+        new BigDecimal("100.00"), null, 1));
+    UUID actor = UUID.randomUUID();
+    UUID requestId = UUID.randomUUID();
+    AdminExchangeService admin = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()));
+
+    OrderReceipt first = admin.forceCancel(actor, requestId, fixture.rules().marketId(),
+        receipt.orderId(), "suspected abuse");
+    OrderReceipt replay = admin.forceCancel(actor, requestId, fixture.rules().marketId(),
+        receipt.orderId(), "bad");
+
+    assertThat(replay).isEqualTo(first);
+  }
+
+  @Test
   void pausesAndResumesAMarketWithAppendOnlyAuditRecords() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID actor = UUID.randomUUID();

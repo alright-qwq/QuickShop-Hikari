@@ -227,6 +227,10 @@ public final class PersistentOrderService {
     Objects.requireNonNull(actorId, "actorId");
     Objects.requireNonNull(requestId, "requestId");
     Objects.requireNonNull(orderId, "orderId");
+    OrderReceipt replay = committedForceCancelReceipt(actorId, requestId, orderId);
+    if (replay != null) {
+      return replay;
+    }
     String normalizedReason = normalizeAdminReason(reason);
     synchronized (runtimeState) {
       AtomicReference<ForceCancelOutcome> attempted = new AtomicReference<>();
@@ -242,7 +246,7 @@ public final class PersistentOrderService {
         }
         return outcome.receipt();
       } catch (SQLException failure) {
-        OrderReceipt committed = committedForceCancelReceipt(actorId, requestId, failure);
+        OrderReceipt committed = committedForceCancelReceipt(actorId, requestId, orderId, failure);
         if (committed != null) {
           ForceCancelOutcome attemptedOutcome = attempted.get();
           if (attemptedOutcome != null && committed.equals(attemptedOutcome.receipt())) {
@@ -262,6 +266,10 @@ public final class PersistentOrderService {
     Objects.requireNonNull(accountId, "accountId");
     Objects.requireNonNull(requestId, "requestId");
     Objects.requireNonNull(orderId, "orderId");
+    OrderReceipt replay = committedForceCancelReceipt(accountId, requestId, orderId);
+    if (replay != null) {
+      return replay;
+    }
     synchronized (runtimeState) {
       List<PersistedOrder> open = repository.inTransaction(tx -> tx.openOrders(rules.marketId()));
       PersistedOrder order = open.stream().filter(candidate ->
@@ -312,16 +320,25 @@ public final class PersistentOrderService {
   }
 
   private OrderReceipt committedForceCancelReceipt(
-      UUID actorId, UUID requestId, SQLException originalFailure) {
+      UUID actorId, UUID requestId, UUID expectedOrderId) throws SQLException {
+    StoredRequestResult stored = repository.findRequestResult(actorId, requestId).orElse(null);
+    if (stored == null) {
+      return null;
+    }
+    if (!FORCE_CANCEL_OPERATION.equals(stored.operation())) {
+      throw new IllegalStateException("request id belongs to another operation");
+    }
+    OrderReceipt receipt = decodeReceipt(stored.payload());
+    if (!expectedOrderId.equals(receipt.orderId())) {
+      throw new IllegalStateException("request id belongs to another cancellation target");
+    }
+    return receipt;
+  }
+
+  private OrderReceipt committedForceCancelReceipt(
+      UUID actorId, UUID requestId, UUID expectedOrderId, SQLException originalFailure) {
     try {
-      StoredRequestResult stored = repository.findRequestResult(actorId, requestId).orElse(null);
-      if (stored == null) {
-        return null;
-      }
-      if (!FORCE_CANCEL_OPERATION.equals(stored.operation())) {
-        throw new IllegalStateException("request id belongs to another operation");
-      }
-      return decodeReceipt(stored.payload());
+      return committedForceCancelReceipt(actorId, requestId, expectedOrderId);
     } catch (SQLException lookupFailure) {
       originalFailure.addSuppressed(lookupFailure);
       return null;
@@ -497,7 +514,11 @@ public final class PersistentOrderService {
       if (!FORCE_CANCEL_OPERATION.equals(stored.operation())) {
         throw new IllegalStateException("request id belongs to another operation");
       }
-      return ForceCancelOutcome.duplicate(decodeReceipt(stored.payload()));
+      OrderReceipt receipt = decodeReceipt(stored.payload());
+      if (!orderId.equals(receipt.orderId())) {
+        throw new IllegalStateException("request id belongs to another cancellation target");
+      }
+      return ForceCancelOutcome.duplicate(receipt);
     }
     List<PersistedOrder> persistedOrders = tx.openOrders(rules.marketId());
     PersistedOrder persisted = persistedOrders.stream()
@@ -571,20 +592,65 @@ public final class PersistentOrderService {
   /** Builds a protected quote from the most recently committed book and reference-price state. */
   public MarketQuote marketQuote(MarketDataService data) throws SQLException {
     Objects.requireNonNull(data, "data");
+    MarketBookSnapshot snapshot = marketBookSnapshot(data, 1);
+    return data.quote(rules.marketId(), snapshot.referencePrice(), snapshot.bestBid(),
+        snapshot.bestAsk(), snapshot.status(), snapshot.asOf());
+  }
+
+  /** Returns the best visible bid and ask levels without exposing the mutable order book. */
+  public MarketDepth marketDepth(MarketDataService data, int limit) throws SQLException {
+    MarketBookSnapshot snapshot = marketBookSnapshot(data, limit);
+    return new MarketDepth(snapshot.bids(), snapshot.asks());
+  }
+
+  /** Captures one coherent, read-only view of the committed book for a market UI refresh. */
+  public MarketBookSnapshot marketBookSnapshot(MarketDataService data, int limit) throws SQLException {
+    Objects.requireNonNull(data, "data");
+    if (limit < 1) {
+      throw new IllegalArgumentException("depth limit must be positive");
+    }
     MarketStatus status = repository.inTransaction(
         transaction -> transaction.marketState(rules.marketId()).status());
-    Instant asOf = now.get();
-    BigDecimal reference;
-    BigDecimal bestBid;
-    BigDecimal bestAsk;
     synchronized (runtimeState) {
-      reference = runtimeState.referencePrices.copy().referenceAt(asOf);
-      bestBid = runtimeState.committedBook.bestExecutable(OrderSide.BUY,
+      Instant asOf = now.get();
+      BigDecimal reference = runtimeState.referencePrices.copy().referenceAt(asOf);
+      BigDecimal bestBid = runtimeState.committedBook.bestExecutable(OrderSide.BUY,
           price -> riskLimits.insideCage(price, reference)).map(Order::limitPrice).orElse(null);
-      bestAsk = runtimeState.committedBook.bestExecutable(OrderSide.SELL,
+      BigDecimal bestAsk = runtimeState.committedBook.bestExecutable(OrderSide.SELL,
           price -> riskLimits.insideCage(price, reference)).map(Order::limitPrice).orElse(null);
+      List<MarketDataService.DepthLevel> bids = data.depth(runtimeState.committedBook,
+              OrderSide.BUY, reference, riskLimits).stream()
+          .sorted(Comparator.comparing(MarketDataService.DepthLevel::price).reversed())
+          .limit(limit).toList();
+      List<MarketDataService.DepthLevel> asks = data.depth(runtimeState.committedBook,
+              OrderSide.SELL, reference, riskLimits).stream()
+          .sorted(Comparator.comparing(MarketDataService.DepthLevel::price))
+          .limit(limit).toList();
+      return new MarketBookSnapshot(status, asOf, reference, bestBid, bestAsk, bids, asks);
     }
-    return data.quote(rules.marketId(), reference, bestBid, bestAsk, status, asOf);
+  }
+
+  public record MarketDepth(List<MarketDataService.DepthLevel> bids,
+                            List<MarketDataService.DepthLevel> asks) {
+    public MarketDepth {
+      bids = List.copyOf(Objects.requireNonNull(bids, "bids"));
+      asks = List.copyOf(Objects.requireNonNull(asks, "asks"));
+    }
+  }
+
+  public record MarketBookSnapshot(MarketStatus status, Instant asOf, BigDecimal referencePrice,
+                                   BigDecimal bestBid, BigDecimal bestAsk,
+                                   List<MarketDataService.DepthLevel> bids,
+                                   List<MarketDataService.DepthLevel> asks) {
+    public MarketBookSnapshot {
+      Objects.requireNonNull(status, "status");
+      Objects.requireNonNull(asOf, "asOf");
+      if (referencePrice == null || referencePrice.signum() <= 0) {
+        throw new IllegalArgumentException("reference price must be positive");
+      }
+      bids = List.copyOf(Objects.requireNonNull(bids, "bids"));
+      asks = List.copyOf(Objects.requireNonNull(asks, "asks"));
+    }
   }
 
   private RuntimeRiskSnapshot runtimeRisk(

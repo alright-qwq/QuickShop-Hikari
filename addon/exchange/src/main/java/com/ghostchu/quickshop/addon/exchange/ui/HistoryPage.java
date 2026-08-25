@@ -46,7 +46,11 @@ final class HistoryPage {
           Player player = Bukkit.getPlayer(playerId);
           if (player == null || !player.isOnline()) return;
           QuickShop.folia().getScheduler().runAtEntityLater(player,
-              () -> render(page, player, snapshot, failure), 1L);
+              () -> {
+                if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
+                  render(page, player, snapshot, failure);
+                }
+              }, 1L);
         });
   }
 

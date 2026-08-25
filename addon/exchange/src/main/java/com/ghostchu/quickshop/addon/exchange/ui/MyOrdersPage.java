@@ -37,7 +37,11 @@ final class MyOrdersPage {
       Player player = Bukkit.getPlayer(playerId);
       if (player == null || !player.isOnline()) return;
       QuickShop.folia().getScheduler().runAtEntityLater(player,
-          () -> render(page, player, orders, failure), 1L);
+          () -> {
+            if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
+              render(page, player, orders, failure);
+            }
+          }, 1L);
     });
   }
 
@@ -50,6 +54,7 @@ final class MyOrdersPage {
           .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
       return;
     }
+    addMarketsNavigation(page, player);
     int slot = 9;
     for (Order order : orders) {
       if (slot >= 45) break;
@@ -75,5 +80,16 @@ final class MyOrdersPage {
       })).withSlot(slot++);
       page.addIcon(playerId, icon.build());
     }
+  }
+
+  private void addMarketsNavigation(PlayerInstancePage page, Player player) {
+    UUID playerId = player.getUniqueId();
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("COMPASS", 1)
+        .customName(messages.component(player, "ui-nav-markets")))
+        .withActions(new RunnableAction(click -> {
+          contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName()));
+          MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKETS.page(),
+              click.player());
+        })).withSlot(0).build());
   }
 }

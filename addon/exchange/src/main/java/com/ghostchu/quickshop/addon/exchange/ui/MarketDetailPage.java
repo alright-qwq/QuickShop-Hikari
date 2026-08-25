@@ -16,6 +16,7 @@ import net.tnemc.menu.core.builder.IconBuilder;
 import net.tnemc.menu.core.callbacks.page.PageOpenCallback;
 import net.tnemc.menu.core.icon.action.ActionType;
 import net.tnemc.menu.core.icon.action.impl.RunnableAction;
+import net.tnemc.menu.core.manager.MenuManager;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -26,6 +27,7 @@ final class MarketDetailPage {
   private final OrderEntryPrompt prompts;
   private final OrderEntryAccess access;
   private final ExchangeUiMessages messages;
+  private final MarketDashboardPresenter presenter = new MarketDashboardPresenter();
 
   MarketDetailPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
                    RolloutPolicy rollout, AddonMessageService messages) {
@@ -46,14 +48,30 @@ final class MarketDetailPage {
       renderFailure(page, player, playerId, "ui-market-not-selected");
       return;
     }
-    views.marketRow(request.marketId()).whenComplete((row, failure) -> {
-      if (!contexts.isCurrent(playerId, request) || !player.isOnline()) return;
+    views.subscribeMarketUpdates(playerId, update -> {
+      if (update.marketIds().contains(request.marketId()) && contexts.isCurrent(playerId, request)
+          && player.isOnline()) {
+        refresh(page, player, request);
+      }
+    });
+    refresh(page, player, request);
+  }
+
+  private void refresh(PlayerInstancePage page, Player player, ExchangeMenuRequest request) {
+    UUID playerId = player.getUniqueId();
+    views.marketDashboard(request.marketId()).whenComplete((dashboard, failure) -> {
+      if (!ExchangePageRenderGuard.permits(contexts, playerId, request, player::isOnline)) return;
       QuickShop.folia().getScheduler().runAtEntityLater(player,
-          () -> render(page, player, row, failure), 1L);
+          () -> {
+            if (ExchangePageRenderGuard.permits(contexts, playerId, request, player::isOnline)) {
+              render(page, player, dashboard, failure);
+            }
+          }, 1L);
     });
   }
 
-  private void render(PlayerInstancePage page, Player player, MarketRow row, Throwable failure) {
+  private void render(PlayerInstancePage page, Player player, MarketDashboardSnapshot dashboard,
+                      Throwable failure) {
     UUID playerId = player.getUniqueId();
     if (failure != null) {
       renderFailure(page, player, playerId, "ui-data-unavailable");
@@ -61,17 +79,29 @@ final class MarketDetailPage {
     }
     page.getIcons(playerId).clear();
     page.setLockEmptySlots(true);
+    MarketRow row = dashboard.market();
     String bid = row.bestBid() == null ? "-" : row.bestBid().toPlainString();
     String ask = row.bestAsk() == null ? "-" : row.bestAsk().toPlainString();
+    String spread = dashboard.spread() == null ? "-" : dashboard.spread().toPlainString();
+    String spreadPercent = dashboard.spreadPercent() == null ? "-"
+        : dashboard.spreadPercent().multiply(java.math.BigDecimal.valueOf(100)).stripTrailingZeros()
+            .toPlainString() + "%";
     List<Component> lore = List.of(
         messages.component(player, "ui-market-last", row.lastPrice().toPlainString()),
         messages.component(player, "ui-market-bid", bid),
         messages.component(player, "ui-market-ask", ask),
+        messages.component(player, "ui-market-spread", spread, spreadPercent),
         messages.component(player, "ui-market-change", row.change24h().toPlainString()),
         messages.component(player, "ui-market-volume", row.volume24h()),
         messages.component(player, "ui-market-status", row.status().name()));
     page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
-        .customName(Component.text(row.displayName())).lore(lore)).withSlot(22).build());
+        .customName(Component.text(row.displayName())).lore(lore)).withSlot(4).build());
+    addNavigation(page, player, 0, "COMPASS", "ui-nav-markets", ExchangeMenuPage.MARKETS);
+    addNavigation(page, player, 1, "CHEST", "ui-nav-assets", ExchangeMenuPage.ASSETS);
+    addNavigation(page, player, 2, "WRITABLE_BOOK", "ui-nav-orders", ExchangeMenuPage.ORDERS);
+    MarketDashboardPresenter.DashboardRows rows = presenter.present(dashboard);
+    renderDepth(page, player, rows);
+    renderCandles(page, player, rows);
     addOrderIcon(page, player, row, OrderSide.BUY, OrderType.LIMIT, "LIME_CONCRETE", 29,
         "ui-order-limit-buy", ActionType.LEFT_CLICK);
     addOrderIcon(page, player, row, OrderSide.SELL, OrderType.LIMIT, "RED_CONCRETE", 33,
@@ -80,6 +110,84 @@ final class MarketDetailPage {
         "ui-order-market-buy", ActionType.LEFT_CLICK);
     addOrderIcon(page, player, row, OrderSide.SELL, OrderType.MARKET, "ORANGE_CONCRETE", 42,
         "ui-order-market-sell", ActionType.LEFT_CLICK);
+  }
+
+  private void renderDepth(PlayerInstancePage page, Player player,
+                           MarketDashboardPresenter.DashboardRows rows) {
+    for (int index = 0; index < rows.bids().size(); index++) {
+      addDepthIcon(page, player, rows.bids().get(index), true, 9 + index);
+      addDepthIcon(page, player, rows.asks().get(index), false, 14 + index);
+    }
+  }
+
+  private void addDepthIcon(PlayerInstancePage page, Player player,
+                            MarketDashboardPresenter.DepthRow row, boolean bid, int slot) {
+    if (row.empty()) {
+      page.addIcon(player.getUniqueId(), new IconBuilder(QuickShop.getInstance().stack().of(
+          "BLACK_STAINED_GLASS_PANE", 1).customName(messages.component(player, "ui-depth-empty")))
+          .withSlot(slot).build());
+      return;
+    }
+    String material = row.executable() ? (bid ? "LIME_STAINED_GLASS_PANE" : "RED_STAINED_GLASS_PANE")
+        : "GRAY_STAINED_GLASS_PANE";
+    List<Component> lore = List.of(
+        messages.component(player, "ui-depth-price", row.price().toPlainString()),
+        messages.component(player, "ui-depth-quantity", row.quantity()),
+        messages.component(player, "ui-depth-cumulative", row.cumulativeQuantity()),
+        messages.component(player, row.executable() ? "ui-depth-executable" : "ui-depth-protected"));
+    page.addIcon(player.getUniqueId(), new IconBuilder(QuickShop.getInstance().stack().of(material,
+        Math.max(1, row.strength())).customName(messages.component(player,
+            bid ? "ui-depth-bid" : "ui-depth-ask")).lore(lore)).withSlot(slot).build());
+  }
+
+  private void renderCandles(PlayerInstancePage page, Player player,
+                             MarketDashboardPresenter.DashboardRows rows) {
+    for (int index = 0; index < rows.candles().size(); index++) {
+      MarketDashboardPresenter.CandleRow row = rows.candles().get(index);
+      int slot = 19 + index;
+      if (row.empty()) {
+        page.addIcon(player.getUniqueId(), new IconBuilder(QuickShop.getInstance().stack().of(
+            "GRAY_STAINED_GLASS_PANE", 1)
+            .customName(messages.component(player, "ui-trend-empty"))).withSlot(slot).build());
+        continue;
+      }
+      String material = switch (row.direction()) {
+        case UP -> "LIME_STAINED_GLASS_PANE";
+        case DOWN -> "RED_STAINED_GLASS_PANE";
+        case FLAT -> "YELLOW_STAINED_GLASS_PANE";
+      };
+      var candle = row.candle();
+      List<Component> lore = List.of(
+          messages.component(player, "ui-trend-time", candle.bucketStart().toString()),
+          messages.component(player, "ui-trend-open", candle.open().toPlainString()),
+          messages.component(player, "ui-trend-high", candle.high().toPlainString()),
+          messages.component(player, "ui-trend-low", candle.low().toPlainString()),
+          messages.component(player, "ui-trend-close", candle.close().toPlainString()),
+          messages.component(player, "ui-trend-volume", candle.volume()));
+      page.addIcon(player.getUniqueId(), new IconBuilder(QuickShop.getInstance().stack().of(material,
+          Math.max(1, row.strength())).customName(messages.component(player,
+              "ui-trend-title", messages.text(player, directionKey(row.direction())))).lore(lore))
+          .withSlot(slot).build());
+    }
+  }
+
+  private void addNavigation(PlayerInstancePage page, Player player, int slot, String material,
+                             String title, ExchangeMenuPage target) {
+    UUID playerId = player.getUniqueId();
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of(material, 1)
+        .customName(messages.component(player, title)))
+        .withActions(new RunnableAction(click -> {
+          contexts.put(playerId, ExchangeMenuRequest.page(target.menuName()));
+          MenuManager.instance().open(ExchangeMenu.NAME, target.page(), click.player());
+        })).withSlot(slot).build());
+  }
+
+  private static String directionKey(MarketDashboardPresenter.CandleDirection direction) {
+    return switch (direction) {
+      case UP -> "ui-trend-up";
+      case DOWN -> "ui-trend-down";
+      case FLAT -> "ui-trend-flat";
+    };
   }
 
   private void addOrderIcon(PlayerInstancePage page, Player player, MarketRow row,

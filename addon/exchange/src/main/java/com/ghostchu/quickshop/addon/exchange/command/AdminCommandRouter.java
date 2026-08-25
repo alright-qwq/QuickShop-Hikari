@@ -6,12 +6,14 @@ import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.concurrent.Executor;
 
 /** Parses privileged exchange commands and delegates all mutations to audited services. */
 public final class AdminCommandRouter {
   private final AdminExchangeService administration;
   private final Supplier<UUID> requestIds;
   private final WriteExecutor writes;
+  private final Executor reads;
 
   public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds) {
     this(administration, requestIds, work -> {
@@ -22,9 +24,15 @@ public final class AdminCommandRouter {
 
   public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds,
                             WriteExecutor writes) {
+    this(administration, requestIds, writes, Runnable::run);
+  }
+
+  public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds,
+                            WriteExecutor writes, Executor reads) {
     this.administration = Objects.requireNonNull(administration, "administration");
     this.requestIds = Objects.requireNonNull(requestIds, "requestIds");
     this.writes = Objects.requireNonNull(writes, "writes");
+    this.reads = Objects.requireNonNull(reads, "reads");
   }
 
   public void execute(CommandActor actor, String[] args) {
@@ -70,8 +78,15 @@ public final class AdminCommandRouter {
       if (args.length == 4 && "export".equalsIgnoreCase(args[1])) {
         java.time.Instant from = parseInstant(args[2]);
         java.time.Instant to = parseInstant(args[3]);
-        java.nio.file.Path exported = administration.exportAudit(from, to);
-        actor.message("admin-audit-exported", exported.getFileName().toString());
+        reads.execute(() -> {
+          try {
+            java.nio.file.Path exported = administration.exportAudit(from, to);
+            actor.executeAtOwner(() -> actor.message(
+                "admin-audit-exported", exported.getFileName().toString()));
+          } catch (Exception failure) {
+            actor.executeAtOwner(() -> actor.message("admin-command-failed"));
+          }
+        });
         return;
       }
       actor.message("admin-command-invalid");
@@ -112,15 +127,28 @@ public final class AdminCommandRouter {
     }
     try {
       if (args.length == 3 && "list".equalsIgnoreCase(args[2])) {
-        String summary = administration.pendingTransferReviews().stream()
-            .map(AdminCommandRouter::transferSummary)
-            .collect(java.util.stream.Collectors.joining("\n"));
-        actor.message("admin-transfer-review-list", summary);
+        reads.execute(() -> {
+          try {
+            String summary = administration.pendingTransferReviews().stream()
+                .map(AdminCommandRouter::transferSummary)
+                .collect(java.util.stream.Collectors.joining("\n"));
+            actor.executeAtOwner(() -> actor.message("admin-transfer-review-list", summary));
+          } catch (Exception failure) {
+            actor.executeAtOwner(() -> actor.message("admin-command-failed"));
+          }
+        });
         return;
       }
       if (args.length == 4 && "show".equalsIgnoreCase(args[2])) {
-        actor.message("admin-transfer-review-detail",
-            transferSummary(administration.transferReview(UUID.fromString(args[3]))));
+        UUID transferId = UUID.fromString(args[3]);
+        reads.execute(() -> {
+          try {
+            String summary = transferSummary(administration.transferReview(transferId));
+            actor.executeAtOwner(() -> actor.message("admin-transfer-review-detail", summary));
+          } catch (Exception failure) {
+            actor.executeAtOwner(() -> actor.message("admin-command-failed"));
+          }
+        });
         return;
       }
       if (args.length >= 6 && "resolve".equalsIgnoreCase(args[2])) {

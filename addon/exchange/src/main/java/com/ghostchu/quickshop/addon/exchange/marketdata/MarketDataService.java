@@ -125,13 +125,7 @@ public final class MarketDataService {
     requireQuoteArguments(marketId, referencePrice, status, asOf);
     Instant from = asOf.minus(TICKER_WINDOW);
     Instant to = asOf.plusSeconds(60);
-    Map<Instant, Candle> tickerByBucket = new TreeMap<>();
-    loadPersistedCandles(marketId, from, to)
-        .forEach(candle -> tickerByBucket.put(candle.bucketStart(), candle));
-    candles.snapshots(marketId, from, to)
-        .forEach(candle -> tickerByBucket.put(candle.bucketStart(), candle));
-    List<Candle> ticker = tickerByBucket.values().stream()
-        .sorted(Comparator.comparing(Candle::bucketStart)).toList();
+    List<Candle> ticker = recentCandles(marketId, from, to);
     BigDecimal lastPrice = lastPrices.getOrDefault(marketId, referencePrice);
     long volume = ticker.stream().mapToLong(Candle::volume).reduce(0L, Math::addExact);
     BigDecimal notional = ticker.stream().map(Candle::notional)
@@ -142,6 +136,22 @@ public final class MarketDataService {
         .stripTrailingZeros();
     return new MarketQuote(marketId, lastPrice, referencePrice, bestBid, bestAsk, change,
         volume, notional, status, asOf);
+  }
+
+  /** Returns persisted and current in-memory candles in chronological bucket order. */
+  public List<Candle> recentCandles(String marketId, Instant fromInclusive, Instant toExclusive) {
+    if (marketId == null || marketId.isBlank() || fromInclusive == null || toExclusive == null
+        || !fromInclusive.isBefore(toExclusive)) {
+      throw new IllegalArgumentException("invalid candle range");
+    }
+    Instant fromBucket = bucketStart(fromInclusive);
+    Instant toBucket = bucketStart(toExclusive);
+    Map<Instant, Candle> candlesByBucket = new TreeMap<>();
+    loadPersistedCandles(marketId, fromBucket, toBucket)
+        .forEach(candle -> candlesByBucket.put(candle.bucketStart(), candle));
+    candles.snapshots(marketId, fromInclusive, toExclusive)
+        .forEach(candle -> candlesByBucket.put(candle.bucketStart(), candle));
+    return List.copyOf(candlesByBucket.values());
   }
 
   public MarketQuote quote(String marketId, BigDecimal referencePrice, OrderBook book,

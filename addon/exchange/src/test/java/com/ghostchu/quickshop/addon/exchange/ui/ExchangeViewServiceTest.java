@@ -12,6 +12,8 @@ import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountAssetBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountLedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder;
+import com.ghostchu.quickshop.addon.exchange.service.ExchangeServiceFixture;
+import com.ghostchu.quickshop.addon.exchange.service.OrderRequest;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferStatus;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferType;
@@ -106,6 +108,52 @@ class ExchangeViewServiceTest {
     assertThat(repository.ledgerAccountId).isEqualTo(accountId);
     assertThat(repository.ledgerLimit).isEqualTo(18);
     assertThat(repository.ledgerOffset).isEqualTo(36);
+  }
+
+  @Test
+  void composesOneMarketDashboardAndMarketOverviewOnTheReadExecutor() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketDataService marketData = new MarketDataService(new CandleAggregator());
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    UUID seller = fixture.accountWithItems(2);
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), buyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("99.00"), null, 2));
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("101.00"), null, 2));
+    ExchangeViewService views = new ExchangeViewService(java.util.Map.of("diamond-usd",
+        new ExchangeViewService.MarketView("diamond-usd", "Diamond", fixture.service())),
+        marketData, Runnable::run);
+
+    MarketDashboardSnapshot dashboard = views.marketDashboard("diamond-usd").join();
+    MarketOverviewSnapshot overview = views.marketOverview().join();
+
+    assertThat(dashboard.market().displayName()).isEqualTo("Diamond");
+    assertThat(dashboard.bids()).singleElement().extracting(
+        com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService.DepthLevel::price)
+        .isEqualTo(new BigDecimal("99.00"));
+    assertThat(dashboard.asks()).singleElement().extracting(
+        com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService.DepthLevel::price)
+        .isEqualTo(new BigDecimal("101.00"));
+    assertThat(overview.marketCount()).isEqualTo(1);
+    assertThat(overview.mostActive().marketId()).isEqualTo("diamond-usd");
+  }
+
+  @Test
+  void forwardsCoalescedMarketUpdatesUntilThePlayerUnsubscribes() {
+    MarketDataService marketData = new MarketDataService(new CandleAggregator());
+    ExchangeViewService views = new ExchangeViewService(java.util.Map.of(), marketData,
+        Runnable::run);
+    UUID playerId = UUID.randomUUID();
+    AtomicInteger updates = new AtomicInteger();
+    views.subscribeMarketUpdates(playerId, update -> updates.incrementAndGet());
+
+    marketData.recordTrade("diamond-usd", new BigDecimal("100"), 1, Instant.EPOCH);
+    marketData.publishPlayerUpdates();
+    views.unsubscribeMarketUpdates(playerId);
+    marketData.recordTrade("diamond-usd", new BigDecimal("101"), 1, Instant.EPOCH.plusSeconds(1));
+    marketData.publishPlayerUpdates();
+
+    assertThat(updates).hasValue(1);
   }
 
   private static final class RecordingRepository implements ExchangeRepository {

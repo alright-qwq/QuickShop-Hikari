@@ -12,6 +12,8 @@ import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import com.ghostchu.quickshop.addon.exchange.runtime.ExchangeRuntime;
 import com.ghostchu.quickshop.addon.exchange.runtime.ExchangeRuntimeFactory;
 import com.ghostchu.quickshop.addon.exchange.runtime.RuntimeExchangeRequestSubmitter;
+import com.ghostchu.quickshop.addon.exchange.runtime.DrainingExecutor;
+import com.ghostchu.quickshop.addon.exchange.runtime.ShutdownSequence;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeMenuListener;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeMenuService;
 import com.ghostchu.quickshop.api.command.CommandContainer;
@@ -30,6 +32,7 @@ public final class Main extends JavaPlugin {
   private PluginCommand qseCommand;
   private ExchangeMenuService menus;
   private ExchangeMenuListener menuListener;
+  private DrainingExecutor adminReads;
 
   static java.util.List<String> firstRunResources() {
     return java.util.List.of("markets.yml", "messages.yml");
@@ -59,17 +62,14 @@ public final class Main extends JavaPlugin {
 
   @Override
   public void onDisable() {
-    unregisterPlayerEntrypoints();
-    if (runtime == null) {
-      return;
-    }
-    try {
-      runtime.close();
-    } catch (Exception failure) {
-      getLogger().log(Level.SEVERE, "Exchange shutdown failed", failure);
-    } finally {
-      runtime = null;
-    }
+    ExchangeRuntime activeRuntime = runtime;
+    ShutdownSequence.close(this::unregisterPlayerEntrypoints,
+        () -> {
+          if (activeRuntime != null) {
+            activeRuntime.close();
+          }
+        }, failure -> getLogger().log(Level.SEVERE, "Exchange shutdown cleanup failed", failure));
+    runtime = null;
   }
 
   private void registerPlayerEntrypoints() {
@@ -80,9 +80,11 @@ public final class Main extends JavaPlugin {
         rollout, messages);
     menuListener = new ExchangeMenuListener(menus);
     Bukkit.getPluginManager().registerEvents(menuListener, this);
+    adminReads = new DrainingExecutor("qs-exchange-admin-read-", java.time.Duration.ofSeconds(30));
     ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID,
         new AdminCommandRouter(runtime.administration(), UUID::randomUUID,
-            work -> runtime.runWhileWriting(work::run)), rollout);
+            work -> runtime.runWhileWriting(work::run),
+            adminReads), rollout);
     var actors = (java.util.function.Function<org.bukkit.entity.Player,
         com.ghostchu.quickshop.addon.exchange.command.CommandActor>) player ->
         new BukkitCommandActor(player, messages, player.locale(),
@@ -99,7 +101,6 @@ public final class Main extends JavaPlugin {
             });
     exchangeCommand = CommandContainer.builder()
         .prefix("exchange")
-        .permission("quickshop.exchange.use")
         .description(locale -> net.kyori.adventure.text.Component.text(
             messages.message("command-description", java.util.Locale.forLanguageTag(locale))))
         .executor(new SubCommandExchange(router, actors))
@@ -126,22 +127,42 @@ public final class Main extends JavaPlugin {
   }
 
   private void unregisterPlayerEntrypoints() {
-    if (exchangeCommand != null) {
-      QuickShop.getInstance().getCommandManager().unregisterCmd(exchangeCommand);
-      exchangeCommand = null;
-    }
-    if (qseCommand != null) {
-      qseCommand.setExecutor(null);
-      qseCommand.setTabCompleter(null);
-      qseCommand = null;
-    }
-    if (menus != null) {
-      menus.close();
-      menus = null;
-    }
-    if (menuListener != null) {
-      HandlerList.unregisterAll(menuListener);
-      menuListener = null;
-    }
+    ShutdownSequence.closeAll(java.util.List.of(
+        () -> {
+          CommandContainer command = exchangeCommand;
+          exchangeCommand = null;
+          if (command != null) {
+            QuickShop.getInstance().getCommandManager().unregisterCmd(command);
+          }
+        },
+        () -> {
+          PluginCommand command = qseCommand;
+          qseCommand = null;
+          if (command != null) {
+            command.setExecutor(null);
+            command.setTabCompleter(null);
+          }
+        },
+        () -> {
+          ExchangeMenuService activeMenus = menus;
+          menus = null;
+          if (activeMenus != null) {
+            activeMenus.close();
+          }
+        },
+        () -> {
+          ExchangeMenuListener listener = menuListener;
+          menuListener = null;
+          if (listener != null) {
+            HandlerList.unregisterAll(listener);
+          }
+        },
+        () -> {
+          DrainingExecutor reads = adminReads;
+          adminReads = null;
+          if (reads != null) {
+            reads.close();
+          }
+        }), failure -> getLogger().log(Level.SEVERE, "Exchange entrypoint cleanup failed", failure));
   }
 }

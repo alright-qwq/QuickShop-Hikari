@@ -13,6 +13,7 @@ import net.tnemc.menu.core.builder.IconBuilder;
 import net.tnemc.menu.core.callbacks.page.PageOpenCallback;
 import net.tnemc.menu.core.icon.action.ActionType;
 import net.tnemc.menu.core.icon.action.impl.RunnableAction;
+import net.tnemc.menu.core.manager.MenuManager;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -41,7 +42,11 @@ final class AssetsPage {
       Player player = Bukkit.getPlayer(playerId);
       if (player == null || !player.isOnline()) return;
       QuickShop.folia().getScheduler().runAtEntityLater(player,
-          () -> render(page, player, snapshot, failure), 1L);
+          () -> {
+            if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
+              render(page, player, snapshot, failure);
+            }
+          }, 1L);
     });
   }
 
@@ -55,6 +60,7 @@ final class AssetsPage {
           .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
       return;
     }
+    addMarketsNavigation(page, player);
     int slot = 9;
     for (AssetPageRows.Row row : AssetPageRows.merge(views.transferTargets(), snapshot.assets())) {
       if (slot >= 45) break;
@@ -85,6 +91,17 @@ final class AssetsPage {
               messages.component(player, "ui-assets-transfer-status",
                   transfer.status() + reason)))).withSlot(slot++).build());
     }
+  }
+
+  private void addMarketsNavigation(PlayerInstancePage page, Player player) {
+    UUID playerId = player.getUniqueId();
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("COMPASS", 1)
+        .customName(messages.component(player, "ui-nav-markets")))
+        .withActions(new RunnableAction(click -> {
+          contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName()));
+          MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKETS.page(),
+              click.player());
+        })).withSlot(0).build());
   }
 
   private void requestTransfer(UUID playerId, TransferTarget target, boolean deposit) {

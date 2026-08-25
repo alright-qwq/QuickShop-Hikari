@@ -153,6 +153,21 @@ class MarketDataServiceTest {
   }
 
   @Test
+  void mergesPersistedAndCurrentCandlesForRecentChartData() {
+    RecordingRepository repository = new RecordingRepository();
+    MarketDataService data = new MarketDataService(new CandleAggregator(), repository);
+    Instant firstTrade = Instant.parse("2026-07-26T00:00:40Z");
+    Instant secondTrade = Instant.parse("2026-07-26T00:01:40Z");
+    data.recordTrade("diamond-usd", new BigDecimal("100.00"), 2, firstTrade);
+    data.recordTrade("diamond-usd", new BigDecimal("110.00"), 3, secondTrade);
+
+    assertThat(data.recentCandles("diamond-usd", firstTrade, secondTrade.plusSeconds(60)))
+        .extracting(Candle::bucketStart)
+        .containsExactly(Instant.parse("2026-07-26T00:00:00Z"),
+            Instant.parse("2026-07-26T00:01:00Z"));
+  }
+
+  @Test
   void usesOnlyCageExecutableBookLevelsForQuotesButShowsProtectedDepth() {
     OrderBook book = new OrderBook();
     book.add(restingSell("70.00", 1));
