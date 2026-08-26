@@ -211,7 +211,9 @@ transaction, so restart replay cannot double-count.
 
 ## Permissions summary
 
-- Player: `quickshop.exchange.use`, `quickshop.exchange.order.market`, `quickshop.exchange.order.limit`
+- Player: `quickshop.exchange.use`, `quickshop.exchange.order.market`,
+  `quickshop.exchange.order.limit`, `quickshop.exchange.order.cancel`,
+  `quickshop.exchange.deposit`, `quickshop.exchange.withdraw`
 - Stock administration: `quickshop.exchange.admin.stock`
 - Reconciliation/audit: `quickshop.exchange.admin.audit`
 - Market pause/resume: `quickshop.exchange.admin.market`
