@@ -61,6 +61,22 @@ class ExchangeViewServiceTest {
   }
 
   @Test
+  void loadsOneOpenOrderForTheCancellationConfirmation() {
+    UUID accountId = UUID.randomUUID();
+    UUID orderId = UUID.randomUUID();
+    RecordingRepository repository = new RecordingRepository();
+    ExchangeViewService views = new ExchangeViewService(
+        java.util.Map.of(), new MarketDataService(new CandleAggregator()), Runnable::run, repository);
+
+    var persisted = views.accountOpenOrder(accountId, orderId).join();
+
+    assertThat(persisted).isPresent();
+    assertThat(persisted.get().order().orderId()).isEqualTo(repository.order.orderId());
+    assertThat(repository.openAccountId).isEqualTo(accountId);
+    assertThat(repository.openOrderId).isEqualTo(orderId);
+  }
+
+  @Test
   void roundsMarketNotionalToTwoDecimalsInDashboardAndOverview() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     MarketDataService marketData = new MarketDataService(new CandleAggregator());
@@ -270,6 +286,8 @@ class ExchangeViewServiceTest {
     private UUID ledgerAccountId;
     private int ledgerLimit;
     private int ledgerOffset;
+    private UUID openAccountId;
+    private UUID openOrderId;
 
     @Override
     public List<AccountLedgerEntry> accountLedgerEntries(UUID accountId, int limit, int offset) {
@@ -309,6 +327,13 @@ class ExchangeViewServiceTest {
       this.offset = offset;
       calls.incrementAndGet();
       return List.of(new PersistedOrder(order, BigDecimal.ZERO, 0, 1));
+    }
+
+    @Override
+    public java.util.Optional<PersistedOrder> openOrder(UUID accountId, UUID orderId) {
+      openAccountId = accountId;
+      openOrderId = orderId;
+      return java.util.Optional.of(new PersistedOrder(order, BigDecimal.ZERO, 0, 1));
     }
 
     @Override

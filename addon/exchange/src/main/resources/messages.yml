@@ -180,6 +180,9 @@ en-US:
   ui-confirm-estimated-fee: 'Estimated fee: <0>'
   ui-confirm-estimated-net: 'Estimated net received: <0>'
   ui-confirm-order: 'Order: <0>'
+  ui-confirm-cancel-loading: Loading order details...
+  ui-confirm-cancel-release-currency: 'Frozen currency released on cancel: <0>'
+  ui-confirm-cancel-release-quantity: 'Frozen quantity released on cancel: <0>'
   ui-confirm-submit-failed: Exchange request submission failed. Please try again later.
   ui-confirm-submit-result: 'Exchange <0>: <1>'
   ui-confirm-back-market: Back to market
@@ -375,6 +378,9 @@ zh-CN:
   ui-confirm-estimated-fee: '预估手续费：<0>'
   ui-confirm-estimated-net: '预估到手：<0>'
   ui-confirm-order: '订单：<0>'
+  ui-confirm-cancel-loading: 正在加载订单详情...
+  ui-confirm-cancel-release-currency: '撤销后释放冻结资金：<0>'
+  ui-confirm-cancel-release-quantity: '撤销后释放冻结数量：<0>'
   ui-confirm-submit-failed: '交易请求提交失败，请稍后重试。'
   ui-confirm-submit-result: '交易所请求 <0>：<1>'
   ui-confirm-back-market: 返回市场

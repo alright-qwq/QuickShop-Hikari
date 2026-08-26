@@ -55,6 +55,12 @@ public interface ExchangeRepository {
     throw new UnsupportedOperationException("account order reads are not supported by this repository");
   }
 
+  /** Reads one currently cancellable order by account and order id, if still open. */
+  default Optional<ExchangeTransaction.PersistedOrder> openOrder(UUID accountId, UUID orderId)
+      throws SQLException {
+    throw new UnsupportedOperationException("account order reads are not supported by this repository");
+  }
+
   /**
    * Reads a bounded page of a player's trades, newest first, with the taker account id so
    * views can show the exact fee that this account paid (maker fee for resting orders,

@@ -60,6 +60,11 @@ import java.util.UUID;
 
 public final class JdbcExchangeRepository
     implements ExchangeRepository, TransferRepository, MarketConfigurationPersistence {
+  private static final String ORDER_COLUMNS = "order_id,request_id,market_id,account_id,side,"
+      + "order_type,time_in_force,limit_price,slippage_boundary,original_quantity,"
+      + "remaining_quantity,status,priority_sequence,config_version,fee_version,"
+      + "reserved_currency,reserved_quantity,created_at,updated_at,version";
+
   private final ConnectionProvider connections;
   private final SqlDialect dialect;
   private final TableNames tables;
@@ -161,13 +166,9 @@ public final class JdbcExchangeRepository
     if (limit < 1 || limit > 36 || offset < 0) {
       throw new IllegalArgumentException("invalid account order page");
     }
-    String columns = "order_id,request_id,market_id,account_id,side,order_type,time_in_force,"
-        + "limit_price,slippage_boundary,original_quantity,remaining_quantity,status,"
-        + "priority_sequence,config_version,fee_version,reserved_currency,reserved_quantity,"
-        + "created_at,updated_at,version";
     try (Connection connection = connections.open();
          PreparedStatement select = connection.prepareStatement(
-             "SELECT " + columns + " FROM " + tables.orders()
+             "SELECT " + ORDER_COLUMNS + " FROM " + tables.orders()
                  + " WHERE account_id=? AND status IN ('OPEN','PARTIALLY_FILLED')"
                  + " ORDER BY CASE status WHEN 'PARTIALLY_FILLED' THEN 0 ELSE 1 END,"
                  + " priority_sequence LIMIT ? OFFSET ?")) {
@@ -176,24 +177,25 @@ public final class JdbcExchangeRepository
       select.setInt(3, offset);
       try (ResultSet result = select.executeQuery()) {
         List<ExchangeTransaction.PersistedOrder> orders = new ArrayList<>();
-        while (result.next()) {
-          Order order = new Order(UUID.fromString(result.getString("order_id")),
-              UUID.fromString(result.getString("request_id")), result.getString("market_id"),
-              UUID.fromString(result.getString("account_id")),
-              OrderSide.valueOf(result.getString("side")),
-              OrderType.valueOf(result.getString("order_type")),
-              TimeInForce.valueOf(result.getString("time_in_force")),
-              nullableDecimal(result, "limit_price"), nullableDecimal(result, "slippage_boundary"),
-              result.getLong("original_quantity"), result.getLong("remaining_quantity"),
-              OrderStatus.valueOf(result.getString("status")), result.getLong("priority_sequence"),
-              result.getLong("config_version"), result.getLong("fee_version"),
-              Instant.ofEpochMilli(result.getLong("created_at")),
-              Instant.ofEpochMilli(result.getLong("updated_at")));
-          orders.add(new ExchangeTransaction.PersistedOrder(order,
-              new BigDecimal(result.getString("reserved_currency")),
-              result.getLong("reserved_quantity"), result.getLong("version")));
-        }
+        while (result.next()) orders.add(mapOrder(result));
         return List.copyOf(orders);
+      }
+    }
+  }
+
+  @Override
+  public Optional<ExchangeTransaction.PersistedOrder> openOrder(UUID accountId, UUID orderId)
+      throws SQLException {
+    Objects.requireNonNull(accountId, "accountId");
+    Objects.requireNonNull(orderId, "orderId");
+    try (Connection connection = connections.open();
+         PreparedStatement select = connection.prepareStatement(
+             "SELECT " + ORDER_COLUMNS + " FROM " + tables.orders()
+                 + " WHERE account_id=? AND order_id=? AND status IN ('OPEN','PARTIALLY_FILLED')")) {
+      select.setString(1, accountId.toString());
+      select.setString(2, orderId.toString());
+      try (ResultSet result = select.executeQuery()) {
+        return result.next() ? Optional.of(mapOrder(result)) : Optional.empty();
       }
     }
   }
@@ -201,6 +203,24 @@ public final class JdbcExchangeRepository
   private static BigDecimal nullableDecimal(ResultSet result, String column) throws SQLException {
     String value = result.getString(column);
     return value == null ? null : new BigDecimal(value);
+  }
+
+  private static ExchangeTransaction.PersistedOrder mapOrder(ResultSet result) throws SQLException {
+    Order order = new Order(UUID.fromString(result.getString("order_id")),
+        UUID.fromString(result.getString("request_id")), result.getString("market_id"),
+        UUID.fromString(result.getString("account_id")),
+        OrderSide.valueOf(result.getString("side")),
+        OrderType.valueOf(result.getString("order_type")),
+        TimeInForce.valueOf(result.getString("time_in_force")),
+        nullableDecimal(result, "limit_price"), nullableDecimal(result, "slippage_boundary"),
+        result.getLong("original_quantity"), result.getLong("remaining_quantity"),
+        OrderStatus.valueOf(result.getString("status")), result.getLong("priority_sequence"),
+        result.getLong("config_version"), result.getLong("fee_version"),
+        Instant.ofEpochMilli(result.getLong("created_at")),
+        Instant.ofEpochMilli(result.getLong("updated_at")));
+    return new ExchangeTransaction.PersistedOrder(order,
+        new BigDecimal(result.getString("reserved_currency")),
+        result.getLong("reserved_quantity"), result.getLong("version"));
   }
 
   @Override

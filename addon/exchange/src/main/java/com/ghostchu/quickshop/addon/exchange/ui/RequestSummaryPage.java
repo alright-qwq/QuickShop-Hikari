@@ -5,6 +5,7 @@ import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.command.RolloutPolicy;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -57,7 +58,7 @@ final class RequestSummaryPage {
       page.addIcon(playerId, icon.build());
       return;
     }
-    render(page, player, request, null);
+    render(page, player, request, null, null);
     if (request.order() != null && views != null) {
       views.marketQuoteAsync(request.marketId())
           .whenComplete((quote, failure) -> {
@@ -67,7 +68,20 @@ final class RequestSummaryPage {
             QuickShop.folia().getScheduler().runAtEntityLater(online,
                 () -> {
                   if (ExchangePageRenderGuard.permits(contexts, playerId, request, online::isOnline)) {
-                    render(page, online, request, quote);
+                    render(page, online, request, quote, null);
+                  }
+                }, 1L);
+          });
+    } else if (request.orderId() != null && views != null) {
+      views.accountOpenOrder(playerId, request.orderId())
+          .whenComplete((order, failure) -> {
+            if (!contexts.isCurrent(playerId, request)) return;
+            Player online = Bukkit.getPlayer(playerId);
+            if (online == null || !online.isOnline()) return;
+            QuickShop.folia().getScheduler().runAtEntityLater(online,
+                () -> {
+                  if (ExchangePageRenderGuard.permits(contexts, playerId, request, online::isOnline)) {
+                    render(page, online, request, null, failure == null ? order.orElse(null) : null);
                   }
                 }, 1L);
           });
@@ -75,11 +89,12 @@ final class RequestSummaryPage {
   }
 
   private void render(PlayerInstancePage page, Player player, ExchangeMenuRequest request,
-                      com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote) {
+                      com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote,
+                      ExchangeTransaction.PersistedOrder cancelOrder) {
     UUID playerId = player.getUniqueId();
     page.getIcons(playerId).clear();
     page.setLockEmptySlots(true);
-    List<Component> lore = summary(player, request, quote);
+    List<Component> lore = summary(player, request, quote, cancelOrder);
     IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
         .customName(messages.component(player, titleKey(request), titleArgument(request)))
         .lore(lore)).withSlot(22);
@@ -137,7 +152,8 @@ final class RequestSummaryPage {
   }
 
   private List<Component> summary(Player player, ExchangeMenuRequest request,
-                                  com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote) {
+                                  com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote,
+                                  ExchangeTransaction.PersistedOrder cancelOrder) {
     List<Component> lines = new ArrayList<>();
     if (request.requestId() != null) {
       lines.add(messages.component(player, "ui-confirm-request", request.requestId()));
@@ -209,6 +225,19 @@ final class RequestSummaryPage {
     }
     if (request.orderId() != null) {
       lines.add(messages.component(player, "ui-confirm-order", request.orderId()));
+      if (cancelOrder != null) {
+        var order = cancelOrder.order();
+        lines.add(messages.component(player, "ui-confirm-market",
+            views == null ? order.marketId() : views.marketDisplayName(order.marketId())));
+        lines.add(messages.component(player, "ui-confirm-side", order.side()));
+        lines.add(messages.component(player, "ui-confirm-quantity", order.remainingQuantity()));
+        lines.add(messages.component(player, order.side() == OrderSide.BUY
+            ? "ui-confirm-cancel-release-currency" : "ui-confirm-cancel-release-quantity",
+            order.side() == OrderSide.BUY
+                ? cancelOrder.reservedCurrency() : cancelOrder.reservedQuantity()));
+      } else {
+        lines.add(messages.component(player, "ui-confirm-cancel-loading"));
+      }
     }
     return List.copyOf(lines);
   }

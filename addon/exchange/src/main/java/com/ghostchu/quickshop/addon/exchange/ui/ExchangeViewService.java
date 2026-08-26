@@ -217,6 +217,25 @@ public final class ExchangeViewService {
     }, executor);
   }
 
+  /** Loads one currently cancellable order for the cancellation confirmation page. */
+  public CompletableFuture<java.util.Optional<ExchangeTransaction.PersistedOrder>> accountOpenOrder(
+      UUID accountId, UUID orderId) {
+    if (accountId == null || orderId == null) {
+      throw new IllegalArgumentException("account and order ids are required");
+    }
+    if (repository == null) {
+      return CompletableFuture.failedFuture(
+          new IllegalStateException("account views are not configured"));
+    }
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return repository.openOrder(accountId, orderId);
+      } catch (SQLException failure) {
+        throw new IllegalStateException("failed to load open order", failure);
+      }
+    }, executor);
+  }
+
   /** Loads a bounded page of a market's recent trades on the background executor. */
   public CompletableFuture<List<ExchangeRepository.MarketTradeRow>> marketTradePage(
       String marketId, int limit, int offset) {
