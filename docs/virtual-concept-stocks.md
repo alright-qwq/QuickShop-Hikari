@@ -125,8 +125,9 @@ To close a stock, first cancel or let all open orders finish, then:
   quantities, an estimated market value, and the total portfolio value. Clicking a security row
   opens its market detail page. Security rows have no left/right deposit/withdraw actions.
 - The order confirmation page shows the current best quote, tells you whether a limit order
-  will match immediately or rest on the book, and shows how much currency a buy order will
-  freeze on submit (before fees).
+  will match immediately or rest on the book, shows the applicable fee rate, an estimated
+  fee, and how much currency a buy order will freeze on submit (before fees). Sell
+  confirmations also show the estimated net proceeds after fees.
 - Virtual security market rows and detail pages show the float market cap
   (issued supply x last price), so you can compare concept stocks by size.
 - Order-entry buttons on a virtual security market show a reminder that the

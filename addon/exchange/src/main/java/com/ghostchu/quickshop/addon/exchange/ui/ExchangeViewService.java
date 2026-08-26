@@ -142,6 +142,11 @@ public final class ExchangeViewService {
     return CompletableFuture.supplyAsync(() -> marketQuote(marketId), executor);
   }
 
+  /** Returns the configured market view, or null when the market id is unknown. */
+  public MarketView market(String marketId) {
+    return marketId == null ? null : markets.get(marketId);
+  }
+
   /** Returns the configured market display name, or the market id when unknown. */
   public String marketDisplayName(String marketId) {
     MarketView market = markets.get(marketId);

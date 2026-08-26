@@ -160,6 +160,7 @@ final class RequestSummaryPage {
               OrderConfirmation.estimatedNotional(order.price(), order.quantity())
                   .toPlainString()));
         }
+        addFeeLines(lines, player, order, order.price());
         if (quote != null) {
           java.math.BigDecimal executable = order.side() == OrderSide.BUY
               ? quote.bestAsk() : quote.bestBid();
@@ -185,6 +186,7 @@ final class RequestSummaryPage {
               OrderConfirmation.estimatedNotional(order.slippageBoundary(), order.quantity())
                   .toPlainString()));
         }
+        addFeeLines(lines, player, order, order.slippageBoundary());
         if (quote != null) {
           java.math.BigDecimal executable = order.side() == OrderSide.BUY
               ? quote.bestAsk() : quote.bestBid();
@@ -209,6 +211,30 @@ final class RequestSummaryPage {
       lines.add(messages.component(player, "ui-confirm-order", request.orderId()));
     }
     return List.copyOf(lines);
+  }
+
+  private void addFeeLines(List<Component> lines, Player player, ExchangeMenuRequest.OrderDraft order,
+                         java.math.BigDecimal boundary) {
+    if (views == null) {
+      return;
+    }
+    ExchangeViewService.MarketView market = views.market(order.marketId());
+    if (market == null) {
+      return;
+    }
+    var rules = market.service().marketRules();
+    java.math.BigDecimal rate = order.type() == com.ghostchu.quickshop.addon.exchange.core.model.OrderType.MARKET
+        ? rules.takerFeeRate() : rules.makerFeeRate();
+    java.math.BigDecimal notional = OrderConfirmation.estimatedNotional(boundary, order.quantity());
+    java.math.BigDecimal fee = notional.multiply(rate)
+        .setScale(2, java.math.RoundingMode.HALF_UP);
+    lines.add(messages.component(player, "ui-confirm-fee-rate",
+        rate.multiply(java.math.BigDecimal.valueOf(100)).stripTrailingZeros().toPlainString()));
+    lines.add(messages.component(player, "ui-confirm-estimated-fee", fee.toPlainString()));
+    if (order.side() == OrderSide.SELL) {
+      lines.add(messages.component(player, "ui-confirm-estimated-net",
+          notional.subtract(fee).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()));
+    }
   }
 
   private void submit(ExchangeMenuRequest request, UUID playerId) {

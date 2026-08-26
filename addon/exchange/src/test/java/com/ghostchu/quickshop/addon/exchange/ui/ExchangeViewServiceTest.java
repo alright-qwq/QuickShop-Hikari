@@ -113,6 +113,22 @@ class ExchangeViewServiceTest {
   }
 
   @Test
+  void exposesConfiguredMarketViewByNameAndRejectsUnknownIds() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    var market = new ExchangeViewService.MarketView("diamond-usd", "Diamond",
+        fixture.service());
+    ExchangeViewService views = new ExchangeViewService(
+        java.util.Map.of("diamond-usd", market),
+        new MarketDataService(new CandleAggregator()), Runnable::run);
+
+    assertThat(views.market("diamond-usd")).isSameAs(market);
+    assertThat(views.market("unknown")).isNull();
+    assertThat(views.market(null)).isNull();
+    assertThat(views.marketDisplayName("unknown")).isEqualTo("unknown");
+    assertThat(views.marketDisplayName("diamond-usd")).isEqualTo("Diamond");
+  }
+
+  @Test
   void loadsOnlyTheRequestedAccountTradePage() {
     UUID accountId = UUID.randomUUID();
     RecordingRepository repository = new RecordingRepository();
