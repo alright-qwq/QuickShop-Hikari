@@ -166,6 +166,25 @@ class ExchangeCommandRouterTest {
   }
 
   @Test
+  void opensAdminPageForAStockOnlyAdministrator() {
+    Actor actor = new Actor("quickshop.exchange.admin.stock");
+
+    new ExchangeCommandRouter(UUID::randomUUID).execute(actor, new String[] {"admin"});
+
+    assertThat(actor.opened.menuName()).isEqualTo("admin");
+  }
+
+  @Test
+  void deniesAdminPageWithoutAnyAdminPermission() {
+    Actor actor = new Actor("quickshop.exchange.use");
+
+    new ExchangeCommandRouter(UUID::randomUUID).execute(actor, new String[] {"admin"});
+
+    assertThat(actor.message).isEqualTo("permission-denied");
+    assertThat(actor.opened).isNull();
+  }
+
+  @Test
   void tabCompletesAuditSubcommandsUnderAdmin() {
     ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID);
 

@@ -282,7 +282,8 @@ public final class ExchangeCommandRouter {
     return actor.hasPermission("quickshop.exchange.admin.market")
         || actor.hasPermission("quickshop.exchange.admin.orders")
         || actor.hasPermission("quickshop.exchange.admin.recovery")
-        || actor.hasPermission("quickshop.exchange.admin.audit");
+        || actor.hasPermission("quickshop.exchange.admin.audit")
+        || actor.hasPermission("quickshop.exchange.admin.stock");
   }
 
   private static void invalid(CommandActor actor) {
