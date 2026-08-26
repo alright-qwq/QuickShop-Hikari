@@ -256,6 +256,10 @@ final class RequestSummaryPage {
     var rules = market.service().marketRules();
     lines.add(messages.component(player, "ui-confirm-quantity-limit",
         rules.minQuantity(), rules.maxQuantity()));
+    lines.add(messages.component(player, "ui-confirm-price-limit",
+        rules.minPrice().toPlainString(), rules.maxPrice().toPlainString()));
+    lines.add(messages.component(player, "ui-confirm-tick-size",
+        rules.tickSize().toPlainString()));
   }
 
   private void addFeeLines(List<Component> lines, Player player, ExchangeMenuRequest.OrderDraft order,
