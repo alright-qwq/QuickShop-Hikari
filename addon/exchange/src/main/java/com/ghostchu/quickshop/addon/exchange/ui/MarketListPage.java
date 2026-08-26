@@ -23,6 +23,8 @@ final class MarketListPage {
   private final ExchangeUiMessages messages;
   private final java.util.Map<UUID, MarketListSnapshot.SortMode> sortModes =
       new java.util.concurrent.ConcurrentHashMap<>();
+  private final java.util.Map<UUID, AssetFilter> assetFilters =
+      new java.util.concurrent.ConcurrentHashMap<>();
 
   MarketListPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
                  AddonMessageService messages) {
@@ -70,11 +72,14 @@ final class MarketListPage {
       return;
     }
     addOverview(page, player, snapshot.overview());
+    addFilterControl(page, player);
     addSortControl(page, player);
     addNavigation(page, player, 0, "CHEST", "ui-nav-assets", ExchangeMenuPage.ASSETS);
     addNavigation(page, player, 8, "WRITABLE_BOOK", "ui-nav-orders", ExchangeMenuPage.ORDERS);
     int slot = 9;
-    for (MarketRow row : MarketListSnapshot.sorted(snapshot.markets(),
+    List<MarketRow> filtered = MarketListSnapshot.filtered(snapshot.markets(),
+        assetFilters.getOrDefault(playerId, AssetFilter.ALL).name());
+    for (MarketRow row : MarketListSnapshot.sorted(filtered,
         sortModes.getOrDefault(playerId, MarketListSnapshot.SortMode.NOTIONAL))) {
       if (slot >= 45) break;
       String bid = row.bestBid() == null ? "-" : row.bestBid().toPlainString();
@@ -105,6 +110,34 @@ final class MarketListPage {
             MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKET_DETAIL.page(),
                 click.player());
           })).withSlot(slot++).build());
+    }
+  }
+
+  private void addFilterControl(PlayerInstancePage page, Player player) {
+    UUID playerId = player.getUniqueId();
+    AssetFilter filter = assetFilters.getOrDefault(playerId, AssetFilter.ALL);
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of(
+        filter == AssetFilter.SECURITY ? "PAPER"
+            : filter == AssetFilter.ITEM ? "CHEST" : "HOPPER", 1)
+        .customName(messages.component(player, "ui-filter-title", filter.name()))
+        .lore(List.of(messages.component(player, "ui-filter-hint"))))
+        .withActions(new RunnableAction(click -> {
+          contexts.get(playerId).ifPresent(opened -> {
+            assetFilters.put(playerId, filter.next());
+            refresh(page, player, opened);
+          });
+        })).withSlot(6).build());
+  }
+
+  private enum AssetFilter {
+    ALL, SECURITY, ITEM;
+
+    AssetFilter next() {
+      return switch (this) {
+        case ALL -> SECURITY;
+        case SECURITY -> ITEM;
+        case ITEM -> ALL;
+      };
     }
   }
 

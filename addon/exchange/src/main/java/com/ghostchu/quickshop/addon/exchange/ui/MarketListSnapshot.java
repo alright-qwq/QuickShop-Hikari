@@ -33,4 +33,18 @@ public record MarketListSnapshot(List<MarketRow> markets, MarketOverviewSnapshot
     };
     return rows.stream().sorted(comparator).toList();
   }
+
+  public static List<MarketRow> filtered(List<MarketRow> rows, String assetTypeFilter) {
+    Objects.requireNonNull(rows, "rows");
+    if (assetTypeFilter == null || assetTypeFilter.isBlank()
+        || "ALL".equalsIgnoreCase(assetTypeFilter)) {
+      return rows;
+    }
+    boolean security = "SECURITY".equalsIgnoreCase(assetTypeFilter);
+    return rows.stream()
+        .filter(row -> security
+            ? "VIRTUAL_SECURITY".equals(row.assetType())
+            : !"VIRTUAL_SECURITY".equals(row.assetType()))
+        .toList();
+  }
 }

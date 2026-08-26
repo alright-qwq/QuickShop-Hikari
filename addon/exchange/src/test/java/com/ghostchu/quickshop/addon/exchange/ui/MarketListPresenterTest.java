@@ -42,4 +42,20 @@ class MarketListPresenterTest {
     assertThat(MarketListSnapshot.SortMode.NOTIONAL.next()).isEqualTo(
         MarketListSnapshot.SortMode.CHANGE);
   }
+
+  @Test
+  void filtersMarketsByAssetType() {
+    MarketRow security = new MarketRow("concept_alpha", "Alpha", new BigDecimal("10"),
+        new BigDecimal("9"), new BigDecimal("11"), BigDecimal.ZERO, 10, MarketStatus.OPEN,
+        "VIRTUAL_SECURITY", "ALPHA", 1000L, "OPEN", null, null, null);
+    MarketRow item = new MarketRow("diamond-usd", "Diamond", new BigDecimal("100"),
+        new BigDecimal("99"), new BigDecimal("101"), BigDecimal.ZERO, 10, MarketStatus.OPEN);
+    List<MarketRow> rows = List.of(security, item);
+
+    assertThat(MarketListSnapshot.filtered(rows, "SECURITY"))
+        .extracting(MarketRow::marketId).containsExactly("concept_alpha");
+    assertThat(MarketListSnapshot.filtered(rows, "ITEM"))
+        .extracting(MarketRow::marketId).containsExactly("diamond-usd");
+    assertThat(MarketListSnapshot.filtered(rows, "ALL")).hasSize(2);
+  }
 }
