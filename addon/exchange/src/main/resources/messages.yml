@@ -60,6 +60,7 @@ en-US:
   ui-depth-price: 'Price: <0>'
   ui-depth-quantity: 'Quantity: <0>'
   ui-depth-cumulative: 'Cumulative: <0>'
+  ui-depth-distance: 'Distance from last: <0>'
   ui-depth-executable: Executable now
   ui-depth-protected: Outside price cage
   ui-trend-title: '1m trade: <0>'
@@ -83,6 +84,8 @@ en-US:
   ui-assets-open-market: 'Click to open the market'
   ui-assets-symbol: 'Symbol: <0>'
   ui-assets-market-value: 'Estimated value: <0>'
+  ui-assets-total-value: Total portfolio value
+  ui-assets-total-value-amount: 'Estimated total: <0>'
   ui-assets-deposit-action: 'Left click: deposit'
   ui-assets-withdraw-action: 'Right click: withdraw'
   ui-assets-transfer-title: 'Transfer <0>'
@@ -196,6 +199,7 @@ zh-CN:
   ui-depth-price: '价格：<0>'
   ui-depth-quantity: '数量：<0>'
   ui-depth-cumulative: '累计：<0>'
+  ui-depth-distance: '距最新价：<0>'
   ui-depth-executable: 当前可成交
   ui-depth-protected: 当前超出价格笼子
   ui-trend-title: '1 分钟成交：<0>'
@@ -219,6 +223,8 @@ zh-CN:
   ui-assets-open-market: '点击打开市场'
   ui-assets-symbol: '代码：<0>'
   ui-assets-market-value: '预估市值：<0>'
+  ui-assets-total-value: 总资产估值
+  ui-assets-total-value-amount: '预计总资产：<0>'
   ui-assets-deposit-action: '左键：充值'
   ui-assets-withdraw-action: '右键：提现'
   ui-assets-transfer-title: '转账 <0>'

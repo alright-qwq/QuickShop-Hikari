@@ -63,6 +63,7 @@ final class AssetsPage {
     addMarketsNavigation(page, player);
     int slot = 9;
     AssetPageRows.Merged merged = AssetPageRows.merge(views.transferTargets(), snapshot.assets());
+    addTotalValue(page, player, playerId, merged);
     for (AssetPageRows.Row row : merged.rows()) {
       if (slot >= 45) break;
       TransferTarget target = row.target();
@@ -120,6 +121,26 @@ final class AssetsPage {
           .customName(messages.component(player, "ui-assets-transfer-title", transfer.status()))
           .lore(transferLore)).withSlot(slot++).build());
     }
+  }
+
+  private void addTotalValue(PlayerInstancePage page, Player player, UUID playerId,
+                             AssetPageRows.Merged merged) {
+    java.math.BigDecimal total = java.math.BigDecimal.ZERO;
+    for (AssetPageRows.Row row : merged.rows()) {
+      if (row.target().kind() == TransferTarget.Kind.CURRENCY) {
+        total = total.add(row.available()).add(row.frozen());
+      }
+    }
+    for (AssetPageRows.SecurityRow security : merged.securities()) {
+      java.math.BigDecimal value = marketValue(security);
+      if (value != null) {
+        total = total.add(value);
+      }
+    }
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("DIAMOND", 1)
+        .customName(messages.component(player, "ui-assets-total-value"))
+        .lore(List.of(messages.component(player, "ui-assets-total-value-amount",
+            total.toPlainString())))).withSlot(4).build());
   }
 
   private java.math.BigDecimal marketValue(AssetPageRows.SecurityRow security) {

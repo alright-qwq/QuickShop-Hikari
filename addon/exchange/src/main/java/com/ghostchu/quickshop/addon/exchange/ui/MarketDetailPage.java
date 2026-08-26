@@ -135,7 +135,7 @@ final class MarketDetailPage {
         contexts.get(playerId).orElse(null));
     Duration window = timeframes.getOrDefault(playerId, TIMEFRAMES.getFirst());
     MarketDashboardPresenter.DashboardRows rows = presenter.present(dashboard, window);
-    renderDepth(page, player, rows);
+    renderDepth(page, player, rows, row);
     renderCandles(page, player, rows);
     addOrderIcon(page, player, row, OrderSide.BUY, OrderType.LIMIT, "LIME_CONCRETE", 29,
         "ui-order-limit-buy", ActionType.LEFT_CLICK);
@@ -165,15 +165,16 @@ final class MarketDetailPage {
   }
 
   private void renderDepth(PlayerInstancePage page, Player player,
-                           MarketDashboardPresenter.DashboardRows rows) {
+                           MarketDashboardPresenter.DashboardRows rows, MarketRow market) {
     for (int index = 0; index < rows.bids().size(); index++) {
-      addDepthIcon(page, player, rows.bids().get(index), true, 9 + index);
-      addDepthIcon(page, player, rows.asks().get(index), false, 14 + index);
+      addDepthIcon(page, player, rows.bids().get(index), true, 9 + index, market);
+      addDepthIcon(page, player, rows.asks().get(index), false, 14 + index, market);
     }
   }
 
   private void addDepthIcon(PlayerInstancePage page, Player player,
-                            MarketDashboardPresenter.DepthRow row, boolean bid, int slot) {
+                            MarketDashboardPresenter.DepthRow row, boolean bid, int slot,
+                            MarketRow market) {
     if (row.empty()) {
       page.addIcon(player.getUniqueId(), new IconBuilder(QuickShop.getInstance().stack().of(
           "BLACK_STAINED_GLASS_PANE", 1).customName(messages.component(player, "ui-depth-empty")))
@@ -182,11 +183,17 @@ final class MarketDetailPage {
     }
     String material = row.executable() ? (bid ? "LIME_STAINED_GLASS_PANE" : "RED_STAINED_GLASS_PANE")
         : "GRAY_STAINED_GLASS_PANE";
-    List<Component> lore = List.of(
+    java.util.ArrayList<Component> lore = new java.util.ArrayList<>(List.of(
         messages.component(player, "ui-depth-price", row.price().toPlainString()),
         messages.component(player, "ui-depth-quantity", row.quantity()),
         messages.component(player, "ui-depth-cumulative", row.cumulativeQuantity()),
-        messages.component(player, row.executable() ? "ui-depth-executable" : "ui-depth-protected"));
+        messages.component(player, row.executable() ? "ui-depth-executable" : "ui-depth-protected")));
+    java.math.BigDecimal distance = distancePercent(row.price(), market.lastPrice());
+    if (distance != null) {
+      lore.add(messages.component(player, "ui-depth-distance",
+          distance.multiply(java.math.BigDecimal.valueOf(100)).stripTrailingZeros()
+              .toPlainString() + "%"));
+    }
     page.addIcon(player.getUniqueId(), new IconBuilder(QuickShop.getInstance().stack().of(material,
         Math.max(1, row.strength())).customName(messages.component(player,
             bid ? "ui-depth-bid" : "ui-depth-ask")).lore(lore)).withSlot(slot).build());
@@ -236,6 +243,15 @@ final class MarketDetailPage {
 
   private static String notional(MarketDashboardSnapshot dashboard) {
     return dashboard.notional24h() == null ? "-" : dashboard.notional24h().toPlainString();
+  }
+
+  private static java.math.BigDecimal distancePercent(java.math.BigDecimal price,
+                                                      java.math.BigDecimal reference) {
+    if (price == null || reference == null || reference.signum() <= 0) {
+      return null;
+    }
+    return price.subtract(reference).abs().divide(reference, 8, java.math.RoundingMode.HALF_UP)
+        .stripTrailingZeros();
   }
 
   private static String directionKey(MarketDashboardPresenter.CandleDirection direction) {
