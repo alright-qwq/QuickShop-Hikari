@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `478ca645d`
+- Current HEAD: `a3f861a58`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -159,6 +159,13 @@ Full exchange test suite: 436 tests, 0 failures.
 - Full observability integration test: real matching produces reciprocal trades, market-data
   events feed `ExchangeMetrics`, the detector scans repository trades, alerts persist and
   `AdminExchangeService.auditStatus()` reflects both metrics and alerts. (`398dd34d7`)
+
+Full exchange test suite: 437 tests, 0 failures.
+
+## Seventeenth continuation (same day)
+
+- Audit status now prints each alert's evidence payload, so operators can triage without
+  opening the database. (`a3f861a58`)
 
 Full exchange test suite: 437 tests, 0 failures.
 
