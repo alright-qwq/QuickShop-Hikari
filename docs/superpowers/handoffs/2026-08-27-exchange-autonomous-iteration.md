@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `ca3d75125`
+- Current HEAD: `e2abb7f94`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -332,6 +332,17 @@ Full exchange test suite: 443 tests, 0 failures.
   action except `create`, so operators no longer need to remember raw market ids. (`ca3d75125`)
 
 Full exchange test suite: 444 tests, 0 failures.
+
+## Twenty-fourth continuation (same day)
+
+- Market list rows now show the market's most recent trade (buy/sell direction,
+  price and quantity) with the direction line colored green for aggressive buys and
+  red for sells, so players see the latest action directly from the list. The last
+  trade is loaded with the quote on the maintenance executor and rendered through a
+  compact immutable UI projection; all existing row/entry constructors keep
+  backwards-compatible overloads. (`e2abb7f94`)
+
+Full exchange test suite: 446 tests, 0 failures.
 
 ## Next iteration candidates (user-granted autonomy)
 
