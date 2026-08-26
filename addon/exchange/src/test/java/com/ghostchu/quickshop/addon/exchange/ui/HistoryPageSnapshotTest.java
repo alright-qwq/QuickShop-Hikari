@@ -45,10 +45,11 @@ class HistoryPageSnapshotTest {
   }
 
   @Test
-  void offersNextPageWhenAnySectionFilledItsBoundedPage() {
-    assertThat(HistoryPageSnapshot.hasNext(12, 0, 0)).isTrue();
-    assertThat(HistoryPageSnapshot.hasNext(0, 12, 0)).isTrue();
-    assertThat(HistoryPageSnapshot.hasNext(0, 0, 12)).isTrue();
+  void offersNextPageOnlyWhenAProbeRowWasFetched() {
+    assertThat(HistoryPageSnapshot.hasNext(13, 0, 0)).isTrue();
+    assertThat(HistoryPageSnapshot.hasNext(0, 13, 0)).isTrue();
+    assertThat(HistoryPageSnapshot.hasNext(0, 0, 13)).isTrue();
     assertThat(HistoryPageSnapshot.hasNext(11, 11, 11)).isFalse();
+    assertThat(HistoryPageSnapshot.hasNext(12, 12, 12)).isFalse();
   }
 }

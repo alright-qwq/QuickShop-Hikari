@@ -38,9 +38,9 @@ final class HistoryPage {
     if (opened == null) return;
     int offset = HistoryPageSnapshot.offset(opened.page());
     HistoryPageSnapshot.combine(
-        views.accountTrades(playerId, HistoryPageSnapshot.SECTION_SIZE, offset),
-        views.accountTransfers(playerId, HistoryPageSnapshot.SECTION_SIZE, offset),
-        views.accountLedger(playerId, HistoryPageSnapshot.SECTION_SIZE, offset))
+        views.accountTrades(playerId, HistoryPageSnapshot.FETCH_SIZE, offset),
+        views.accountTransfers(playerId, HistoryPageSnapshot.FETCH_SIZE, offset),
+        views.accountLedger(playerId, HistoryPageSnapshot.FETCH_SIZE, offset))
         .whenComplete((snapshot, failure) -> {
           if (!contexts.isCurrent(playerId, opened)) return;
           Player player = Bukkit.getPlayer(playerId);

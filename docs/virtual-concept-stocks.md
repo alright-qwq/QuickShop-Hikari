@@ -124,10 +124,19 @@ To close a stock, first cancel or let all open orders finish, then:
   "Virtual security (ledger-only, cannot deposit or withdraw)", plus symbol, available, and frozen
   quantities, an estimated market value, and the total portfolio value. Clicking a security row
   opens its market detail page. Security rows have no left/right deposit/withdraw actions.
+- The assets page shows currency/item balances, virtual securities, and recent transfers in three
+  fixed sections. Transfers are paginated (12 per page) with previous/next controls and a page
+  indicator; if there are more currency assets or securities than fit on the page, the last row
+  shows a "+N more" notice pointing to the history page or market list.
 - The order confirmation page shows the current best quote, tells you whether a limit order
   will match immediately or rest on the book, shows the applicable fee rate, an estimated
   fee, and how much currency a buy order will freeze on submit (before fees). Sell
   confirmations also show the estimated net proceeds after fees.
+- The cancellation confirmation page shows the market, side, remaining quantity, and the exact
+  frozen currency/quantity that will be released when the order is cancelled.
+- The market detail page shows an "Executable depth" summary: the total bid and ask quantity
+  currently executable (inside the price cage) across the whole book, so you can see at a
+  glance how much liquidity is immediately available.
 - Virtual security market rows and detail pages show the float market cap
   (issued supply x last price), so you can compare concept stocks by size.
 - Order-entry buttons on a virtual security market show a reminder that the

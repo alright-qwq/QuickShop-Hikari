@@ -10,7 +10,9 @@ import java.util.concurrent.CompletionException;
 /** Combined bounded history projections loaded independently on the background executor. */
 record HistoryPageSnapshot(List<AccountTradeRow> trades, List<TransferRecord> transfers,
                            List<AccountLedgerEntry> ledger, Throwable failure) {
+  /** Visible rows per section; one extra row is fetched per section as a next-page probe. */
   static final int SECTION_SIZE = 12;
+  static final int FETCH_SIZE = SECTION_SIZE + 1;
 
   HistoryPageSnapshot {
     trades = List.copyOf(trades);
@@ -33,7 +35,7 @@ record HistoryPageSnapshot(List<AccountTradeRow> trades, List<TransferRecord> tr
   }
 
   static boolean hasNext(int trades, int transfers, int ledger) {
-    return trades == SECTION_SIZE || transfers == SECTION_SIZE || ledger == SECTION_SIZE;
+    return trades > SECTION_SIZE || transfers > SECTION_SIZE || ledger > SECTION_SIZE;
   }
 
   boolean hasNext() {
