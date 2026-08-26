@@ -133,6 +133,8 @@ final class MarketListPage {
         changeLine = changeLine.color(net.kyori.adventure.text.format.NamedTextColor.GREEN);
       } else if (row.change24h() != null && row.change24h().signum() < 0) {
         changeLine = changeLine.color(net.kyori.adventure.text.format.NamedTextColor.RED);
+      } else if (row.change24h() != null) {
+        changeLine = changeLine.color(net.kyori.adventure.text.format.NamedTextColor.YELLOW);
       }
       lore.add(changeLine);
       String material = "CHEST";

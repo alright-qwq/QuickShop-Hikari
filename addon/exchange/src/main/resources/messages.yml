@@ -141,6 +141,7 @@ en-US:
   ui-order-frozen-currency: 'Frozen funds: <0>'
   ui-order-frozen-quantity: 'Frozen quantity: <0>'
   ui-order-current-price: 'Last: <0>'
+  ui-order-price-distance: 'Last vs order: <0>'
   ui-order-time: 'Placed: <0>'
   ui-market-not-selected: No market is selected.
   ui-market-bid: 'Best bid: <0>'
@@ -350,6 +351,7 @@ zh-CN:
   ui-order-frozen-currency: '冻结资金：<0>'
   ui-order-frozen-quantity: '冻结数量：<0>'
   ui-order-current-price: '最新价：<0>'
+  ui-order-price-distance: '最新价距订单价：<0>'
   ui-order-time: '下单时间：<0>'
   ui-market-not-selected: '尚未选择市场。'
   ui-market-bid: '最佳买价：<0>'

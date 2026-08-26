@@ -115,6 +115,15 @@ final class MyOrdersPage {
         lore = new java.util.ArrayList<>(lore);
         lore.add(messages.component(player, "ui-order-current-price",
             quote.lastPrice().toPlainString()));
+        java.math.BigDecimal boundary = order.limitPrice() == null
+            ? order.slippageBoundary() : order.limitPrice();
+        if (boundary != null && boundary.signum() > 0) {
+          java.math.BigDecimal distance = quote.lastPrice().subtract(boundary)
+              .divide(boundary, 4, java.math.RoundingMode.HALF_UP)
+              .multiply(java.math.BigDecimal.valueOf(100)).stripTrailingZeros();
+          lore.add(messages.component(player, "ui-order-price-distance",
+              distance.toPlainString() + "%"));
+        }
       }
       boolean buying = order.side() == OrderSide.BUY;
       IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of(
