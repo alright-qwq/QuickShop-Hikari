@@ -22,14 +22,15 @@ class MigrationRunnerTest {
     runner.migrate();
 
     try (Connection connection = connections.open()) {
-      assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(14);
-      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(3);
+      assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(18);
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(4);
       assertThat(triggerExists(connection, names.prefix() + "exchange_audit_records_no_update"))
           .isTrue();
       assertThat(triggerExists(connection, names.prefix() + "exchange_audit_records_no_delete"))
           .isTrue();
       assertThat(columnExists(connection, names.marketState(), "discovery_quantity")).isTrue();
       assertThat(columnExists(connection, names.marketState(), "circuit_breaker_level")).isTrue();
+      assertThat(columnExists(connection, names.markets(), "asset_type")).isTrue();
       assertThat(indexExists(connection, names.orders(), names.prefix() + "exchange_orders_book_idx"))
           .isTrue();
       assertThat(indexExists(connection, names.trades(), names.prefix() + "exchange_trades_time_idx"))

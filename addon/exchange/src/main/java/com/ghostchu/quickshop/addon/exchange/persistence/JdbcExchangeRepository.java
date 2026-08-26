@@ -24,6 +24,10 @@ import com.ghostchu.quickshop.addon.exchange.repository.ItemBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketSnapshot;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketFeeSchedule;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketTradeSample;
+import com.ghostchu.quickshop.addon.exchange.repository.SecurityAuditRecord;
+import com.ghostchu.quickshop.addon.exchange.repository.SecurityBalance;
+import com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState;
+import com.ghostchu.quickshop.addon.exchange.repository.SecurityLedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
 import com.ghostchu.quickshop.addon.exchange.transfer.IdempotencyConflictException;
 import com.ghostchu.quickshop.addon.exchange.transfer.RecoveryEvidence;
@@ -826,6 +830,247 @@ public final class JdbcExchangeRepository
     }
 
     @Override
+    public SecurityBalance securityBalance(UUID accountId, String marketId) throws SQLException {
+      try (PreparedStatement insert = connection.prepareStatement(
+          insertIgnorePrefix() + tables.securityBalances()
+              + " (owner_id,market_id,available,frozen,version,updated_at) VALUES (?,?,0,0,0,?)"
+              + duplicateKeyNoOp("owner_id"))) {
+        insert.setString(1, accountId.toString());
+        insert.setString(2, marketId);
+        insert.setLong(3, Instant.now().toEpochMilli());
+        insert.executeUpdate();
+      }
+      return existingSecurityBalance(accountId, marketId)
+          .orElseThrow(() -> new SQLException("security balance was not created"));
+    }
+
+    @Override
+    public Optional<SecurityBalance> existingSecurityBalance(UUID accountId, String marketId)
+        throws SQLException {
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT available,frozen,version FROM " + tables.securityBalances()
+              + " WHERE owner_id=? AND market_id=?" + dialect.forUpdate())) {
+        select.setString(1, accountId.toString());
+        select.setString(2, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          if (!result.next()) {
+            return Optional.empty();
+          }
+          return Optional.of(new SecurityBalance(accountId, marketId,
+              result.getLong("available"), result.getLong("frozen"),
+              result.getLong("version")));
+        }
+      }
+    }
+
+    @Override
+    public void creditAvailableSecurity(UUID accountId, String marketId, long quantity)
+        throws SQLException {
+      requirePositive(quantity);
+      SecurityBalance before = securityBalance(accountId, marketId);
+      updateSecurity(before, Math.addExact(before.availableQuantity(), quantity),
+          before.frozenQuantity());
+    }
+
+    @Override
+    public void freezeSecurity(UUID accountId, String marketId, long quantity)
+        throws SQLException {
+      requirePositive(quantity);
+      SecurityBalance before = securityBalance(accountId, marketId);
+      requireSecuritySource(before.availableQuantity(), quantity);
+      updateSecurity(before, before.availableQuantity() - quantity,
+          Math.addExact(before.frozenQuantity(), quantity));
+    }
+
+    @Override
+    public void releaseSecurity(UUID accountId, String marketId, long quantity)
+        throws SQLException {
+      requirePositive(quantity);
+      SecurityBalance before = securityBalance(accountId, marketId);
+      requireSecuritySource(before.frozenQuantity(), quantity);
+      updateSecurity(before, Math.addExact(before.availableQuantity(), quantity),
+          before.frozenQuantity() - quantity);
+    }
+
+    @Override
+    public void consumeFrozenSecurity(UUID accountId, String marketId, long quantity)
+        throws SQLException {
+      requirePositive(quantity);
+      SecurityBalance before = securityBalance(accountId, marketId);
+      requireSecuritySource(before.frozenQuantity(), quantity);
+      updateSecurity(before, before.availableQuantity(), before.frozenQuantity() - quantity);
+    }
+
+    @Override
+    public List<SecurityLedgerEntry> securityLedger(String marketId, UUID ownerId)
+        throws SQLException {
+      Objects.requireNonNull(marketId, "marketId");
+      String ownerFilter = ownerId == null ? " AND owner_id IS NULL" : " AND owner_id=?";
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT event_id,idempotency_key,market_id,owner_id,event_type,signed_quantity,"
+              + "available_delta,frozen_delta,reference_type,reference_id,actor_id,reason,"
+              + "created_at FROM " + tables.securityLedger()
+              + " WHERE market_id=?" + ownerFilter + " ORDER BY created_at,event_id")) {
+        select.setString(1, marketId);
+        if (ownerId != null) {
+          select.setString(2, ownerId.toString());
+        }
+        try (ResultSet result = select.executeQuery()) {
+          ArrayList<SecurityLedgerEntry> entries = new ArrayList<>();
+          while (result.next()) {
+            entries.add(readSecurityLedgerEntry(result));
+          }
+          return List.copyOf(entries);
+        }
+      }
+    }
+
+    @Override
+    public Optional<SecurityLedgerEntry> securityLedgerEntry(String idempotencyKey)
+        throws SQLException {
+      Objects.requireNonNull(idempotencyKey, "idempotencyKey");
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT event_id,idempotency_key,market_id,owner_id,event_type,signed_quantity,"
+              + "available_delta,frozen_delta,reference_type,reference_id,actor_id,reason,"
+              + "created_at FROM " + tables.securityLedger() + " WHERE idempotency_key=?")) {
+        select.setString(1, idempotencyKey);
+        try (ResultSet result = select.executeQuery()) {
+          return result.next() ? Optional.of(readSecurityLedgerEntry(result)) : Optional.empty();
+        }
+      }
+    }
+
+    @Override
+    public void appendSecurityLedger(SecurityLedgerEntry entry) throws SQLException {
+      Objects.requireNonNull(entry, "entry");
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO " + tables.securityLedger()
+              + " (event_id,idempotency_key,market_id,owner_id,event_type,signed_quantity,"
+              + "available_delta,frozen_delta,reference_type,reference_id,actor_id,reason,"
+              + "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+        insert.setString(1, entry.eventId().toString());
+        insert.setString(2, entry.idempotencyKey());
+        insert.setString(3, entry.marketId());
+        setNullableUuid(insert, 4, entry.ownerId());
+        insert.setString(5, entry.eventType());
+        insert.setLong(6, entry.signedQuantity());
+        insert.setLong(7, entry.availableDelta());
+        insert.setLong(8, entry.frozenDelta());
+        setNullableString(insert, 9, entry.referenceType());
+        setNullableString(insert, 10, entry.referenceId());
+        setNullableUuid(insert, 11, entry.actorId());
+        setNullableString(insert, 12, entry.reason());
+        insert.setLong(13, entry.createdAt().toEpochMilli());
+        insert.executeUpdate();
+      }
+    }
+
+    @Override
+    public SecurityDefinitionState securityDefinition(String marketId) throws SQLException {
+      return existingSecurityDefinition(marketId)
+          .orElseThrow(() -> new SQLException("security definition does not exist: " + marketId));
+    }
+
+    @Override
+    public Optional<SecurityDefinitionState> existingSecurityDefinition(String marketId)
+        throws SQLException {
+      Objects.requireNonNull(marketId, "marketId");
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT market_id,symbol,name,description,currency_id,base_price,total_supply,"
+              + "issued_supply,minimum_unit,status,recovery_account,created_at,updated_at,version"
+              + " FROM " + tables.securities() + " WHERE market_id=?" + dialect.forUpdate())) {
+        select.setString(1, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          if (!result.next()) {
+            return Optional.empty();
+          }
+          return Optional.of(readSecurityDefinition(result));
+        }
+      }
+    }
+
+    @Override
+    public void insertSecurityDefinition(SecurityDefinitionState definition) throws SQLException {
+      Objects.requireNonNull(definition, "definition");
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO " + tables.securities()
+              + " (market_id,symbol,name,description,currency_id,base_price,total_supply,"
+              + "issued_supply,minimum_unit,status,recovery_account,created_at,updated_at,version)"
+              + " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)")) {
+        writeSecurityDefinition(insert, definition);
+        insert.executeUpdate();
+      }
+    }
+
+    @Override
+    public void updateSecurityDefinition(SecurityDefinitionState definition, long expectedVersion)
+        throws SQLException {
+      Objects.requireNonNull(definition, "definition");
+      try (PreparedStatement update = connection.prepareStatement(
+          "UPDATE " + tables.securities()
+              + " SET symbol=?,name=?,description=?,currency_id=?,base_price=?,total_supply=?,"
+              + "issued_supply=?,minimum_unit=?,status=?,recovery_account=?,updated_at=?,"
+              + "version=version+1 WHERE market_id=? AND version=?")) {
+        update.setString(1, definition.symbol());
+        update.setString(2, definition.name());
+        update.setString(3, definition.description());
+        update.setString(4, definition.currencyId());
+        writeDecimal(update, 5, definition.basePrice());
+        update.setLong(6, definition.totalSupply());
+        update.setLong(7, definition.issuedSupply());
+        update.setLong(8, definition.minimumUnit());
+        update.setString(9, definition.status());
+        setNullableUuid(update, 10, definition.recoveryAccount());
+        update.setLong(11, Instant.now().toEpochMilli());
+        update.setString(12, definition.marketId());
+        update.setLong(13, expectedVersion);
+        if (update.executeUpdate() != 1) {
+          throw new ConcurrentModificationException("security definition version changed");
+        }
+      }
+    }
+
+    @Override
+    public void appendSecurityAudit(SecurityAuditRecord record) throws SQLException {
+      Objects.requireNonNull(record, "record");
+      try (PreparedStatement insert = connection.prepareStatement(
+          "INSERT INTO " + tables.securityAudit()
+              + " (audit_id,request_id,market_id,action,actor_id,payload,outcome,created_at)"
+              + " VALUES (?,?,?,?,?,?,?,?)")) {
+        insert.setString(1, record.auditId().toString());
+        insert.setString(2, record.requestId());
+        insert.setString(3, record.marketId());
+        insert.setString(4, record.action());
+        insert.setString(5, record.actorId().toString());
+        insert.setString(6, record.payload());
+        insert.setString(7, record.outcome());
+        insert.setLong(8, record.createdAt().toEpochMilli());
+        insert.executeUpdate();
+      }
+    }
+
+    @Override
+    public Optional<SecurityAuditRecord> securityAudit(String requestId) throws SQLException {
+      Objects.requireNonNull(requestId, "requestId");
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT audit_id,request_id,market_id,action,actor_id,payload,outcome,created_at"
+              + " FROM " + tables.securityAudit() + " WHERE request_id=?")) {
+        select.setString(1, requestId);
+        try (ResultSet result = select.executeQuery()) {
+          if (!result.next()) {
+            return Optional.empty();
+          }
+          return Optional.of(new SecurityAuditRecord(
+              UUID.fromString(result.getString("audit_id")),
+              result.getString("request_id"), result.getString("market_id"),
+              result.getString("action"), UUID.fromString(result.getString("actor_id")),
+              result.getString("payload"), result.getString("outcome"),
+              Instant.ofEpochMilli(result.getLong("created_at"))));
+        }
+      }
+    }
+
+    @Override
     public Optional<StoredRequestResult> requestResult(UUID accountId, UUID requestId)
         throws SQLException {
       try (PreparedStatement select = connection.prepareStatement(
@@ -1524,6 +1769,87 @@ public final class JdbcExchangeRepository
       }
     }
 
+    private void updateSecurity(SecurityBalance before, long available, long frozen)
+        throws SQLException {
+      try (PreparedStatement update = connection.prepareStatement(
+          "UPDATE " + tables.securityBalances()
+              + " SET available=?,frozen=?,updated_at=?,version=version+1"
+              + " WHERE owner_id=? AND market_id=? AND version=?")) {
+        update.setLong(1, available);
+        update.setLong(2, frozen);
+        update.setLong(3, Instant.now().toEpochMilli());
+        update.setString(4, before.accountId().toString());
+        update.setString(5, before.marketId());
+        update.setLong(6, before.version());
+        if (update.executeUpdate() != 1) {
+          throw new ConcurrentModificationException("security version changed");
+        }
+      }
+    }
+
+    private SecurityLedgerEntry readSecurityLedgerEntry(ResultSet result) throws SQLException {
+      return new SecurityLedgerEntry(
+          UUID.fromString(result.getString("event_id")),
+          result.getString("idempotency_key"), result.getString("market_id"),
+          nullableUuid(result, "owner_id"), result.getString("event_type"),
+          result.getLong("signed_quantity"), result.getLong("available_delta"),
+          result.getLong("frozen_delta"), result.getString("reference_type"),
+          result.getString("reference_id"), nullableUuid(result, "actor_id"),
+          result.getString("reason"), Instant.ofEpochMilli(result.getLong("created_at")));
+    }
+
+    private SecurityDefinitionState readSecurityDefinition(ResultSet result) throws SQLException {
+      return new SecurityDefinitionState(
+          result.getString("market_id"), result.getString("symbol"),
+          result.getString("name"), result.getString("description"),
+          result.getString("currency_id"), readDecimal(result, "base_price"),
+          result.getLong("total_supply"), result.getLong("issued_supply"),
+          result.getLong("minimum_unit"), result.getString("status"),
+          nullableUuid(result, "recovery_account"),
+          Instant.ofEpochMilli(result.getLong("created_at")),
+          Instant.ofEpochMilli(result.getLong("updated_at")), result.getLong("version"));
+    }
+
+    private void writeSecurityDefinition(PreparedStatement statement,
+                                         SecurityDefinitionState definition) throws SQLException {
+      statement.setString(1, definition.marketId());
+      statement.setString(2, definition.symbol());
+      statement.setString(3, definition.name());
+      statement.setString(4, definition.description());
+      statement.setString(5, definition.currencyId());
+      writeDecimal(statement, 6, definition.basePrice());
+      statement.setLong(7, definition.totalSupply());
+      statement.setLong(8, definition.issuedSupply());
+      statement.setLong(9, definition.minimumUnit());
+      statement.setString(10, definition.status());
+      setNullableUuid(statement, 11, definition.recoveryAccount());
+      statement.setLong(12, definition.createdAt().toEpochMilli());
+      statement.setLong(13, definition.updatedAt().toEpochMilli());
+    }
+
+    private static UUID nullableUuid(ResultSet result, String column) throws SQLException {
+      String value = result.getString(column);
+      return value == null ? null : UUID.fromString(value);
+    }
+
+    private static void setNullableUuid(PreparedStatement statement, int index, UUID value)
+        throws SQLException {
+      if (value == null) {
+        statement.setNull(index, Types.VARCHAR);
+      } else {
+        statement.setString(index, value.toString());
+      }
+    }
+
+    private static void setNullableString(PreparedStatement statement, int index, String value)
+        throws SQLException {
+      if (value == null) {
+        statement.setNull(index, Types.VARCHAR);
+      } else {
+        statement.setString(index, value);
+      }
+    }
+
     private String insertIgnorePrefix() {
       return dialect == SqlDialect.SQLITE ? "INSERT OR IGNORE INTO " : "INSERT INTO ";
     }
@@ -1684,6 +2010,12 @@ public final class JdbcExchangeRepository
     private static void requireItemSource(long source, long quantity) {
       if (source < quantity) {
         throw new InsufficientAssetsException("items");
+      }
+    }
+
+    private static void requireSecuritySource(long source, long quantity) {
+      if (source < quantity) {
+        throw new InsufficientAssetsException("security");
       }
     }
   }

@@ -20,4 +20,8 @@ public record TableNames(String prefix) {
   public String candles1m() { return prefix + "exchange_candles_1m"; }
   public String auditAlerts() { return prefix + "exchange_audit_alerts"; }
   public String auditRecords() { return prefix + "exchange_audit_records"; }
+  public String securities() { return prefix + "exchange_securities"; }
+  public String securityBalances() { return prefix + "exchange_security_balances"; }
+  public String securityLedger() { return prefix + "exchange_security_ledger"; }
+  public String securityAudit() { return prefix + "exchange_security_audit"; }
 }

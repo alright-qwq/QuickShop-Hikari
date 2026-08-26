@@ -49,8 +49,8 @@ class MySqlMigrationIT {
     runner.migrate();
 
     try (Connection connection = connections.open()) {
-      assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(14);
-      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(3);
+      assertThat(tableCount(connection, "qs_exchange_%")).isEqualTo(18);
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(4);
       assertThat(columnExists(connection, names.marketState(), "discovery_quantity")).isTrue();
       assertThat(columnExists(connection, names.marketState(), "circuit_breaker_level")).isTrue();
       assertThat(indexExists(connection, names.orders(), names.prefix() + "exchange_orders_book_idx"))
@@ -90,8 +90,8 @@ class MySqlMigrationIT {
     runner.migrate();
 
     try (Connection connection = connections.open()) {
-      assertThat(tableCount(connection, "recover_exchange_%")).isEqualTo(14);
-      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(3);
+      assertThat(tableCount(connection, "recover_exchange_%")).isEqualTo(18);
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(4);
       assertThat(indexExists(connection, names.orders(), names.prefix() + "exchange_orders_book_idx"))
           .isTrue();
       assertThat(indexExists(connection, names.trades(), names.prefix() + "exchange_trades_time_idx"))
@@ -120,7 +120,7 @@ class MySqlMigrationIT {
     try (Connection connection = connections.open()) {
       assertThat(columnExists(connection, names.marketState(), "discovery_quantity")).isTrue();
       assertThat(columnExists(connection, names.marketState(), "circuit_breaker_level")).isTrue();
-      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(3);
+      assertThat(rowCount(connection, names.schemaVersion())).isEqualTo(4);
       assertThat(versionRowCount(connection, names.schemaVersion(), 2)).isEqualTo(1);
     }
   }

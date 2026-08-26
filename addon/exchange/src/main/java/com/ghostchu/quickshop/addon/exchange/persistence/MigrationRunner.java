@@ -57,6 +57,20 @@ public final class MigrationRunner {
           ensureTrigger(connection, trigger);
         }
         recordVersion(connection, 3);
+        for (String sql : SchemaV4.statements(dialect, tables)) {
+          try (Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+          }
+        }
+        for (SchemaV1.IndexDefinition index : SchemaV4.indexes(tables)) {
+          ensureIndex(connection, index);
+        }
+        for (SchemaV1.TriggerDefinition trigger : SchemaV4.triggers(dialect, tables)) {
+          ensureTrigger(connection, trigger);
+        }
+        ensureColumn(connection, new SchemaV2.ColumnDefinition(
+            tables.markets(), "asset_type", "VARCHAR(24) NOT NULL DEFAULT 'PHYSICAL_ITEM'"));
+        recordVersion(connection, 4);
         connection.commit();
       } catch (SQLException failure) {
         connection.rollback();

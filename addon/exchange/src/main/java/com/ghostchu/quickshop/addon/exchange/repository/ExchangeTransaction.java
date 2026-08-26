@@ -30,6 +30,26 @@ public interface ExchangeTransaction {
   void freezeItems(UUID accountId, String marketId, long quantity) throws SQLException;
   void releaseItems(UUID accountId, String marketId, long quantity) throws SQLException;
   void consumeFrozenItems(UUID accountId, String marketId, long quantity) throws SQLException;
+  SecurityBalance securityBalance(UUID accountId, String marketId) throws SQLException;
+  Optional<SecurityBalance> existingSecurityBalance(UUID accountId, String marketId)
+      throws SQLException;
+  void creditAvailableSecurity(UUID accountId, String marketId, long quantity)
+      throws SQLException;
+  void freezeSecurity(UUID accountId, String marketId, long quantity) throws SQLException;
+  void releaseSecurity(UUID accountId, String marketId, long quantity) throws SQLException;
+  void consumeFrozenSecurity(UUID accountId, String marketId, long quantity)
+      throws SQLException;
+  List<SecurityLedgerEntry> securityLedger(String marketId, UUID ownerId) throws SQLException;
+  Optional<SecurityLedgerEntry> securityLedgerEntry(String idempotencyKey) throws SQLException;
+  void appendSecurityLedger(SecurityLedgerEntry entry) throws SQLException;
+  SecurityDefinitionState securityDefinition(String marketId) throws SQLException;
+  Optional<SecurityDefinitionState> existingSecurityDefinition(String marketId)
+      throws SQLException;
+  void insertSecurityDefinition(SecurityDefinitionState definition) throws SQLException;
+  void updateSecurityDefinition(SecurityDefinitionState definition, long expectedVersion)
+      throws SQLException;
+  void appendSecurityAudit(SecurityAuditRecord record) throws SQLException;
+  Optional<SecurityAuditRecord> securityAudit(String requestId) throws SQLException;
   Optional<StoredRequestResult> requestResult(UUID accountId, UUID requestId) throws SQLException;
   void putRequestResult(StoredRequestResult result) throws SQLException;
   MarketState marketState(String marketId) throws SQLException;
