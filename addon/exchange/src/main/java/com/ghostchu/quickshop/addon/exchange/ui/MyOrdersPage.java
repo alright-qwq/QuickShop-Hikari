@@ -88,11 +88,14 @@ final class MyOrdersPage {
       page.addIcon(playerId, icon.build());
     }
     ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
-    if (opened != null && opened.page() > 1) {
-      addNavigation(page, player, 45, "ARROW", "ui-history-previous", opened.page() - 1);
+    int currentPage = opened == null ? 1 : opened.page();
+    if (currentPage > 1) {
+      addNavigation(page, player, 45, "ARROW", "ui-history-previous", currentPage - 1);
     }
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("CLOCK", 1)
+        .customName(messages.component(player, "ui-history-page", currentPage))).withSlot(49).build());
     if (orders.size() == PAGE_SIZE) {
-      addNavigation(page, player, 53, "ARROW", "ui-history-next", opened.page() + 1);
+      addNavigation(page, player, 53, "ARROW", "ui-history-next", currentPage + 1);
     }
   }
 
