@@ -73,7 +73,8 @@ final class MarketDetailPage {
     UUID playerId = player.getUniqueId();
     Duration window = timeframes.getOrDefault(playerId, TIMEFRAMES.getFirst());
     views.marketDashboard(request.marketId(), window)
-        .thenCombine(views.accountAssets(playerId), PageData::new)
+        .thenCombine(views.accountAssets(playerId).handle((assets, ignored) ->
+            assets == null ? List.<AccountAssetBalance>of() : assets), PageData::new)
         .whenComplete((data, failure) -> {
           if (!ExchangePageRenderGuard.permits(contexts, playerId, request, player::isOnline)) return;
           QuickShop.folia().getScheduler().runAtEntityLater(player,
