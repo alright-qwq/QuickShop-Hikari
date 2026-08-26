@@ -101,6 +101,8 @@ public final class SchemaV1 {
     return List.of(
         new IndexDefinition(t.prefix() + "exchange_orders_book_idx", t.orders(),
             "market_id,status,side,limit_price,priority_sequence"),
+        new IndexDefinition(t.prefix() + "exchange_orders_account_idx", t.orders(),
+            "account_id,status,updated_at"),
         new IndexDefinition(t.prefix() + "exchange_trades_time_idx", t.trades(),
             "market_id,executed_at"),
         new IndexDefinition(t.prefix() + "exchange_audit_alerts_time_idx", t.auditAlerts(),
