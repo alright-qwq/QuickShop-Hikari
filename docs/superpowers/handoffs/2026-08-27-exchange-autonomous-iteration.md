@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `63afd65ce`
+- Current HEAD: `7837ed828`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -170,6 +170,13 @@ Full exchange test suite: 437 tests, 0 failures.
 - Audit status now prints the open (unacknowledged) alert count. (`ae639b181`)
 - Detection scans no longer full-scan: `orders(created_at)` and `trades(executed_at)` indexes
   cover the five-minute detection windows. (`63afd65ce`)
+
+Full exchange test suite: 438 tests, 0 failures.
+
+## Twentieth continuation (same day)
+
+- Player guide permission summary now lists cancel and deposit/withdraw permissions.
+  (`7837ed828`)
 
 Full exchange test suite: 438 tests, 0 failures.
 
