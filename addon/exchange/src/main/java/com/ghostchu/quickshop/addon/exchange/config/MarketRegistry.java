@@ -43,28 +43,31 @@ public final class MarketRegistry {
     Map<String, MarketDefinition> definitions = new LinkedHashMap<>();
     for (String marketId : configuredMarkets.getKeys(false)) {
       ConfigurationSection market = requiredSection(configuredMarkets, marketId);
-      ConfigurationSection item = requiredSection(market, "item");
+      ConfigurationSection item = market.getConfigurationSection("item");
+      ConfigurationSection security = market.getConfigurationSection("security");
+      if (security == null && item == null) {
+        throw new IllegalArgumentException("missing configuration section: item");
+      }
+      if (security != null && item != null) {
+        throw new IllegalArgumentException("virtual security market must not define an item");
+      }
+      MarketDefinition.ItemDefinition itemDefinition = null;
+      if (item != null) {
+        itemDefinition = new MarketDefinition.ItemDefinition(
+            FingerprintMode.valueOf(requiredString(item, "mode")),
+            requiredString(item, "material"), item.getString("encoded-template"),
+            item.getString("fingerprint"));
+      }
       definitions.put(marketId, new MarketDefinition(marketId,
           requiredString(market, "display-name"), market.getBoolean("enabled"),
-          new MarketDefinition.ItemDefinition(
-              FingerprintMode.valueOf(requiredString(item, "mode")),
-              requiredString(item, "material"), item.getString("encoded-template"),
-              item.getString("fingerprint")),
-          new MarketDefinition.StructuralRules(requiredString(market, "currency"),
-              decimal(market, "base-price"), decimal(market, "min-price"),
-              decimal(market, "max-price"), decimal(market, "tick-size"),
-              market.getInt("price-scale"), market.getInt("currency-scale"),
-              market.getLong("min-quantity"), market.getLong("max-quantity"),
-              market.getLong("discovery-quantity")),
-          new MarketDefinition.RiskRules(decimal(market, "maker-fee-rate"),
-              decimal(market, "taker-fee-rate"), decimal(riskDefaults, "price-cage-ratio"),
-              decimal(riskDefaults, "default-market-slippage"),
-              decimal(riskDefaults, "maximum-market-slippage"),
-              decimal(riskDefaults, "level-one-move"), riskDefaults.getLong("level-one-halt-seconds"),
-              decimal(riskDefaults, "level-two-move"), riskDefaults.getLong("level-two-halt-seconds"),
-              market.getLong("max-account-holding"), decimal(market, "max-frozen-currency"),
-              market.getInt("max-open-orders"), riskDefaults.getInt("operations-per-second"),
-              riskDefaults.getInt("operations-per-minute")), market.getBoolean("block-container-shops")));
+          itemDefinition, structuralRules(market), riskRules(market, riskDefaults),
+          market.getBoolean("block-container-shops"),
+          security == null ? AssetType.PHYSICAL_ITEM : AssetType.VIRTUAL_SECURITY,
+          security == null ? null : new SecurityDefinition(
+              requiredString(security, "symbol"), requiredString(security, "name"),
+              requiredString(security, "description"), requiredString(market, "currency"),
+              decimal(security, "base-price"), security.getLong("total-supply"),
+              security.getLong("minimum-unit"))));
     }
     return new MarketRegistry(definitions, persistence);
   }
@@ -87,6 +90,7 @@ public final class MarketRegistry {
       return false;
     }
     return markets.values().stream().map(entry -> entry.definition)
+        .filter(definition -> definition.item() != null)
         .anyMatch(definition -> definition.blockContainerShops()
             && definition.item().mode() == FingerprintMode.VANILLA_MATERIAL
             && material.name().equalsIgnoreCase(definition.item().material()));
@@ -123,8 +127,7 @@ public final class MarketRegistry {
       Entry candidate = new Entry(current);
       MarketDefinition next = replacement.getValue();
       boolean versionChanged = false;
-      if (!current.definition.item().equals(next.item())
-          || !current.definition.structural().equals(next.structural())) {
+      if (!sameCustodyStructure(current.definition, next)) {
         MarketStateReader.State state = stateReader.read(replacement.getKey());
         if (state.status() != MarketStatus.PAUSED || state.openOrders() != 0) {
           throw new IllegalStateException(
@@ -193,6 +196,36 @@ public final class MarketRegistry {
 
   private static BigDecimal decimal(ConfigurationSection section, String path) {
     return new BigDecimal(requiredString(section, path));
+  }
+
+  private static MarketDefinition.StructuralRules structuralRules(
+      ConfigurationSection market) {
+    return new MarketDefinition.StructuralRules(requiredString(market, "currency"),
+        decimal(market, "base-price"), decimal(market, "min-price"),
+        decimal(market, "max-price"), decimal(market, "tick-size"),
+        market.getInt("price-scale"), market.getInt("currency-scale"),
+        market.getLong("min-quantity"), market.getLong("max-quantity"),
+        market.getLong("discovery-quantity"));
+  }
+
+  private static MarketDefinition.RiskRules riskRules(
+      ConfigurationSection market, ConfigurationSection riskDefaults) {
+    return new MarketDefinition.RiskRules(decimal(market, "maker-fee-rate"),
+        decimal(market, "taker-fee-rate"), decimal(riskDefaults, "price-cage-ratio"),
+        decimal(riskDefaults, "default-market-slippage"),
+        decimal(riskDefaults, "maximum-market-slippage"),
+        decimal(riskDefaults, "level-one-move"), riskDefaults.getLong("level-one-halt-seconds"),
+        decimal(riskDefaults, "level-two-move"), riskDefaults.getLong("level-two-halt-seconds"),
+        market.getLong("max-account-holding"), decimal(market, "max-frozen-currency"),
+        market.getInt("max-open-orders"), riskDefaults.getInt("operations-per-second"),
+        riskDefaults.getInt("operations-per-minute"));
+  }
+
+  private static boolean sameCustodyStructure(MarketDefinition first, MarketDefinition second) {
+    return first.assetType() == second.assetType()
+        && Objects.equals(first.item(), second.item())
+        && Objects.equals(first.security(), second.security())
+        && first.structural().equals(second.structural());
   }
 
   public record Versions(long structuralVersion, long riskVersion, long feeVersion) {

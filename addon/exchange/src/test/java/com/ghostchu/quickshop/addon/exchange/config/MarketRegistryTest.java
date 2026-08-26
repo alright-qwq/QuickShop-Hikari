@@ -4,8 +4,11 @@ import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.platform.FingerprintMode;
 import java.math.BigDecimal;
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.bukkit.Material;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -104,6 +107,53 @@ class MarketRegistryTest {
     assertThat(registry.blocksContainerShop(Material.EMERALD)).isFalse();
   }
 
+  @Test
+  void loadsVirtualSecurityMarketFromYaml(@TempDir Path temp) throws Exception {
+    Path config = temp.resolve("config.yml");
+    Path markets = temp.resolve("markets.yml");
+    Files.writeString(config, riskDefaultsYaml());
+    Files.writeString(markets, virtualMarketYaml(false));
+
+    MarketRegistry registry = MarketRegistry.load(config.toFile(), markets.toFile());
+    MarketDefinition alpha = registry.require("concept_alpha");
+
+    assertThat(alpha.assetType()).isEqualTo(AssetType.VIRTUAL_SECURITY);
+    assertThat(alpha.item()).isNull();
+    assertThat(alpha.security().symbol()).isEqualTo("ALPHA");
+    assertThat(alpha.security().totalSupply()).isEqualTo(1000);
+    assertThat(alpha.security().minimumUnit()).isEqualTo(1);
+  }
+
+  @Test
+  void rejectsVirtualSecurityMarketWithItemSection(@TempDir Path temp) throws Exception {
+    Path config = temp.resolve("config.yml");
+    Path markets = temp.resolve("markets.yml");
+    Files.writeString(config, riskDefaultsYaml());
+    Files.writeString(markets, virtualMarketYaml(true));
+
+    assertThatThrownBy(() -> MarketRegistry.load(config.toFile(), markets.toFile()))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("must not define an item");
+  }
+
+  @Test
+  void blocksContainerShopIgnoresVirtualSecurityMarkets() {
+    MarketRegistry registry = new MarketRegistry(Map.of("concept_alpha", virtualDefinition("ALPHA")));
+
+    assertThat(registry.blocksContainerShop(Material.DIAMOND)).isFalse();
+  }
+
+  @Test
+  void reloadVirtualSecurityMarketComparesSecurityMetadata() {
+    MarketRegistry registry = new MarketRegistry(Map.of("concept_alpha", virtualDefinition("ALPHA")));
+    MarketStateReader state = market -> new MarketStateReader.State(MarketStatus.PAUSED, 0);
+
+    registry.reload(Map.of("concept_alpha", virtualDefinition("ALPHA")), state);
+
+    assertThat(registry.require("concept_alpha").security().symbol()).isEqualTo("ALPHA");
+    assertThat(registry.versions("concept_alpha")).isEqualTo(new MarketRegistry.Versions(1, 1, 1));
+  }
+
   private static MarketDefinition definition(String tickSize) {
     return definition(tickSize, "0.001", "0.002");
   }
@@ -124,6 +174,69 @@ class MarketRegistryTest {
         new MarketDefinition.RiskRules(new BigDecimal(makerFeeRate), new BigDecimal(takerFeeRate),
             new BigDecimal("0.20"), new BigDecimal("0.05"), new BigDecimal("0.20"),
             new BigDecimal("0.10"), 120, new BigDecimal("0.20"), 600, 100000,
-            new BigDecimal("10000000.00"), 100, 5, 60), false);
+        new BigDecimal("10000000.00"), 100, 5, 60), false);
+  }
+
+  private static MarketDefinition virtualDefinition(String symbol) {
+    return new MarketDefinition("concept_alpha", "Alpha", false, null,
+        new MarketDefinition.StructuralRules("default", new BigDecimal("10.00"),
+            BigDecimal.ONE, new BigDecimal("100.00"), new BigDecimal("0.01"), 2, 2,
+            1, 1000, 100),
+        new MarketDefinition.RiskRules(new BigDecimal("0.001"), new BigDecimal("0.002"),
+            new BigDecimal("0.20"), new BigDecimal("0.05"), new BigDecimal("0.20"),
+            new BigDecimal("0.10"), 120, new BigDecimal("0.20"), 600, 100000,
+            new BigDecimal("10000000.00"), 100, 5, 60), false,
+        AssetType.VIRTUAL_SECURITY,
+        new SecurityDefinition(symbol, "Alpha Holdings", "Concept stock", "default",
+            new BigDecimal("10.00"), 1000, 1));
+  }
+
+  private static String riskDefaultsYaml() {
+    return """
+        risk-defaults:
+          price-cage-ratio: '0.20'
+          default-market-slippage: '0.05'
+          maximum-market-slippage: '0.20'
+          level-one-move: '0.10'
+          level-one-halt-seconds: 120
+          level-two-move: '0.20'
+          level-two-halt-seconds: 600
+          operations-per-second: 5
+          operations-per-minute: 60
+        """;
+  }
+
+  private static String virtualMarketYaml(boolean withItem) {
+    String itemSection = withItem
+        ? "    item:\n      mode: VANILLA_MATERIAL\n      material: DIAMOND\n"
+        : "";
+    return "markets:\n"
+        + "  concept_alpha:\n"
+        + "    enabled: false\n"
+        + "    display-name: Concept Alpha\n"
+        + itemSection
+        + "    security:\n"
+        + "      symbol: ALPHA\n"
+        + "      name: Alpha Holdings\n"
+        + "      description: Pure ledger concept stock\n"
+        + "      base-price: '10.00'\n"
+        + "      total-supply: 1000\n"
+        + "      minimum-unit: 1\n"
+        + "    currency: default\n"
+        + "    base-price: '10.00'\n"
+        + "    min-price: '1.00'\n"
+        + "    max-price: '100.00'\n"
+        + "    tick-size: '0.01'\n"
+        + "    price-scale: 2\n"
+        + "    currency-scale: 2\n"
+        + "    min-quantity: 1\n"
+        + "    max-quantity: 1000\n"
+        + "    discovery-quantity: 100\n"
+        + "    maker-fee-rate: '0.001'\n"
+        + "    taker-fee-rate: '0.002'\n"
+        + "    max-account-holding: 100000\n"
+        + "    max-frozen-currency: '10000000.00'\n"
+        + "    max-open-orders: 100\n"
+        + "    block-container-shops: false\n";
   }
 }

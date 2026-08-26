@@ -7,13 +7,38 @@ import java.util.Objects;
 public record MarketDefinition(
     String marketId, String displayName, boolean enabled,
     ItemDefinition item, StructuralRules structural, RiskRules risk,
-    boolean blockContainerShops) {
+    boolean blockContainerShops, AssetType assetType, SecurityDefinition security) {
+  public MarketDefinition(String marketId, String displayName, boolean enabled,
+                          ItemDefinition item, StructuralRules structural, RiskRules risk,
+                          boolean blockContainerShops) {
+    this(marketId, displayName, enabled, item, structural, risk, blockContainerShops,
+        AssetType.PHYSICAL_ITEM, null);
+  }
+
   public MarketDefinition {
     requireText(marketId, "marketId");
     requireText(displayName, "displayName");
-    Objects.requireNonNull(item, "item");
+    Objects.requireNonNull(assetType, "assetType");
     Objects.requireNonNull(structural, "structural");
     Objects.requireNonNull(risk, "risk");
+    if (assetType == AssetType.PHYSICAL_ITEM) {
+      Objects.requireNonNull(item, "item");
+      if (security != null) {
+        throw new IllegalArgumentException("physical market must not define security metadata");
+      }
+    } else {
+      if (item != null) {
+        throw new IllegalArgumentException("virtual security must not define an item");
+      }
+      Objects.requireNonNull(security, "security");
+      if (!structural.currencyId().equals(security.currencyId())
+          || structural.basePrice().compareTo(security.basePrice()) != 0) {
+        throw new IllegalArgumentException("security metadata must match market currency and base price");
+      }
+      if (structural.minQuantity() % security.minimumUnit() != 0) {
+        throw new IllegalArgumentException("market minimum quantity must align with security unit");
+      }
+    }
   }
 
   public record ItemDefinition(FingerprintMode mode, String material,
