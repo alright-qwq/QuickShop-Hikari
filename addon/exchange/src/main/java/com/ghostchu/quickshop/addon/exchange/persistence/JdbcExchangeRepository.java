@@ -583,22 +583,26 @@ public final class JdbcExchangeRepository
     Objects.requireNonNull(sinceInclusive, "sinceInclusive");
     try (Connection connection = connections.open();
          PreparedStatement select = connection.prepareStatement(
-             "SELECT market_id,account_id,side,order_type,status,created_at FROM "
-                 + tables.orders() + " WHERE updated_at>=? ORDER BY updated_at,order_id")) {
+             "SELECT market_id,account_id,status,created_at,updated_at FROM " + tables.orders()
+                 + " WHERE created_at>=? OR (updated_at>=? AND status='CANCELLED')"
+                 + " ORDER BY updated_at,order_id")) {
       select.setLong(1, sinceInclusive.toEpochMilli());
+      select.setLong(2, sinceInclusive.toEpochMilli());
       try (ResultSet result = select.executeQuery()) {
         List<OrderActivity> activities = new ArrayList<>();
         while (result.next()) {
           String status = result.getString("status");
-          if ("PLACED".equals(status) || "OPEN".equals(status) || "PARTIALLY_FILLED".equals(status)) {
+          long createdAt = result.getLong("created_at");
+          long updatedAt = result.getLong("updated_at");
+          if (createdAt >= sinceInclusive.toEpochMilli()) {
             activities.add(new OrderActivity(result.getString("market_id"),
                 UUID.fromString(result.getString("account_id")), OrderActivity.Kind.PLACE,
-                Instant.ofEpochMilli(result.getLong("created_at"))));
-          } else if ("CANCELLED".equals(status) || "EXPIRED".equals(status)
-              || "FILLED_CANCELLED_REMAINDER".equals(status)) {
+                Instant.ofEpochMilli(createdAt)));
+          }
+          if ("CANCELLED".equals(status) && updatedAt >= sinceInclusive.toEpochMilli()) {
             activities.add(new OrderActivity(result.getString("market_id"),
                 UUID.fromString(result.getString("account_id")), OrderActivity.Kind.CANCEL,
-                Instant.ofEpochMilli(result.getLong("updated_at"))));
+                Instant.ofEpochMilli(updatedAt)));
           }
         }
         return List.copyOf(activities);

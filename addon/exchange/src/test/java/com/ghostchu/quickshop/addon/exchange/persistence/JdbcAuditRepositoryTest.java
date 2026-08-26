@@ -2,7 +2,14 @@ package com.ghostchu.quickshop.addon.exchange.persistence;
 
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import com.ghostchu.quickshop.addon.exchange.operations.AuditAlert;
+import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector.OrderActivity;
+import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector.TradeActivity;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
+import com.ghostchu.quickshop.addon.exchange.service.ExchangeServiceFixture;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
+import com.ghostchu.quickshop.addon.exchange.service.OrderReceipt;
+import com.ghostchu.quickshop.addon.exchange.service.OrderRequest;
+import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -76,5 +83,23 @@ class JdbcAuditRepositoryTest {
     assertThat(repository.openAlerts(20)).isEmpty();
     assertThat(repository.recentAlerts(20)).extracting(AuditAlert::acknowledgedAt)
         .containsExactly(at.plusSeconds(10), at);
+  }
+
+  @Test
+  void readsPlaceAndCancelActivitiesFromRealSql() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID account = fixture.accountWithCurrency("500.00");
+    OrderReceipt receipt = fixture.service().place(new OrderRequest(
+        UUID.randomUUID(), account, fixture.rules().marketId(), OrderSide.BUY, "LIMIT",
+        new BigDecimal("100.00"), null, 2));
+    fixture.service().cancel(account, UUID.randomUUID(), receipt.orderId());
+    Instant since = Instant.ofEpochMilli(0);
+
+    var activities = fixture.repository().orderActivities(since);
+    var trades = fixture.repository().tradesForDetection(since);
+
+    assertThat(activities).hasSize(2).extracting(OrderActivity::kind)
+        .containsExactly(OrderActivity.Kind.PLACE, OrderActivity.Kind.CANCEL);
+    assertThat(trades).isEmpty();
   }
 }
