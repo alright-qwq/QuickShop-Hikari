@@ -4,14 +4,14 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `701b7319e`
+- Current HEAD: `4b6dc20d8`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
   be retried with `git -c http.version=HTTP/1.1 push origin codex/exchange-order-book` — never
   change the remote URL.
 - Build: `export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home`
-- Verify: `mvn -pl addon/exchange -am test -q` then `git diff --check`; last full run 404/404 green.
+- Verify: `mvn -pl addon/exchange -am test -q` then `git diff --check`; last full run 407/407 green.
 
 ## What shipped since the last handoff (after 2026-07-28)
 
@@ -51,6 +51,31 @@ Since the last update:
 - Open orders now show the frozen funds (buy) or frozen quantity (sell) on each order row,
   making it clear how much of the player's balance is reserved while the order is live.
 
+## This iteration (2026-08-27, autonomous)
+
+- Fixed a latent clean-build failure: `addon/exchange` used TNML/TNIL classes without
+  declaring them; added `TNML-CORE`/`TNIL-Core` dependencies and CodeMC/tcoded
+  repositories so a fresh `mvn test` compiles instead of relying on stale incremental
+  classes. The earlier `serviceWithMarketData` visibility error was package-private
+  access from a `ui`-package test; the fixture method is now `public`.
+- Dashboard/overview/market-list 24h notional consistently rounded to two decimals,
+  with an end-to-end test (real matching -> market data -> dashboard/overview).
+- Market list icons distinguish virtual securities (emerald), item markets (chest) and
+  non-open markets (barrier); 24h change lines are green/red/yellow on list and detail.
+- My Orders page shows a "no open orders" empty state (en/zh).
+- Trade history now shows the exact fee the player paid ("my fee"): the repository
+  resolves the taker account via LEFT JOIN to orders, and the view attributes maker fee
+  to the resting account and taker fee to the aggressive account. Combined both-party
+  fee is still shown. (408b3b8cd)
+- Market list is paginated (36 per page) with previous/next/page indicator; sorting by
+  change or last price is null-safe for freshly listed markets with no trades. (67d96976c)
+- Market detail no longer NPEs on a no-trade market (24h change shows "-"); market trade
+  history guards missing market id and null last price. (4b6dc20d8)
+- Order confirm now tells the player whether a limit order will match immediately or
+  rest on the book, based on the current quote (en/zh). (4b6dc20d8)
+
+Full exchange test suite: 407 tests, 0 failures.
+
 ## Architecture notes
 
 - `SecurityService` performs audited, idempotent lifecycle mutations inside one repository
@@ -64,6 +89,7 @@ Since the last update:
 
 ## Next iteration candidates (user-granted autonomy)
 
+0. Push any remaining worktree state; verify remote has no newer commits before starting.
 1. Physical item market parity: verify `ItemAssetCustody` and `SecurityAssetCustody` behaviors
    stay consistent for deposits/withdrawals, minimum units, and reconciliation.
 2. Reconsider maker/taker fee display in history: currently the total trade fees shown are both

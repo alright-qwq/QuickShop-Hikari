@@ -94,7 +94,7 @@ final class AssetsPage {
         securityLore.add(messages.component(player, "ui-assets-market-value",
             marketValue.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()));
       }
-      IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
+      IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("EMERALD", 1)
           .customName(Component.text(security.displayName())).lore(securityLore));
       icon.withActions(new RunnableAction(click -> {
         Player online = Bukkit.getPlayer(playerId);
