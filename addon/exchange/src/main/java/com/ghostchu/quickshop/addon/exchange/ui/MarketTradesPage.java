@@ -41,21 +41,27 @@ final class MarketTradesPage {
       return;
     }
     int offset = Math.max(0, opened.page() - 1) * PAGE_SIZE;
-    views.marketTradePage(opened.marketId(), PAGE_SIZE, offset).whenComplete((trades, failure) -> {
+    java.util.concurrent.CompletableFuture<MarketRow> header =
+        views.marketRow(opened.marketId());
+    views.marketTradePage(opened.marketId(), PAGE_SIZE, offset)
+        .thenCombine(header.handle((row, rowFailure) -> row), (trades, row) -> new PageData(trades, row))
+        .whenComplete((data, failure) -> {
       if (!contexts.isCurrent(playerId, opened)) return;
       Player online = Bukkit.getPlayer(playerId);
       if (online == null || !online.isOnline()) return;
       QuickShop.folia().getScheduler().runAtEntityLater(online,
           () -> {
             if (ExchangePageRenderGuard.permits(contexts, playerId, opened, online::isOnline)) {
-              render(page, online, opened, trades, failure);
+              render(page, online, opened, data == null ? List.of() : data.trades(),
+                  failure, data == null ? null : data.row());
             }
           }, 1L);
-    });
+        });
   }
 
   private void render(PlayerInstancePage page, Player player, ExchangeMenuRequest opened,
-                      List<ExchangeRepository.MarketTradeRow> trades, Throwable failure) {
+                      List<ExchangeRepository.MarketTradeRow> trades, Throwable failure,
+                      MarketRow header) {
     UUID playerId = player.getUniqueId();
     page.getIcons(playerId).clear();
     page.setLockEmptySlots(true);
@@ -66,8 +72,16 @@ final class MarketTradesPage {
     }
     String title = messages.text(player, "ui-market-trades-page-title",
         views.marketDisplayName(opened.marketId()));
+    java.util.ArrayList<Component> headerLore = new java.util.ArrayList<>();
+    if (header != null) {
+      headerLore.add(messages.component(player, "ui-market-trades-header-last",
+          header.lastPrice().toPlainString()));
+      String bid = header.bestBid() == null ? "-" : header.bestBid().toPlainString();
+      String ask = header.bestAsk() == null ? "-" : header.bestAsk().toPlainString();
+      headerLore.add(messages.component(player, "ui-market-trades-header-bid-ask", bid, ask));
+    }
     page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
-        .customName(Component.text(title))).withSlot(4).build());
+        .customName(Component.text(title)).lore(headerLore)).withSlot(4).build());
     addNavigation(page, player, 0, "COMPASS", "ui-nav-markets", ExchangeMenuPage.MARKETS);
     addNavigation(page, player, 2, "PAPER", "ui-market-back-detail", ExchangeMenuPage.MARKET_DETAIL);
     if (trades.isEmpty()) {
@@ -131,4 +145,6 @@ final class MarketTradesPage {
           }
         })).withSlot(slot).build());
   }
+
+  private record PageData(List<ExchangeRepository.MarketTradeRow> trades, MarketRow row) {}
 }

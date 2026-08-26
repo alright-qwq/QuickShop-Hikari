@@ -58,6 +58,8 @@ en-US:
   ui-market-recent-more: View full trade history
   ui-market-trades-page-title: '<0> trade history'
   ui-market-back-detail: Back to market
+  ui-market-trades-header-last: 'Last: <0>'
+  ui-market-trades-header-bid-ask: 'Bid / Ask: <0> / <1>'
   ui-nav-markets: Markets
   ui-nav-assets: Assets
   ui-nav-orders: My orders
@@ -229,6 +231,8 @@ zh-CN:
   ui-market-recent-more: 查看完整成交历史
   ui-market-trades-page-title: '<0> 成交历史'
   ui-market-back-detail: 返回市场
+  ui-market-trades-header-last: '最新价：<0>'
+  ui-market-trades-header-bid-ask: '买一 / 卖一：<0> / <1>'
   ui-nav-markets: 市场列表
   ui-nav-assets: 我的资产
   ui-nav-orders: 我的订单
