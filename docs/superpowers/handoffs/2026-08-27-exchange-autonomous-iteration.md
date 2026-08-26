@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `0c8f0a277`
+- Current HEAD: `ee847348f`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -37,6 +37,10 @@ Virtual concept stocks (`asset-type: VIRTUAL_SECURITY`) are fully playable:
   navigation preserving the market id.
 - 24h trade summary counts only directional trades, keeping the trade count
   consistent with the aggressive buy/sell breakdown.
+- Market list NOTIONAL sort now compares 24h notional (was volume), and the
+  list lore shows 24h turnover.
+- Open orders show the current last price next to each order.
+- Recent and history trades show notional value (price x quantity).
 
 Full exchange test suite: 403 tests, 0 failures.
 
