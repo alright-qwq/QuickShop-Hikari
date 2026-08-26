@@ -4,14 +4,14 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `4b6dc20d8`
+- Current HEAD: `f591a58a6`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
   be retried with `git -c http.version=HTTP/1.1 push origin codex/exchange-order-book` — never
   change the remote URL.
 - Build: `export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home`
-- Verify: `mvn -pl addon/exchange -am test -q` then `git diff --check`; last full run 407/407 green.
+- Verify: `mvn -pl addon/exchange -am test -q` then `git diff --check`; last full run 415/415 green.
 
 ## What shipped since the last handoff (after 2026-07-28)
 
@@ -75,6 +75,27 @@ Since the last update:
   rest on the book, based on the current quote (en/zh). (4b6dc20d8)
 
 Full exchange test suite: 407 tests, 0 failures.
+
+## Continuation (same day, autonomous)
+
+- Accurate next-page detection for My Orders and Market Trade History: request
+  PAGE_SIZE+1 rows and slice on render, so an exactly-full last page no longer shows
+  a phantom next-page button. (047e93a7f)
+- Order confirm shows the currency frozen on submit for buy orders (before fees);
+  market list/detail show float market cap for virtual securities. (cf47a514d)
+- Assets overview shows the total frozen currency next to portfolio value. (774be6db5)
+- Virtual-stock settlement rollback is now covered for every settlement stage:
+  security balances, security ledger and item journals all return to the exact
+  pre-trade state and the market enters recovery. (73924d83f)
+- New SQLite repository test proves the accountTrades orders JOIN resolves the taker
+  account and attributes maker/taker fees correctly on real SQL. (711c8a817)
+- Order-entry icons on virtual markets remind players the asset settles as a ledger
+  balance, not a Minecraft item. (03330148c)
+- Market list/detail render no-trade markets (null last price) with '-' instead of
+  NPE; overview sort comparators are null-safe for change/notional. (f591a58a6)
+- Player guide `docs/virtual-concept-stocks.md` synced with all of the above.
+
+Full exchange test suite: 415 tests, 0 failures.
 
 ## Architecture notes
 
