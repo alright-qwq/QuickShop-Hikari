@@ -99,7 +99,8 @@ final class MarketDetailPage {
         : dashboard.spreadPercent().multiply(java.math.BigDecimal.valueOf(100)).stripTrailingZeros()
             .toPlainString() + "%";
     java.util.ArrayList<Component> lore = new java.util.ArrayList<>(List.of(
-        messages.component(player, "ui-market-last", row.lastPrice().toPlainString()),
+        messages.component(player, "ui-market-last", row.lastPrice() == null ? "-"
+            : row.lastPrice().toPlainString()),
         messages.component(player, "ui-market-bid", bid),
         messages.component(player, "ui-market-ask", ask),
         messages.component(player, "ui-market-spread", spread, spreadPercent),

@@ -97,7 +97,8 @@ final class MarketListPage {
       String bid = row.bestBid() == null ? "-" : row.bestBid().toPlainString();
       String ask = row.bestAsk() == null ? "-" : row.bestAsk().toPlainString();
       List<Component> lore = new ArrayList<>(List.of(
-          messages.component(player, "ui-market-last", row.lastPrice().toPlainString()),
+          messages.component(player, "ui-market-last", row.lastPrice() == null ? "-"
+              : row.lastPrice().toPlainString()),
           messages.component(player, "ui-market-bid-ask", bid, ask),
           messages.component(player, "ui-market-volume", row.volume24h()),
           messages.component(player, "ui-market-list-notional",
