@@ -8,6 +8,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import com.ghostchu.quickshop.menu.shared.GuiChatInputManager;
 import java.util.List;
+import java.time.Duration;
 import java.util.UUID;
 import java.util.function.Function;
 import net.kyori.adventure.text.Component;
@@ -22,12 +23,20 @@ import org.bukkit.entity.Player;
 
 /** Displays a selected quote and exposes permission-gated limit and protected market entry. */
 final class MarketDetailPage {
+  private static final java.util.List<Duration> TIMEFRAMES = List.of(
+      Duration.ofMinutes(9), Duration.ofMinutes(135), Duration.ofHours(9),
+      Duration.ofHours(36));
+  private static final java.util.List<String> TIMEFRAME_KEYS = List.of(
+      "ui-trend-timeframe-1m", "ui-trend-timeframe-15m", "ui-trend-timeframe-1h",
+      "ui-trend-timeframe-4h");
+
   private final ExchangeViewService views;
   private final ExchangeMenuContextStore contexts;
   private final OrderEntryPrompt prompts;
   private final OrderEntryAccess access;
   private final ExchangeUiMessages messages;
   private final MarketDashboardPresenter presenter = new MarketDashboardPresenter();
+  private final java.util.Map<UUID, Duration> timeframes = new java.util.concurrent.ConcurrentHashMap<>();
 
   MarketDetailPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
                    RolloutPolicy rollout, AddonMessageService messages) {
@@ -59,7 +68,8 @@ final class MarketDetailPage {
 
   private void refresh(PlayerInstancePage page, Player player, ExchangeMenuRequest request) {
     UUID playerId = player.getUniqueId();
-    views.marketDashboard(request.marketId()).whenComplete((dashboard, failure) -> {
+    Duration window = timeframes.getOrDefault(playerId, TIMEFRAMES.getFirst());
+    views.marketDashboard(request.marketId(), window).whenComplete((dashboard, failure) -> {
       if (!ExchangePageRenderGuard.permits(contexts, playerId, request, player::isOnline)) return;
       QuickShop.folia().getScheduler().runAtEntityLater(player,
           () -> {
@@ -121,7 +131,10 @@ final class MarketDetailPage {
     addNavigation(page, player, 0, "COMPASS", "ui-nav-markets", ExchangeMenuPage.MARKETS);
     addNavigation(page, player, 1, "CHEST", "ui-nav-assets", ExchangeMenuPage.ASSETS);
     addNavigation(page, player, 2, "WRITABLE_BOOK", "ui-nav-orders", ExchangeMenuPage.ORDERS);
-    MarketDashboardPresenter.DashboardRows rows = presenter.present(dashboard);
+    addTimeframeControl(page, player,
+        contexts.get(playerId).orElse(null));
+    Duration window = timeframes.getOrDefault(playerId, TIMEFRAMES.getFirst());
+    MarketDashboardPresenter.DashboardRows rows = presenter.present(dashboard, window);
     renderDepth(page, player, rows);
     renderCandles(page, player, rows);
     addOrderIcon(page, player, row, OrderSide.BUY, OrderType.LIMIT, "LIME_CONCRETE", 29,
@@ -132,6 +145,23 @@ final class MarketDetailPage {
         "ui-order-market-buy", ActionType.LEFT_CLICK);
     addOrderIcon(page, player, row, OrderSide.SELL, OrderType.MARKET, "ORANGE_CONCRETE", 42,
         "ui-order-market-sell", ActionType.LEFT_CLICK);
+  }
+
+  private void addTimeframeControl(PlayerInstancePage page, Player player,
+                                   ExchangeMenuRequest request) {
+    if (request == null) {
+      return;
+    }
+    UUID playerId = player.getUniqueId();
+    Duration current = timeframes.getOrDefault(playerId, TIMEFRAMES.getFirst());
+    int index = Math.max(0, TIMEFRAMES.indexOf(current));
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("CLOCK", 1)
+        .customName(messages.component(player, TIMEFRAME_KEYS.get(index))))
+        .withActions(new RunnableAction(click -> {
+          int next = (index + 1) % TIMEFRAMES.size();
+          timeframes.put(playerId, TIMEFRAMES.get(next));
+          refresh(page, player, request);
+        })).withSlot(16).build());
   }
 
   private void renderDepth(PlayerInstancePage page, Player player,

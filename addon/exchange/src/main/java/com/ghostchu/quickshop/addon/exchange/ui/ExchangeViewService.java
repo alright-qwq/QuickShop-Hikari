@@ -143,7 +143,14 @@ public final class ExchangeViewService {
   }
 
   public CompletableFuture<MarketDashboardSnapshot> marketDashboard(String marketId) {
+    return marketDashboard(marketId, Duration.ofMinutes(9));
+  }
+
+  public CompletableFuture<MarketDashboardSnapshot> marketDashboard(
+      String marketId, Duration candleWindow) {
     MarketView market = requiredMarket(marketId);
+    Duration window = candleWindow == null || candleWindow.isZero() || candleWindow.isNegative()
+        ? Duration.ofMinutes(9) : candleWindow;
     return CompletableFuture.supplyAsync(() -> {
       try {
         PersistentOrderService.MarketBookSnapshot book = market.service()
@@ -155,7 +162,7 @@ public final class ExchangeViewService {
             market.totalSupply(), market.securityStatus().get()))).getFirst();
         Instant asOf = book.asOf();
         List<com.ghostchu.quickshop.addon.exchange.marketdata.Candle> candles =
-            marketData.recentCandles(marketId, asOf.minus(Duration.ofMinutes(9)),
+            marketData.recentCandles(marketId, asOf.minus(window),
                 asOf.plusSeconds(60));
         BigDecimal spread = spread(quote.bestBid(), quote.bestAsk());
         return new MarketDashboardSnapshot(row, candles, book.bids(), book.asks(), spread,

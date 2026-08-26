@@ -67,6 +67,10 @@ en-US:
   ui-trend-down: Down
   ui-trend-flat: Flat
   ui-trend-empty: No recent trade
+  ui-trend-timeframe-1m: 'Chart: 1m candles (9 min)'
+  ui-trend-timeframe-15m: 'Chart: 15m candles (2h15m)'
+  ui-trend-timeframe-1h: 'Chart: 1h candles (9h)'
+  ui-trend-timeframe-4h: 'Chart: 4h candles (36h)'
   ui-trend-time: 'Bucket: <0>'
   ui-trend-open: 'Open: <0>'
   ui-trend-high: 'High: <0>'
@@ -199,6 +203,10 @@ zh-CN:
   ui-trend-down: 下跌
   ui-trend-flat: 平盘
   ui-trend-empty: 暂无最近成交
+  ui-trend-timeframe-1m: '图表：1 分钟 K 线（9 分钟）'
+  ui-trend-timeframe-15m: '图表：15 分钟 K 线（2 小时 15 分）'
+  ui-trend-timeframe-1h: '图表：1 小时 K 线（9 小时）'
+  ui-trend-timeframe-4h: '图表：4 小时 K 线（36 小时）'
   ui-trend-time: '时间桶：<0>'
   ui-trend-open: '开盘：<0>'
   ui-trend-high: '最高：<0>'

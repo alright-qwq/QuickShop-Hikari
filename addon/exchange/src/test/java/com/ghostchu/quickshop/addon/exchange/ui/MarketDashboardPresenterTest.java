@@ -6,6 +6,7 @@ import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -73,6 +74,34 @@ class MarketDashboardPresenterTest {
         .containsExactly(MarketDashboardPresenter.CandleDirection.UP,
             MarketDashboardPresenter.CandleDirection.DOWN);
     assertThat(rows.candles().get(7).candle().bucketStart()).isEqualTo(first.bucketStart());
+  }
+
+  @Test
+  void aggregatesCandlesIntoTheSelectedTimeframe() {
+    List<Candle> minutes = new java.util.ArrayList<>();
+    for (int minute = 0; minute < 9; minute++) {
+      BigDecimal open = new BigDecimal(100 + minute);
+      BigDecimal high = open.add(BigDecimal.ONE);
+      BigDecimal low = open.subtract(BigDecimal.ONE);
+      BigDecimal close = open.add(new BigDecimal("0.5"));
+      minutes.add(new Candle("diamond-usd",
+          Instant.parse("2026-08-26T00:00:00Z").plusSeconds(minute * 60L),
+          open, high, low, close, minute + 1,
+          close.multiply(BigDecimal.valueOf(minute + 1))));
+    }
+    MarketDashboardSnapshot snapshot = new MarketDashboardSnapshot(row("diamond-usd", "0", 7),
+        minutes,
+        List.of(), List.of(), null, null);
+
+    MarketDashboardPresenter.DashboardRows rows = presenter.present(snapshot, Duration.ofMinutes(3));
+
+    assertThat(rows.candles()).hasSize(9);
+    assertThat(rows.candles().stream().filter(row -> !row.empty())).hasSize(3);
+    Candle bucket = rows.candles().stream().filter(row -> !row.empty())
+        .map(MarketDashboardPresenter.CandleRow::candle).toList().get(2);
+    assertThat(bucket.high()).isEqualByComparingTo("109");
+    assertThat(bucket.low()).isEqualByComparingTo("105");
+    assertThat(bucket.volume()).isEqualTo(24);
   }
 
   @Test

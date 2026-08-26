@@ -1,7 +1,9 @@
 package com.ghostchu.quickshop.addon.exchange.ui;
 
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
+import com.ghostchu.quickshop.addon.exchange.marketdata.CandleSeries;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
+import java.time.Duration;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -15,9 +17,17 @@ public final class MarketDashboardPresenter {
   static final int MAX_STRENGTH = 8;
 
   public DashboardRows present(MarketDashboardSnapshot snapshot) {
+    return present(snapshot, Duration.ofMinutes(1));
+  }
+
+  public DashboardRows present(MarketDashboardSnapshot snapshot, Duration timeframe) {
     Objects.requireNonNull(snapshot, "snapshot");
+    Objects.requireNonNull(timeframe, "timeframe");
+    List<Candle> candles = timeframe.getSeconds() <= 60
+        ? snapshot.recentCandles()
+        : CandleSeries.aggregate(snapshot.recentCandles(), timeframe);
     return new DashboardRows(depthRows(snapshot.bids(), Comparator.reverseOrder()),
-        depthRows(snapshot.asks(), Comparator.naturalOrder()), candleRows(snapshot.recentCandles()));
+        depthRows(snapshot.asks(), Comparator.naturalOrder()), candleRows(candles));
   }
 
   private static List<DepthRow> depthRows(List<MarketDataService.DepthLevel> levels,
