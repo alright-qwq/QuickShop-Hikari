@@ -102,6 +102,12 @@ final class MarketListPage {
       if (row.totalSupply() != null) {
         lore.add(messages.component(player, "ui-market-total-supply", row.totalSupply()));
       }
+      if (row.issuedSupply() != null) {
+        lore.add(messages.component(player, "ui-market-issued-supply",
+            row.issuedSupply(), row.totalSupply()));
+      }
+      lore.add(messages.component(player, "ui-market-change-percent",
+          percent(row.change24h())));
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
           .customName(net.kyori.adventure.text.Component.text(row.displayName()))
           .lore(lore))
