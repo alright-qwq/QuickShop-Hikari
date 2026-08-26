@@ -324,7 +324,7 @@ public final class JdbcExchangeRepository
     Objects.requireNonNull(marketId, "marketId");
     Objects.requireNonNull(sinceInclusive, "sinceInclusive");
     try (Connection connection = connections.open(); PreparedStatement select = connection.prepareStatement(
-        "SELECT COUNT(*) AS trade_count, "
+        "SELECT COUNT(o.side) AS trade_count, "
             + "COALESCE(SUM(CASE WHEN o.side='BUY' THEN 1 ELSE 0 END),0) AS buy_count, "
             + "COALESCE(SUM(CASE WHEN o.side='SELL' THEN 1 ELSE 0 END),0) AS sell_count, "
             + "COALESCE(SUM(t.quantity),0) AS volume FROM " + tables.trades()
