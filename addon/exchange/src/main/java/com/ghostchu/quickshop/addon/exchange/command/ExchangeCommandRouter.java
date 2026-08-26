@@ -308,6 +308,10 @@ public final class ExchangeCommandRouter {
       case "stock" -> args.length == 2 ? prefixMatches(symbolCandidates.get(), args[1]) : List.of();
       case "deposit", "withdraw" -> args.length == 2 ? List.of("money", "item") : List.of();
       case "admin" -> args.length == 2 ? List.of("market", "order", "transfer", "audit", "stock")
+          : args.length == 3 && "audit".equalsIgnoreCase(args[1])
+              ? List.of("status", "ack", "reconcile", "export")
+          : args.length == 4 && "audit".equalsIgnoreCase(args[1])
+              && "ack".equalsIgnoreCase(args[2]) ? List.of("<alertId>")
           : args.length == 3 && "transfer".equalsIgnoreCase(args[1]) ? List.of("review")
           : args.length == 4 && "transfer".equalsIgnoreCase(args[1])
               && "review".equalsIgnoreCase(args[2]) ? List.of("list", "show", "resolve")

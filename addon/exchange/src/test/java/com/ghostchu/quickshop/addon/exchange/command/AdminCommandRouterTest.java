@@ -148,6 +148,38 @@ class AdminCommandRouterTest {
   }
 
   @Test
+  void highlightsOpenAlertsInAuditStatus() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    fixture.repository().insertAuditAlert(
+        new com.ghostchu.quickshop.addon.exchange.operations.AuditAlert(UUID.randomUUID(),
+            fixture.rules().marketId(), null, "HIGH_CANCEL_PLACE_RATIO", "MEDIUM",
+            "ratio=1.0", Instant.now(), null));
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()), UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.audit");
+
+    router.execute(actor, new String[] {"audit", "status"});
+
+    assertThat(actor.message).isEqualTo("admin-audit-status");
+    assertThat(actor.arguments).singleElement().asString()
+        .contains("open-alerts=1", "§c");
+  }
+
+  @Test
+  void reportsNoOpenAlertsWithoutHighlightInAuditStatus() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()), UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.audit");
+
+    router.execute(actor, new String[] {"audit", "status"});
+
+    assertThat(actor.message).isEqualTo("admin-audit-status");
+    assertThat(actor.arguments).singleElement().asString()
+        .contains("open-alerts=0").doesNotContain("§c");
+  }
+
+  @Test
   void deniesAuditStatusWithoutTheDedicatedPermission() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(

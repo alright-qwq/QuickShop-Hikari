@@ -232,8 +232,12 @@ public final class AdminCommandRouter {
             .collect(java.util.stream.Collectors.joining(" | "));
     long openAlerts = status.recentAlerts().stream()
         .filter(alert -> alert.acknowledgedAt() == null).count();
-    return "markets=" + metrics + "\nalerts=" + alerts + "\npending-reviews="
-        + status.pendingTransferReviews().size() + "\nopen-alerts=" + openAlerts;
+    String pending = "pending-reviews=" + status.pendingTransferReviews().size();
+    String open = "open-alerts=" + openAlerts;
+    if (openAlerts > 0) {
+      open = "§c⚠ " + open + " §r";
+    }
+    return "markets=" + metrics + "\nalerts=" + alerts + "\n" + pending + "\n" + open;
   }
 
   private void executeReconciliation(CommandActor actor) {

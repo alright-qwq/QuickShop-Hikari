@@ -165,6 +165,20 @@ class ExchangeCommandRouterTest {
     assertThat(actor.opened.menuName()).isEqualTo("admin");
   }
 
+  @Test
+  void tabCompletesAuditSubcommandsUnderAdmin() {
+    ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID);
+
+    assertThat(router.tabComplete(new Actor("quickshop.exchange.admin.audit"),
+        new String[] {"admin", "audit", "a"})).containsExactlyInAnyOrder(
+            "status", "ack", "reconcile", "export");
+    assertThat(router.tabComplete(new Actor("quickshop.exchange.admin.audit"),
+        new String[] {"admin", "audit", ""})).containsExactlyInAnyOrder(
+            "status", "ack", "reconcile", "export");
+    assertThat(router.tabComplete(new Actor("quickshop.exchange.admin.audit"),
+        new String[] {"admin", "audit", "ack", ""})).containsExactly("<alertId>");
+  }
+
   private static final class Actor implements CommandActor {
     private final Set<String> permissions = new HashSet<>();
     private final UUID accountId = UUID.randomUUID();

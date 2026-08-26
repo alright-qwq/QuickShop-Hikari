@@ -77,7 +77,11 @@ public final class MarketDataService {
     auditConsumers.remove(Objects.requireNonNull(consumer, "consumer"));
   }
 
-  /** Registers one player's view refresh callback. The runtime invokes {@link #publishPlayerUpdates()} every 20 ticks. */
+  /**
+   * Registers one player's view refresh callback; a second call for the same player replaces the
+   * previous callback because each player has at most one active view. The runtime invokes
+   * {@link #publishPlayerUpdates()} every 20 ticks.
+   */
   public void subscribePlayer(UUID playerId, Consumer<PlayerUpdate> consumer) {
     playerConsumers.put(Objects.requireNonNull(playerId, "playerId"),
         Objects.requireNonNull(consumer, "consumer"));
