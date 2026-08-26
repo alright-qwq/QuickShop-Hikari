@@ -15,10 +15,13 @@ import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -266,6 +269,116 @@ class VirtualSecuritySettlementTest {
     com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState definition =
         repository.inTransaction(tx -> tx.securityDefinition(rules.marketId()));
     assertThat(definition.status()).isEqualTo("CLOSED");
+  }
+
+  @ParameterizedTest
+  @EnumSource(SettlementStage.class)
+  void rollsBackSecurityBalancesAndLedgersOnEverySettlementStage(SettlementStage failingStage)
+      throws Exception {
+    ConnectionProvider connections = SqliteTestDatabase.at(
+        temp.resolve("virtual-fail-" + failingStage.name() + ".db"));
+    TableNames tables = new TableNames("qs_");
+    new MigrationRunner(connections, SqlDialect.SQLITE, tables).migrate();
+    MarketRules rules = new MarketRules("concept_alpha", "USD", new BigDecimal("10.00"),
+        new BigDecimal("1.00"), new BigDecimal("100.00"), new BigDecimal("0.01"),
+        1, 10000, 2, new BigDecimal("0.001"), new BigDecimal("0.002"));
+    JdbcExchangeRepository repository =
+        new JdbcExchangeRepository(connections, SqlDialect.SQLITE, tables);
+    seedMarket(connections, tables, rules);
+    seedSecurity(connections, tables, rules.marketId());
+    UUID seller = UUID.randomUUID();
+    UUID buyer = UUID.randomUUID();
+    repository.inTransaction(tx -> {
+      tx.creditAvailableSecurity(seller, rules.marketId(), 100);
+      tx.creditAvailableCurrency(buyer, rules.currencyId(), new BigDecimal("1000.00"));
+      return null;
+    });
+    PersistentOrderService service = new PersistentOrderService(
+        repository, rules, com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP, SettlementObserver.NONE,
+        new com.ghostchu.quickshop.addon.exchange.core.model.TimeOrderedIdGenerator(
+            System::currentTimeMillis, new java.util.Random()), java.time.Instant::now,
+        com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits.defaults(),
+        null, new SecurityAssetCustody(1));
+    service.place(new OrderRequest(UUID.randomUUID(), seller,
+        "concept_alpha", OrderSide.SELL, "LIMIT", new BigDecimal("10.00"), null, 10));
+
+    SecuritySnapshot before = snapshot(connections, tables, seller, buyer, rules.marketId());
+
+    java.util.concurrent.atomic.AtomicInteger recoveryCalls = new java.util.concurrent.atomic.AtomicInteger();
+    PersistentOrderService failing = new PersistentOrderService(
+        repository, rules, com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        (marketId, failure) -> recoveryCalls.incrementAndGet(), new SettlementObserver() {
+          @Override
+          public void reached(SettlementStage stage) {
+            if (stage == failingStage) {
+              throw new InjectedFailure(stage.name());
+            }
+          }
+        },
+        new com.ghostchu.quickshop.addon.exchange.core.model.TimeOrderedIdGenerator(
+            System::currentTimeMillis, new java.util.Random()), java.time.Instant::now,
+        com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits.defaults(),
+        null, new SecurityAssetCustody(1));
+
+    assertThatThrownBy(() -> failing.place(new OrderRequest(UUID.randomUUID(), buyer,
+        "concept_alpha", OrderSide.BUY, "LIMIT", new BigDecimal("10.00"), null, 10)))
+        .isInstanceOf(InjectedFailure.class)
+        .hasMessage(failingStage.name());
+
+    SecuritySnapshot after = snapshot(connections, tables, seller, buyer, rules.marketId());
+    assertThat(after).isEqualTo(before);
+    assertThat(recoveryCalls).hasValue(1);
+  }
+
+  private record SecuritySnapshot(long sellerAvailable, long sellerFrozen,
+                                  long buyerAvailable, long buyerFrozen,
+                                  long securityLedgerRows, long itemLedgerRows) {}
+
+  private static SecuritySnapshot snapshot(ConnectionProvider connections, TableNames tables,
+                                           UUID seller, UUID buyer, String marketId)
+      throws Exception {
+    try (Connection connection = connections.open()) {
+      long sellerAvailable = 0;
+      long sellerFrozen = 0;
+      long buyerAvailable = 0;
+      long buyerFrozen = 0;
+      try (PreparedStatement balance = connection.prepareStatement(
+          "SELECT available,frozen FROM " + tables.securityBalances()
+              + " WHERE market_id=? AND owner_id=?")) {
+        balance.setString(1, marketId);
+        balance.setString(2, seller.toString());
+        try (ResultSet result = balance.executeQuery()) {
+          if (result.next()) {
+            sellerAvailable = result.getLong("available");
+            sellerFrozen = result.getLong("frozen");
+          }
+        }
+        balance.setString(2, buyer.toString());
+        try (ResultSet result = balance.executeQuery()) {
+          if (result.next()) {
+            buyerAvailable = result.getLong("available");
+            buyerFrozen = result.getLong("frozen");
+          }
+        }
+      }
+      long securityLedgerRows;
+      long itemLedgerRows;
+      try (Statement statement = connection.createStatement()) {
+        try (ResultSet result = statement.executeQuery(
+            "SELECT COUNT(*) AS count FROM " + tables.securityLedger())) {
+          result.next();
+          securityLedgerRows = result.getLong("count");
+        }
+        try (ResultSet result = statement.executeQuery(
+            "SELECT COUNT(*) AS count FROM " + tables.journals())) {
+          result.next();
+          itemLedgerRows = result.getLong("count");
+        }
+      }
+      return new SecuritySnapshot(sellerAvailable, sellerFrozen, buyerAvailable, buyerFrozen,
+          securityLedgerRows, itemLedgerRows);
+    }
   }
 
   private static void seedMarket(ConnectionProvider connections, TableNames tables,
