@@ -105,6 +105,10 @@ public final class SchemaV1 {
             "account_id,status,updated_at"),
         new IndexDefinition(t.prefix() + "exchange_trades_time_idx", t.trades(),
             "market_id,executed_at"),
+        new IndexDefinition(t.prefix() + "exchange_trades_buyer_idx", t.trades(),
+            "buyer_account_id,executed_at"),
+        new IndexDefinition(t.prefix() + "exchange_trades_seller_idx", t.trades(),
+            "seller_account_id,executed_at"),
         new IndexDefinition(t.prefix() + "exchange_audit_alerts_time_idx", t.auditAlerts(),
             "created_at,acknowledged_at"));
   }
