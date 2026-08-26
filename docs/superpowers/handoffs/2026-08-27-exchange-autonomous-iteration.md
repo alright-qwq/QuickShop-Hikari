@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `60a153e12`
+- Current HEAD: `5a077dbf1`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -315,6 +315,15 @@ Full exchange test suite: 416 tests, 0 failures.
   callback rather than stacking refreshes).
 
 Full exchange test suite: 441 tests, 0 failures.
+
+## Twenty-second continuation (same day)
+
+- Fixed a real admin-menu gate bug: `quickshop.exchange.admin.stock` was missing from
+  `hasAnyAdminPermission`, so an operator holding only stock control got
+  permission-denied on `/qse admin` even though the page has a stock icon. Stock-only
+  admins can now open the menu; a plain player still gets permission-denied. (`5a077dbf1`)
+
+Full exchange test suite: 443 tests, 0 failures.
 
 ## Next iteration candidates (user-granted autonomy)
 
