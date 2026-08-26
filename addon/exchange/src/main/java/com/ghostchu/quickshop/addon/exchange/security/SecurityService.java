@@ -1,7 +1,9 @@
 package com.ghostchu.quickshop.addon.exchange.security;
 
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
 import com.ghostchu.quickshop.addon.exchange.repository.SecurityAuditRecord;
 import com.ghostchu.quickshop.addon.exchange.repository.SecurityBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState;
@@ -141,8 +143,13 @@ public final class SecurityService {
       if (!tx.openOrders(marketId).isEmpty()) {
         throw new IllegalStateException("security close requires no open orders");
       }
+      MarketState state = tx.marketState(marketId);
       recoverOutstanding(tx, definition, recoveryAccount, requestId, actorId,
           normalizedReason, now);
+      tx.updateMarketState(new MarketState(marketId, MarketStatus.CLOSED,
+          state.prioritySequence(), state.matchSequence(), state.referencePrice(),
+          state.lastPrice(), state.haltedUntil(), state.discoveryQuantity(),
+          state.circuitBreakerLevel(), state.version() + 1), state.version());
       SecurityDefinitionState closed = new SecurityDefinitionState(
           definition.marketId(), definition.symbol(), definition.name(),
           definition.description(), definition.currencyId(), definition.basePrice(),
@@ -172,6 +179,18 @@ public final class SecurityService {
       }
       SecurityDefinitionState definition = tx.securityDefinition(marketId);
       requireStatusTransition(definition.status(), target, allowedFrom);
+      MarketState state = tx.marketState(marketId);
+      if (target == SecurityStatus.PAUSED) {
+        tx.updateMarketState(new MarketState(marketId, MarketStatus.PAUSED,
+            state.prioritySequence(), state.matchSequence(), state.referencePrice(),
+            state.lastPrice(), state.haltedUntil(), state.discoveryQuantity(),
+            state.circuitBreakerLevel(), state.version() + 1), state.version());
+      } else if (target == SecurityStatus.OPEN && state.status() == MarketStatus.PAUSED) {
+        tx.updateMarketState(new MarketState(marketId, MarketStatus.OPEN,
+            state.prioritySequence(), state.matchSequence(), state.referencePrice(),
+            state.lastPrice(), state.haltedUntil(), state.discoveryQuantity(),
+            state.circuitBreakerLevel(), state.version() + 1), state.version());
+      }
       SecurityDefinitionState updated = new SecurityDefinitionState(
           definition.marketId(), definition.symbol(), definition.name(),
           definition.description(), definition.currencyId(), definition.basePrice(),

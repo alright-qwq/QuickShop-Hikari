@@ -7,6 +7,8 @@ import com.ghostchu.quickshop.addon.exchange.persistence.SqlDialect;
 import com.ghostchu.quickshop.addon.exchange.persistence.SqliteTestDatabase;
 import com.ghostchu.quickshop.addon.exchange.persistence.TableNames;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.repository.SecurityAuditRecord;
 import com.ghostchu.quickshop.addon.exchange.repository.SecurityBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState;
@@ -47,6 +49,10 @@ class SecurityServiceTest {
           + " (market_id,currency_id,item_fingerprint,item_template,structural_payload,"
           + "fee_schedule_payload,risk_payload,structural_version,risk_version,created_at)"
           + " VALUES ('" + marketId + "','default','','','{}','{}','{}',1,1,0)");
+      statement.executeUpdate("INSERT INTO " + tables.marketState()
+          + " (market_id,status,priority_sequence,match_sequence,reference_price,last_price,"
+          + "halted_until,discovery_quantity,circuit_breaker_level,version)"
+          + " VALUES ('" + marketId + "','OPEN',0,0,'10.00',NULL,NULL,0,0,0)");
     }
   }
 
@@ -124,6 +130,9 @@ class SecurityServiceTest {
     service.pause(actor, UUID.randomUUID(), marketId, "temporary halt");
     String paused = repository.inTransaction(tx -> tx.securityDefinition(marketId).status());
     assertThat(paused).isEqualTo("PAUSED");
+    MarketStatus pausedState =
+        repository.inTransaction(tx -> tx.marketState(marketId).status());
+    assertThat(pausedState).isEqualTo(MarketStatus.PAUSED);
     assertThatThrownBy(() -> service.pause(
         actor, UUID.randomUUID(), marketId, "second pause"))
         .isInstanceOf(IllegalStateException.class);
@@ -131,6 +140,9 @@ class SecurityServiceTest {
     service.resume(actor, UUID.randomUUID(), marketId, "resume trading");
     String open = repository.inTransaction(tx -> tx.securityDefinition(marketId).status());
     assertThat(open).isEqualTo("OPEN");
+    MarketStatus resumedState =
+        repository.inTransaction(tx -> tx.marketState(marketId).status());
+    assertThat(resumedState).isEqualTo(MarketStatus.OPEN);
     assertThatThrownBy(() -> service.resume(
         actor, UUID.randomUUID(), marketId, "resume again"))
         .isInstanceOf(IllegalStateException.class);
@@ -180,6 +192,9 @@ class SecurityServiceTest {
     assertThat(recoveryBalance.availableQuantity()).isEqualTo(150);
     String status = repository.inTransaction(tx -> tx.securityDefinition(marketId).status());
     assertThat(status).isEqualTo("CLOSED");
+    MarketStatus closedState =
+        repository.inTransaction(tx -> tx.marketState(marketId).status());
+    assertThat(closedState).isEqualTo(MarketStatus.CLOSED);
 
     assertThatThrownBy(() -> service.issue(
         actor, UUID.randomUUID(), marketId, first, 1, "issue after close"))

@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.command;
 
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.security.SecurityService;
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -53,12 +54,18 @@ class VirtualSecurityCommandTest {
     String paused = fixture.repository.inTransaction(
         tx -> tx.securityDefinition("alpha").status());
     assertThat(paused).isEqualTo("PAUSED");
+    MarketStatus pausedMarket = fixture.repository.inTransaction(
+        tx -> tx.marketState("alpha").status());
+    assertThat(pausedMarket).isEqualTo(MarketStatus.PAUSED);
 
     fixture.router.execute(actor, new String[] {"stock", "resume", "alpha", "resume trading"});
     assertThat(actor.message).isEqualTo("request-accepted");
     String open = fixture.repository.inTransaction(
         tx -> tx.securityDefinition("alpha").status());
     assertThat(open).isEqualTo("OPEN");
+    MarketStatus openMarket = fixture.repository.inTransaction(
+        tx -> tx.marketState("alpha").status());
+    assertThat(openMarket).isEqualTo(MarketStatus.OPEN);
 
     UUID recovery = UUID.randomUUID();
     fixture.router.execute(actor, new String[] {"stock", "close", "alpha", recovery.toString(),
@@ -67,6 +74,9 @@ class VirtualSecurityCommandTest {
     String closed = fixture.repository.inTransaction(
         tx -> tx.securityDefinition("alpha").status());
     assertThat(closed).isEqualTo("CLOSED");
+    MarketStatus closedMarket = fixture.repository.inTransaction(
+        tx -> tx.marketState("alpha").status());
+    assertThat(closedMarket).isEqualTo(MarketStatus.CLOSED);
   }
 
   @Test
@@ -103,6 +113,10 @@ class VirtualSecurityCommandTest {
             + " (market_id,currency_id,item_fingerprint,item_template,structural_payload,"
             + "fee_schedule_payload,risk_payload,structural_version,risk_version,created_at)"
             + " VALUES ('alpha','default','','','{}','{}','{}',1,1,0)");
+        statement.executeUpdate("INSERT INTO " + tables.marketState()
+            + " (market_id,status,priority_sequence,match_sequence,reference_price,last_price,"
+            + "halted_until,discovery_quantity,circuit_breaker_level,version)"
+            + " VALUES ('alpha','OPEN',0,0,'10.00',NULL,NULL,0,0,0)");
       }
       router = new AdminCommandRouter(
           new AdminExchangeService(Map.of(), repository, null, null, new SecurityService(repository)),
