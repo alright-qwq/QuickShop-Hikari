@@ -82,6 +82,11 @@ final class MarketTradesPage {
       String bid = header.bestBid() == null ? "-" : header.bestBid().toPlainString();
       String ask = header.bestAsk() == null ? "-" : header.bestAsk().toPlainString();
       headerLore.add(messages.component(player, "ui-market-trades-header-bid-ask", bid, ask));
+      if (header.change24h() != null) {
+        headerLore.add(messages.component(player, "ui-market-trades-header-change",
+            header.change24h().multiply(java.math.BigDecimal.valueOf(100))
+                .stripTrailingZeros().toPlainString()));
+      }
     }
     page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
         .customName(Component.text(title)).lore(headerLore)).withSlot(4).build());
