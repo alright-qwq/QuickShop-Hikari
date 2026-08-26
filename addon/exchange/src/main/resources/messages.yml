@@ -61,6 +61,7 @@ en-US:
   ui-market-trades-title: '24h trade summary'
   ui-market-recent-trades: Recent trades
   ui-market-recent-trade-title: '<0> trade @ <1>'
+  ui-market-recent-trade-id: 'Trade #<0>'
   ui-market-recent-trade-quantity: 'Quantity: <0>'
   ui-market-recent-trade-notional: 'Value: <0>'
   ui-market-recent-trade-time: 'Time: <0>'
@@ -276,6 +277,7 @@ zh-CN:
   ui-market-trades-title: 24 小时成交统计
   ui-market-recent-trades: 最近成交
   ui-market-recent-trade-title: '<0> 成交 @ <1>'
+  ui-market-recent-trade-id: '成交序号 #<0>'
   ui-market-recent-trade-quantity: '数量：<0>'
   ui-market-recent-trade-notional: '金额：<0>'
   ui-market-recent-trade-time: '时间：<0>'

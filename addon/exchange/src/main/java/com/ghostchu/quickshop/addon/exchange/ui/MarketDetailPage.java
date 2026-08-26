@@ -372,6 +372,7 @@ final class MarketDetailPage {
       int slot = 46 + index;
       boolean buy = trade.takerSide() == OrderSide.BUY;
       List<Component> lore = List.of(
+          messages.component(player, "ui-market-recent-trade-id", trade.matchSequence()),
           messages.component(player, "ui-market-recent-trade-quantity", trade.quantity()),
           messages.component(player, "ui-market-recent-trade-notional",
               trade.price().multiply(java.math.BigDecimal.valueOf(trade.quantity()))

@@ -331,7 +331,8 @@ public final class JdbcExchangeRepository
     if (limit < 1 || limit > 100 || offset < 0)
       throw new IllegalArgumentException("invalid market trade page");
     try (Connection connection = connections.open(); PreparedStatement select = connection.prepareStatement(
-        "SELECT t.price,t.quantity,t.executed_at,o.side AS taker_side FROM " + tables.trades()
+        "SELECT t.match_sequence,t.price,t.quantity,t.executed_at,o.side AS taker_side FROM "
+            + tables.trades()
             + " t LEFT JOIN " + tables.orders()
             + " o ON o.order_id=t.taker_order_id WHERE t.market_id=?"
             + " ORDER BY t.executed_at DESC,t.match_sequence DESC LIMIT ? OFFSET ?")) {
@@ -345,8 +346,8 @@ public final class JdbcExchangeRepository
           if (side == null) {
             continue;
           }
-          trades.add(new MarketTradeRow(new BigDecimal(result.getString("price")),
-              result.getLong("quantity"),
+          trades.add(new MarketTradeRow(result.getLong("match_sequence"),
+              new BigDecimal(result.getString("price")), result.getLong("quantity"),
               OrderSide.valueOf(side), Instant.ofEpochMilli(result.getLong("executed_at"))));
         }
         return List.copyOf(trades);

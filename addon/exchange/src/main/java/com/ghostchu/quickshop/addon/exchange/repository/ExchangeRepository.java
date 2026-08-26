@@ -164,10 +164,11 @@ public interface ExchangeRepository {
   }
 
   /** Lightweight market-detail read model for one recent trade. */
-  record MarketTradeRow(BigDecimal price, long quantity, OrderSide takerSide,
+  record MarketTradeRow(long matchSequence, BigDecimal price, long quantity, OrderSide takerSide,
                         Instant executedAt) {
     public MarketTradeRow {
-      if (price == null || price.signum() <= 0 || quantity <= 0 || takerSide == null
+      if (matchSequence < 0 || price == null || price.signum() <= 0 || quantity <= 0
+          || takerSide == null
           || executedAt == null) {
         throw new IllegalArgumentException("invalid market trade row");
       }
