@@ -3,6 +3,7 @@ package com.ghostchu.quickshop.addon.exchange.ui;
 import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import java.util.List;
 import java.util.UUID;
@@ -90,7 +91,9 @@ final class MyOrdersPage {
         lore.add(messages.component(player, "ui-order-current-price",
             quote.lastPrice().toPlainString()));
       }
-      IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
+      boolean buying = order.side() == OrderSide.BUY;
+      IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of(
+          buying ? "LIME_STAINED_GLASS_PANE" : "RED_STAINED_GLASS_PANE", 1)
           .customName(messages.component(player, "ui-order-title", order.side(),
               views.marketDisplayName(order.marketId())))
           .lore(lore));
