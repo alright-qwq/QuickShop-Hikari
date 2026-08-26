@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `641e5ecae`
+- Current HEAD: `701b7319e`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -47,6 +47,10 @@ Virtual concept stocks (`asset-type: VIRTUAL_SECURITY`) are fully playable:
 
 Full exchange test suite: 404 tests, 0 failures (includes issue-trade-close lifecycle).
 
+Since the last update:
+- Open orders now show the frozen funds (buy) or frozen quantity (sell) on each order row,
+  making it clear how much of the player's balance is reserved while the order is live.
+
 ## Architecture notes
 
 - `SecurityService` performs audited, idempotent lifecycle mutations inside one repository
@@ -70,6 +74,8 @@ Full exchange test suite: 404 tests, 0 failures (includes issue-trade-close life
    "recent trades" ticker on the market list header.
 5. Metrics/abnormal-trading detection remain non-MVP gaps from Phase 4 (metrics snapshots,
    abnormal trading detection, load IT).
+6. Confirm-page quote freshness and race handling (context token vs quote load time) could be
+   tightened; the render guard already checks the menu context before drawing.
 
 ## Release position
 
