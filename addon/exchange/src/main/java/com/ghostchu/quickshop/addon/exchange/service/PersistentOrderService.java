@@ -75,6 +75,7 @@ public final class PersistentOrderService {
   private final OrderRiskService orderRisks;
   private final FeeCalculator fees;
   private final ReservationCalculator reservations;
+  private final AssetCustody custody;
   private final TimeOrderedIdGenerator ids;
   private final Supplier<Instant> now;
   private final RecoveryHandler recovery;
@@ -89,12 +90,17 @@ public final class PersistentOrderService {
 
   /** Production wiring should prefer the constructor that supplies a recovery handler. */
   public PersistentOrderService(ExchangeRepository repository, MarketRules rules) {
-    this(repository, rules, RiskLimits.defaults(), RecoveryHandler.NO_OP);
+    this(repository, rules, RiskLimits.defaults(), RecoveryHandler.NO_OP,
+        SettlementObserver.NONE,
+        new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
+        AccountOrderLimits.defaults(), null, ItemAssetCustody.INSTANCE);
   }
 
   public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
                                 RiskLimits riskLimits, RecoveryHandler recovery) {
-    this(repository, rules, riskLimits, recovery, SettlementObserver.NONE);
+    this(repository, rules, riskLimits, recovery, SettlementObserver.NONE,
+        new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
+        AccountOrderLimits.defaults(), null, ItemAssetCustody.INSTANCE);
   }
 
   public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
@@ -102,7 +108,7 @@ public final class PersistentOrderService {
                                 SettlementObserver observer) {
     this(repository, rules, riskLimits, recovery, observer,
         new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
-        AccountOrderLimits.defaults());
+        AccountOrderLimits.defaults(), null, ItemAssetCustody.INSTANCE);
   }
 
   public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
@@ -110,15 +116,23 @@ public final class PersistentOrderService {
                                 MarketDataService marketData) {
     this(repository, rules, riskLimits, recovery, SettlementObserver.NONE,
         new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
-        AccountOrderLimits.defaults(), marketData);
+        AccountOrderLimits.defaults(), marketData, ItemAssetCustody.INSTANCE);
   }
 
   public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
                                 RiskLimits riskLimits, RecoveryHandler recovery,
                                 AccountOrderLimits accountLimits, MarketDataService marketData) {
+    this(repository, rules, riskLimits, recovery, accountLimits, marketData,
+        ItemAssetCustody.INSTANCE);
+  }
+
+  public PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                                RiskLimits riskLimits, RecoveryHandler recovery,
+                                AccountOrderLimits accountLimits, MarketDataService marketData,
+                                AssetCustody custody) {
     this(repository, rules, riskLimits, recovery, SettlementObserver.NONE,
         new TimeOrderedIdGenerator(System::currentTimeMillis, new java.util.Random()), Instant::now,
-        accountLimits, marketData);
+        accountLimits, marketData, custody);
   }
 
   PersistentOrderService(ExchangeRepository repository, MarketRules rules,
@@ -149,7 +163,7 @@ public final class PersistentOrderService {
                          SettlementObserver observer,
                          TimeOrderedIdGenerator ids, Supplier<Instant> now,
                          AccountOrderLimits accountLimits) {
-    this(repository, rules, riskLimits, recovery, observer, ids, now, accountLimits, null);
+    this(repository, rules, riskLimits, recovery, observer, ids, now, accountLimits, null, ItemAssetCustody.INSTANCE);
   }
 
   PersistentOrderService(ExchangeRepository repository, MarketRules rules,
@@ -157,6 +171,16 @@ public final class PersistentOrderService {
                          SettlementObserver observer,
                          TimeOrderedIdGenerator ids, Supplier<Instant> now,
                          AccountOrderLimits accountLimits, MarketDataService marketData) {
+    this(repository, rules, riskLimits, recovery, observer, ids, now, accountLimits, marketData,
+        ItemAssetCustody.INSTANCE);
+  }
+
+  PersistentOrderService(ExchangeRepository repository, MarketRules rules,
+                         RiskLimits riskLimits, RecoveryHandler recovery,
+                         SettlementObserver observer,
+                         TimeOrderedIdGenerator ids, Supplier<Instant> now,
+                         AccountOrderLimits accountLimits, MarketDataService marketData,
+                         AssetCustody custody) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.rules = Objects.requireNonNull(rules, "rules");
     this.riskLimits = Objects.requireNonNull(riskLimits, "riskLimits");
@@ -170,6 +194,7 @@ public final class PersistentOrderService {
     this.now = Objects.requireNonNull(now, "now");
     this.fees = new FeeCalculator(rules.priceScale());
     this.reservations = new ReservationCalculator(fees);
+    this.custody = Objects.requireNonNull(custody, "custody");
     this.marketRecovery = new OrderBookRecoveryService(repository, rules, riskLimits);
     MarketCoordinationKey coordinationKey = new MarketCoordinationKey(
         Objects.requireNonNull(repository.coordinationKey(), "repository coordination key"),
@@ -414,8 +439,7 @@ public final class PersistentOrderService {
             price -> riskLimits.insideCage(price, beforeState.referencePrice()))
         : reservations.reserve(incoming, incomingRules);
 
-    long holding = tx.existingInventory(request.accountId(), rules.marketId())
-        .map(balance -> balance.availableQuantity() + balance.frozenQuantity()).orElse(0L);
+    long holding = custody.holding(tx, request.accountId(), rules.marketId());
     BigDecimal frozenCurrency = tx.existingCurrency(request.accountId(), rules.currencyId())
         .map(balance -> balance.frozen()).orElse(BigDecimal.ZERO);
     int openOrders = (int) persistedOrders.stream()
@@ -530,7 +554,7 @@ public final class PersistentOrderService {
     if (before.side() == OrderSide.BUY && persisted.reservedCurrency().signum() > 0) {
       tx.releaseCurrency(before.accountId(), rules.currencyId(), persisted.reservedCurrency());
     } else if (before.side() == OrderSide.SELL && persisted.reservedQuantity() > 0) {
-      tx.releaseItems(before.accountId(), rules.marketId(), persisted.reservedQuantity());
+      custody.release(tx, before.accountId(), rules.marketId(), persisted.reservedQuantity());
     }
     tx.updateOrder(cancelled, BigDecimal.ZERO, 0L, persisted.version());
     tx.appendAudit(new AuditRecord(ids.get(), actorId, "FORCE_CANCEL_ORDER", orderId.toString(),
@@ -679,6 +703,7 @@ public final class PersistentOrderService {
       throw new IllegalArgumentException("order market does not match service");
     }
     rules.validateQuantity(request.quantity());
+    custody.validateQuantity(request.quantity());
     OrderType type = parseType(request.type());
     if (type == OrderType.LIMIT) {
       rules.validatePrice(request.price());
@@ -789,7 +814,7 @@ public final class PersistentOrderService {
       if (key.currency()) {
         tx.currency(key.accountId(), key.assetId());
       } else {
-        tx.inventory(key.accountId(), key.assetId());
+        custody.lock(tx, key.accountId(), key.assetId());
       }
     }
   }
@@ -799,7 +824,7 @@ public final class PersistentOrderService {
     if (order.side() == OrderSide.BUY && reservation.frozenCurrency().signum() > 0) {
       tx.freezeCurrency(order.accountId(), rules.currencyId(), reservation.frozenCurrency());
     } else if (order.side() == OrderSide.SELL && reservation.frozenQuantity() > 0) {
-      tx.freezeItems(order.accountId(), rules.marketId(), reservation.frozenQuantity());
+      custody.freeze(tx, order.accountId(), rules.marketId(), reservation.frozenQuantity());
     }
   }
 
@@ -815,8 +840,8 @@ public final class PersistentOrderService {
     UUID sellerOrder = takerBuys ? trade.makerOrderId() : incoming.orderId();
 
     tx.consumeFrozenCurrency(trade.buyerAccountId(), rules.currencyId(), buyerConsumption);
-    tx.creditAvailableItems(trade.buyerAccountId(), rules.marketId(), trade.quantity());
-    tx.consumeFrozenItems(trade.sellerAccountId(), rules.marketId(), trade.quantity());
+    custody.creditAvailable(tx, trade.buyerAccountId(), rules.marketId(), trade.quantity());
+    custody.consumeFrozen(tx, trade.sellerAccountId(), rules.marketId(), trade.quantity());
     BigDecimal sellerCredit = notional.subtract(sellerFee);
     if (sellerCredit.signum() > 0) {
       tx.creditAvailableCurrency(trade.sellerAccountId(), rules.currencyId(), sellerCredit);
@@ -848,7 +873,7 @@ public final class PersistentOrderService {
     }
     long release = itemReservations.get(order.orderId());
     if (release > 0) {
-      tx.releaseItems(order.accountId(), rules.marketId(), release);
+      custody.release(tx, order.accountId(), rules.marketId(), release);
       itemReservations.put(order.orderId(), 0L);
     }
     return BigDecimal.ZERO;

@@ -1,6 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.runtime;
 
 import com.ghostchu.quickshop.QuickShop;
+import com.ghostchu.quickshop.addon.exchange.config.AssetType;
 import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
 import com.ghostchu.quickshop.addon.exchange.config.MarketRegistry;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
@@ -21,8 +22,12 @@ import com.ghostchu.quickshop.addon.exchange.platform.QuickShopEconomyGateway;
 import com.ghostchu.quickshop.addon.exchange.platform.TransferLoginListener;
 import com.ghostchu.quickshop.addon.exchange.operations.AdminExchangeService;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
+import com.ghostchu.quickshop.addon.exchange.service.AssetCustody;
+import com.ghostchu.quickshop.addon.exchange.service.ItemAssetCustody;
 import com.ghostchu.quickshop.addon.exchange.service.PersistentOrderService;
 import com.ghostchu.quickshop.addon.exchange.service.ExchangeActionService;
+import com.ghostchu.quickshop.addon.exchange.service.SecurityAssetCustody;
+import com.ghostchu.quickshop.addon.exchange.security.SecurityService;
 import com.ghostchu.quickshop.addon.exchange.service.RecoveryHandler;
 import com.ghostchu.quickshop.addon.exchange.transfer.ItemTransferService;
 import com.ghostchu.quickshop.addon.exchange.transfer.MoneyTransferService;
@@ -93,9 +98,12 @@ public final class ExchangeRuntimeFactory {
       MarketDefinition definition = registry.require(marketId);
       MarketRules rules = rules(definition);
       RiskLimits limits = limits(definition);
+      AssetCustody custody = definition.assetType() == AssetType.VIRTUAL_SECURITY
+          ? new SecurityAssetCustody(definition.security().minimumUnit())
+          : ItemAssetCustody.INSTANCE;
       markets.put(marketId, new PersistentOrderService(
           repository, rules, limits, RecoveryHandler.NO_OP,
-          accountLimits(definition.risk()), marketData));
+          accountLimits(definition.risk()), marketData, custody));
     }
 
     PlayerOperationSerialiser playerOperations = new PlayerOperationSerialiser();
@@ -140,7 +148,7 @@ public final class ExchangeRuntimeFactory {
         addon.getConfig().getString("operations.audit-export-directory", "audit"));
     AdminExchangeService administration = new AdminExchangeService(
         markets, repository, new com.ghostchu.quickshop.addon.exchange.operations.AuditExporter(),
-        auditDirectory);
+        auditDirectory, new SecurityService(repository));
     Runnable resumeHalted = () -> resumeExpiredHalts(repository, registry.marketIds(), database.writer());
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(() -> flushWhileOwned(
