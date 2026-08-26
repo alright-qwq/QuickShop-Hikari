@@ -194,17 +194,6 @@ final class MarketDetailPage {
       return;
     }
     String marketId = row.marketId();
-    if ("VIRTUAL_SECURITY".equals(row.assetType())) {
-      AccountAssetBalance security = assets.stream()
-          .filter(balance -> balance.kind() == AccountAssetBalance.Kind.SECURITY
-              && marketId.equals(balance.assetId()))
-          .findFirst().orElse(null);
-      if (security != null) {
-        lore.add(messages.component(player, "ui-market-my-security",
-            security.available().toPlainString(), security.frozen().toPlainString()));
-      }
-      return;
-    }
     ExchangeViewService.MarketView market = views.market(marketId);
     if (market == null) {
       return;
@@ -217,6 +206,17 @@ final class MarketDetailPage {
     if (currency != null) {
       lore.add(messages.component(player, "ui-market-my-currency",
           currency.available().toPlainString(), currency.frozen().toPlainString()));
+    }
+    if ("VIRTUAL_SECURITY".equals(row.assetType())) {
+      AccountAssetBalance security = assets.stream()
+          .filter(balance -> balance.kind() == AccountAssetBalance.Kind.SECURITY
+              && marketId.equals(balance.assetId()))
+          .findFirst().orElse(null);
+      if (security != null) {
+        lore.add(messages.component(player, "ui-market-my-security",
+            security.available().toPlainString(), security.frozen().toPlainString()));
+      }
+      return;
     }
     AccountAssetBalance holding = assets.stream()
         .filter(balance -> balance.kind() == AccountAssetBalance.Kind.ITEM
