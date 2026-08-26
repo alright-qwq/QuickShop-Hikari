@@ -944,7 +944,7 @@ public final class JdbcExchangeRepository
     public List<SecurityLedgerEntry> securityLedger(String marketId, UUID ownerId)
         throws SQLException {
       Objects.requireNonNull(marketId, "marketId");
-      String ownerFilter = ownerId == null ? " AND owner_id IS NULL" : " AND owner_id=?";
+      String ownerFilter = ownerId == null ? "" : " AND owner_id=?";
       try (PreparedStatement select = connection.prepareStatement(
           "SELECT event_id,idempotency_key,market_id,owner_id,event_type,signed_quantity,"
               + "available_delta,frozen_delta,reference_type,reference_id,actor_id,reason,"

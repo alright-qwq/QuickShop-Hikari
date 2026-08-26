@@ -61,4 +61,9 @@ public final class SecurityAssetCustody implements AssetCustody {
                               long quantity) throws SQLException {
     tx.creditAvailableSecurity(accountId, marketId, quantity);
   }
+
+  @Override
+  public boolean recordsLedgerEntries() {
+    return true;
+  }
 }

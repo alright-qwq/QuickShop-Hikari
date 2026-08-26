@@ -124,6 +124,54 @@ class VirtualSecuritySettlementTest {
   }
 
   @Test
+  void tradesWriteImmutableSecurityLedgerEntries() throws Exception {
+    ConnectionProvider connections = SqliteTestDatabase.at(temp.resolve("virtual-ledger.db"));
+    TableNames tables = new TableNames("qs_");
+    new MigrationRunner(connections, SqlDialect.SQLITE, tables).migrate();
+    MarketRules rules = new MarketRules("concept_alpha", "USD", new BigDecimal("10.00"),
+        new BigDecimal("1.00"), new BigDecimal("100.00"), new BigDecimal("0.01"),
+        1, 10000, 2, new BigDecimal("0.001"), new BigDecimal("0.002"));
+    JdbcExchangeRepository repository =
+        new JdbcExchangeRepository(connections, SqlDialect.SQLITE, tables);
+    seedMarket(connections, tables, rules);
+    seedSecurity(connections, tables, rules.marketId());
+    PersistentOrderService service = new PersistentOrderService(
+        repository, rules, com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP, SettlementObserver.NONE,
+        new com.ghostchu.quickshop.addon.exchange.core.model.TimeOrderedIdGenerator(
+            System::currentTimeMillis, new java.util.Random()), java.time.Instant::now,
+        com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits.defaults(),
+        null, new SecurityAssetCustody(1));
+    UUID seller = UUID.randomUUID();
+    UUID buyer = UUID.randomUUID();
+    repository.inTransaction(tx -> {
+      tx.creditAvailableSecurity(seller, rules.marketId(), 100);
+      tx.creditAvailableCurrency(buyer, rules.currencyId(), new BigDecimal("1000.00"));
+      return null;
+    });
+
+    service.place(new OrderRequest(UUID.randomUUID(), seller,
+        "concept_alpha", OrderSide.SELL, "LIMIT", new BigDecimal("10.00"), null, 10));
+    OrderReceipt filled = service.place(new OrderRequest(UUID.randomUUID(), buyer,
+        "concept_alpha", OrderSide.BUY, "LIMIT", new BigDecimal("10.00"), null, 10));
+
+    java.util.List<com.ghostchu.quickshop.addon.exchange.repository.SecurityLedgerEntry> ledger =
+        repository.inTransaction(tx -> tx.securityLedger(rules.marketId(), null));
+    assertThat(ledger).hasSize(2);
+    long buyerNet = ledger.stream()
+        .filter(entry -> entry.ownerId().equals(buyer))
+        .mapToLong(com.ghostchu.quickshop.addon.exchange.repository.SecurityLedgerEntry::signedQuantity)
+        .sum();
+    long sellerNet = ledger.stream()
+        .filter(entry -> entry.ownerId().equals(seller))
+        .mapToLong(com.ghostchu.quickshop.addon.exchange.repository.SecurityLedgerEntry::signedQuantity)
+        .sum();
+    assertThat(buyerNet).isEqualTo(10);
+    assertThat(sellerNet).isEqualTo(-10);
+    assertThat(filled.trades()).hasSize(1);
+  }
+
+  @Test
   void reconciliationCountsSecurityBalancesAsCustodyLiabilities() throws Exception {
     ConnectionProvider connections = SqliteTestDatabase.at(temp.resolve("virtual-reconcile.db"));
     TableNames tables = new TableNames("qs_");

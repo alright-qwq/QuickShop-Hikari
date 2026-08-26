@@ -34,6 +34,7 @@ import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder;
 import com.ghostchu.quickshop.addon.exchange.repository.MarketFeeSchedule;
+import com.ghostchu.quickshop.addon.exchange.repository.SecurityLedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -933,6 +934,18 @@ public final class PersistentOrderService {
             entry("liability:item:" + trade.sellerAccountId(), rules.marketId(), quantity.negate(), at),
             entry("liability:item:" + trade.buyerAccountId(), rules.marketId(), quantity, at),
             entry("custody:item:" + rules.marketId(), rules.marketId(), BigDecimal.ZERO, at))));
+    if (custody.recordsLedgerEntries()) {
+      tx.appendSecurityLedger(new SecurityLedgerEntry(
+          UUID.randomUUID(), "trade:" + trade.tradeId() + ":seller",
+          rules.marketId(), trade.sellerAccountId(), "TRADE",
+          -trade.quantity(), -trade.quantity(), 0, "TRADE", trade.tradeId().toString(),
+          null, "matched sell order", at));
+      tx.appendSecurityLedger(new SecurityLedgerEntry(
+          UUID.randomUUID(), "trade:" + trade.tradeId() + ":buyer",
+          rules.marketId(), trade.buyerAccountId(), "TRADE",
+          trade.quantity(), trade.quantity(), 0, "TRADE", trade.tradeId().toString(),
+          null, "matched buy order", at));
+    }
   }
 
   private LedgerEntry entry(String account, String asset, BigDecimal amount, Instant at) {

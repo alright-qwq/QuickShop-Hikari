@@ -16,4 +16,7 @@ public interface AssetCustody {
   void creditAvailable(ExchangeTransaction tx, UUID accountId, String marketId, long quantity)
       throws SQLException;
   default void validateQuantity(long quantity) {}
+  default boolean recordsLedgerEntries() {
+    return false;
+  }
 }
