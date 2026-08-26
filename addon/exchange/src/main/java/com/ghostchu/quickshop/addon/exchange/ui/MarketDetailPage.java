@@ -177,7 +177,7 @@ final class MarketDetailPage {
           int next = (index + 1) % TIMEFRAMES.size();
           timeframes.put(playerId, TIMEFRAMES.get(next));
           refresh(page, player, request);
-        })).withSlot(16).build());
+        })).withSlot(5).build());
   }
 
   private void renderDepth(PlayerInstancePage page, Player player,
@@ -260,7 +260,7 @@ final class MarketDetailPage {
     page.addIcon(player.getUniqueId(), new IconBuilder(
         QuickShop.getInstance().stack().of("BARREL", 1)
             .customName(messages.component(player, "ui-market-trades-title")).lore(lore))
-        .withSlot(15).build());
+        .withSlot(6).build());
   }
 
   private void renderRecentTrades(PlayerInstancePage page, Player player,
