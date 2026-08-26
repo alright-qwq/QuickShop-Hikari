@@ -17,9 +17,12 @@ en-US:
   admin-transfer-review-detail: 'Transfer review detail: <0>'
   ui-data-unavailable: Exchange data is currently unavailable.
   ui-history-trade-title: '<0> trade @ <1>'
+  ui-history-trade-buy: 'Buy'
+  ui-history-trade-sell: 'Sell'
   ui-history-trade-quantity: 'Quantity: <0>'
   ui-history-maker-fee: 'Maker fee: <0>'
   ui-history-taker-fee: 'Taker fee: <0>'
+  ui-history-trade-total-fee: 'Trade fees: <0>'
   ui-history-created-at: 'Time: <0>'
   ui-history-transfer-title: 'Transfer: <0>'
   ui-history-transfer-asset: 'Asset: <0>'
@@ -181,9 +184,12 @@ zh-CN:
   admin-transfer-review-detail: '转账审核详情：<0>'
   ui-data-unavailable: '交易所数据暂时不可用。'
   ui-history-trade-title: '<0> 成交 @ <1>'
+  ui-history-trade-buy: 买入
+  ui-history-trade-sell: 卖出
   ui-history-trade-quantity: '数量：<0>'
   ui-history-maker-fee: 'Maker 手续费：<0>'
   ui-history-taker-fee: 'Taker 手续费：<0>'
+  ui-history-trade-total-fee: '该笔交易手续费：<0>'
   ui-history-created-at: '时间：<0>'
   ui-history-transfer-title: '转账：<0>'
   ui-history-transfer-asset: '资产：<0>'

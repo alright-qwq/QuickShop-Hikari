@@ -71,14 +71,21 @@ final class HistoryPage {
     }
     for (Trade trade : snapshot.trades()) {
       if (slot >= 21) break;
+      boolean bought = trade.buyerAccountId().equals(playerId);
+      String direction = string(player, bought
+          ? "ui-history-trade-buy" : "ui-history-trade-sell");
+      java.math.BigDecimal totalFee = trade.makerFee().add(trade.takerFee());
       List<Component> lore = List.of(
           text(player, "ui-history-trade-quantity", trade.quantity()),
           text(player, "ui-history-maker-fee", trade.makerFee().toPlainString()),
           text(player, "ui-history-taker-fee", trade.takerFee().toPlainString()),
+          text(player, "ui-history-trade-total-fee", totalFee.toPlainString()),
           text(player, "ui-history-created-at", relativeTime(trade.executedAt())));
-      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
-          .customName(text(player, "ui-history-trade-title", trade.marketId(),
-              trade.price().toPlainString())).lore(lore)).withSlot(slot++).build());
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of(
+          bought ? "LIME_STAINED_GLASS_PANE" : "RED_STAINED_GLASS_PANE", 1)
+          .customName(text(player, "ui-history-trade-title",
+              direction + " " + trade.marketId(), trade.price().toPlainString()))
+          .lore(lore)).withSlot(slot++).build());
     }
     slot = 21;
     for (TransferRecord transfer : snapshot.transfers()) {
@@ -132,6 +139,12 @@ final class HistoryPage {
     if (messages == null) return Component.text(key);
     Locale locale = player.locale();
     return Component.text(messages.message(key, locale, arguments));
+  }
+
+  private String string(Player player, String key, Object... arguments) {
+    if (messages == null) return key;
+    Locale locale = player.locale();
+    return messages.message(key, locale, arguments);
   }
 
   private String relativeTime(java.time.Instant at) {
