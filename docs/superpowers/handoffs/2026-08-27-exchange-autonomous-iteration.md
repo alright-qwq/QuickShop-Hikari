@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `c8102580f`
+- Current HEAD: `3c4638a3e`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -109,6 +109,14 @@ Full exchange test suite: 416 tests, 0 failures.
   cancel; a loading line is shown while the async read is in flight. (8fb9cc582)
 - Market detail adds an "executable depth" summary (slot 7): the total bid and ask
   quantity currently executable (inside the price cage) across the whole book. (cfe231c0e)
+
+Full exchange test suite: 421 tests, 0 failures.
+
+## Eighth continuation (same day)
+
+- Order confirmation now shows the market's quantity range, price range, and tick size
+  alongside the existing fee/frozen estimates, so players can validate their order
+  before submitting. (bba0b62e8, 3c4638a3e)
 
 Full exchange test suite: 421 tests, 0 failures.
 
