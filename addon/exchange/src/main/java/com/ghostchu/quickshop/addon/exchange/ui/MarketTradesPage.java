@@ -37,7 +37,8 @@ final class MarketTradesPage {
     Player player = Bukkit.getPlayer(playerId);
     if (player == null || !player.isOnline()) return;
     ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
-    if (opened == null || !"market-trades".equals(opened.menuName())) {
+    if (opened == null || !"market-trades".equals(opened.menuName())
+        || opened.marketId() == null) {
       return;
     }
     int offset = Math.max(0, opened.page() - 1) * PAGE_SIZE;
@@ -74,8 +75,10 @@ final class MarketTradesPage {
         views.marketDisplayName(opened.marketId()));
     java.util.ArrayList<Component> headerLore = new java.util.ArrayList<>();
     if (header != null) {
-      headerLore.add(messages.component(player, "ui-market-trades-header-last",
-          header.lastPrice().toPlainString()));
+      if (header.lastPrice() != null) {
+        headerLore.add(messages.component(player, "ui-market-trades-header-last",
+            header.lastPrice().toPlainString()));
+      }
       String bid = header.bestBid() == null ? "-" : header.bestBid().toPlainString();
       String ask = header.bestAsk() == null ? "-" : header.bestAsk().toPlainString();
       headerLore.add(messages.component(player, "ui-market-trades-header-bid-ask", bid, ask));

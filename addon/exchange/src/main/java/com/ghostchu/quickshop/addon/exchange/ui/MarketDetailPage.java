@@ -104,8 +104,9 @@ final class MarketDetailPage {
         messages.component(player, "ui-market-ask", ask),
         messages.component(player, "ui-market-spread", spread, spreadPercent),
         messages.component(player, "ui-market-change-percent",
-            row.change24h().multiply(java.math.BigDecimal.valueOf(100)).stripTrailingZeros()
-                .toPlainString()).color(changeColor(row.change24h())),
+            row.change24h() == null ? "-"
+                : row.change24h().multiply(java.math.BigDecimal.valueOf(100))
+                    .stripTrailingZeros().toPlainString()).color(changeColor(row.change24h())),
         messages.component(player, "ui-market-notional", notional(dashboard)),
         messages.component(player, "ui-market-volatility",
             row.volatility24h() == null ? "-"

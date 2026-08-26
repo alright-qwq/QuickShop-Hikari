@@ -161,6 +161,11 @@ final class RequestSummaryPage {
           if (executable != null) {
             lines.add(messages.component(player, "ui-confirm-current-quote",
                 executable.toPlainString()));
+            boolean crosses = order.side() == OrderSide.BUY
+                ? order.price().compareTo(executable) >= 0
+                : order.price().compareTo(executable) <= 0;
+            lines.add(messages.component(player, crosses
+                ? "ui-confirm-limit-immediate" : "ui-confirm-limit-resting"));
           }
         }
       }
