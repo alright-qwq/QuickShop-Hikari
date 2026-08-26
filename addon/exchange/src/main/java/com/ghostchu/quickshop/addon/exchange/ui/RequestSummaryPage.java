@@ -175,7 +175,7 @@ final class RequestSummaryPage {
           lines.add(messages.component(player, "ui-confirm-frozen-estimate",
               frozenEstimate(order, order.price()).toPlainString()));
         }
-        addFeeLines(lines, player, order, order.price());
+        addFeeLines(lines, player, order, order.price(), quote);
         if (quote != null) {
           java.math.BigDecimal executable = order.side() == OrderSide.BUY
               ? quote.bestAsk() : quote.bestBid();
@@ -200,7 +200,7 @@ final class RequestSummaryPage {
           lines.add(messages.component(player, "ui-confirm-frozen-estimate",
               frozenEstimate(order, order.slippageBoundary()).toPlainString()));
         }
-        addFeeLines(lines, player, order, order.slippageBoundary());
+        addFeeLines(lines, player, order, order.slippageBoundary(), quote);
         if (quote != null) {
           java.math.BigDecimal executable = order.side() == OrderSide.BUY
               ? quote.bestAsk() : quote.bestBid();
@@ -241,7 +241,8 @@ final class RequestSummaryPage {
   }
 
   private void addFeeLines(List<Component> lines, Player player, ExchangeMenuRequest.OrderDraft order,
-                         java.math.BigDecimal boundary) {
+                         java.math.BigDecimal boundary,
+                         com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote) {
     if (views == null) {
       return;
     }
@@ -251,7 +252,7 @@ final class RequestSummaryPage {
     }
     var rules = market.service().marketRules();
     java.math.BigDecimal rate = order.type() == com.ghostchu.quickshop.addon.exchange.core.model.OrderType.MARKET
-        ? rules.takerFeeRate() : rules.makerFeeRate();
+        ? rules.takerFeeRate() : feeRateForLimit(order, boundary, quote, rules);
     java.math.BigDecimal notional = OrderConfirmation.estimatedNotional(boundary, order.quantity());
     java.math.BigDecimal fee = notional.multiply(rate)
         .setScale(2, java.math.RoundingMode.HALF_UP);
@@ -262,6 +263,24 @@ final class RequestSummaryPage {
       lines.add(messages.component(player, "ui-confirm-estimated-net",
           notional.subtract(fee).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()));
     }
+  }
+
+  private java.math.BigDecimal feeRateForLimit(ExchangeMenuRequest.OrderDraft order,
+                                               java.math.BigDecimal boundary,
+                                               com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote,
+                                               com.ghostchu.quickshop.addon.exchange.core.model.MarketRules rules) {
+    if (order.type() != com.ghostchu.quickshop.addon.exchange.core.model.OrderType.LIMIT || quote == null) {
+      return rules.makerFeeRate();
+    }
+    java.math.BigDecimal executable = order.side() == OrderSide.BUY
+        ? quote.bestAsk() : quote.bestBid();
+    if (executable == null) {
+      return rules.makerFeeRate();
+    }
+    boolean crosses = order.side() == OrderSide.BUY
+        ? boundary.compareTo(executable) >= 0
+        : boundary.compareTo(executable) <= 0;
+    return crosses ? rules.takerFeeRate() : rules.makerFeeRate();
   }
 
   /** Matches {@code ReservationCalculator}: buy orders freeze notional plus worst-case fees. */
