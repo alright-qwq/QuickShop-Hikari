@@ -122,6 +122,8 @@ en-US:
   ui-order-market-invalid: 'Enter quantity and a positive absolute protection boundary, for example: 2 105.00'
   ui-history-previous: Previous page
   ui-history-next: Next page
+  ui-history-page: 'History page <0>'
+  ui-history-empty: No history entries.
   ui-confirm-not-selected: No exchange request is selected.
   ui-confirm-order-title: 'Confirm <0> order'
   ui-confirm-transfer-title: 'Confirm <0> transfer'
@@ -274,6 +276,8 @@ zh-CN:
   ui-order-market-invalid: '请输入数量和正数绝对保护边界，例如：2 105.00'
   ui-history-previous: '上一页'
   ui-history-next: '下一页'
+  ui-history-page: '历史第 <0> 页'
+  ui-history-empty: '暂无历史记录。'
   ui-confirm-not-selected: '尚未选择需要确认的交易请求。'
   ui-confirm-order-title: '确认 <0> 订单'
   ui-confirm-transfer-title: '确认 <0> 转账'

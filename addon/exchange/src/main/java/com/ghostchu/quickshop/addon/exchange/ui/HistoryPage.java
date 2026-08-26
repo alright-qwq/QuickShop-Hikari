@@ -65,6 +65,10 @@ final class HistoryPage {
       return;
     }
     int slot = 9;
+    if (snapshot.trades().isEmpty() && snapshot.transfers().isEmpty() && snapshot.ledger().isEmpty()) {
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
+          .customName(text(player, "ui-history-empty"))).withSlot(22).build());
+    }
     for (Trade trade : snapshot.trades()) {
       if (slot >= 21) break;
       List<Component> lore = List.of(
@@ -104,6 +108,8 @@ final class HistoryPage {
     if (opened.page() > 1) {
       addNavigation(page, player, 45, "ARROW", "ui-history-previous", opened.page() - 1);
     }
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("CLOCK", 1)
+        .customName(text(player, "ui-history-page", opened.page()))).withSlot(49).build());
     if (snapshot.hasNext()) {
       addNavigation(page, player, 53, "ARROW", "ui-history-next", opened.page() + 1);
     }
