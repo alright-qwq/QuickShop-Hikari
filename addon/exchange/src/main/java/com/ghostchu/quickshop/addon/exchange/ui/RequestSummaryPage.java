@@ -13,6 +13,7 @@ import net.tnemc.menu.core.PlayerInstancePage;
 import net.tnemc.menu.core.builder.IconBuilder;
 import net.tnemc.menu.core.callbacks.page.PageOpenCallback;
 import net.tnemc.menu.core.icon.action.impl.RunnableAction;
+import net.tnemc.menu.core.manager.MenuManager;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
@@ -83,6 +84,36 @@ final class RequestSummaryPage {
         .customName(messages.component(player, titleKey(request), titleArgument(request)))
         .lore(lore)).withSlot(22);
     page.addIcon(playerId, icon.build());
+    if (request.order() != null && request.marketId() != null) {
+      page.addIcon(playerId, new IconBuilder(
+          QuickShop.getInstance().stack().of("COMPASS", 1)
+              .customName(messages.component(player, "ui-confirm-back-market")))
+          .withActions(new RunnableAction(click -> {
+            contexts.put(playerId, ExchangeMenuRequest.market(request.marketId()));
+            MenuManager.instance().open(ExchangeMenu.NAME,
+                ExchangeMenuPage.MARKET_DETAIL.page(), click.player());
+          })).withSlot(0).build());
+    } else if (request.transfer() != null) {
+      page.addIcon(playerId, new IconBuilder(
+          QuickShop.getInstance().stack().of("CHEST", 1)
+              .customName(messages.component(player, "ui-nav-assets")))
+          .withActions(new RunnableAction(click -> {
+            contexts.put(playerId, ExchangeMenuRequest.page(
+                ExchangeMenuPage.ASSETS.menuName()));
+            MenuManager.instance().open(ExchangeMenu.NAME,
+                ExchangeMenuPage.ASSETS.page(), click.player());
+          })).withSlot(0).build());
+    } else if (request.orderId() != null) {
+      page.addIcon(playerId, new IconBuilder(
+          QuickShop.getInstance().stack().of("WRITABLE_BOOK", 1)
+              .customName(messages.component(player, "ui-nav-orders")))
+          .withActions(new RunnableAction(click -> {
+            contexts.put(playerId, ExchangeMenuRequest.page(
+                ExchangeMenuPage.ORDERS.menuName()));
+            MenuManager.instance().open(ExchangeMenu.NAME,
+                ExchangeMenuPage.ORDERS.page(), click.player());
+          })).withSlot(0).build());
+    }
     if (submitter != null && request.requestId() != null
         && (request.order() != null || request.orderId() != null || request.transfer() != null)) {
       IconBuilder confirm = new IconBuilder(QuickShop.getInstance().stack().of("LIME_CONCRETE", 1)

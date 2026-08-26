@@ -165,6 +165,7 @@ en-US:
   ui-confirm-order: 'Order: <0>'
   ui-confirm-submit-failed: Exchange request submission failed. Please try again later.
   ui-confirm-submit-result: 'Exchange <0>: <1>'
+  ui-confirm-back-market: Back to market
   ui-admin-market: Market controls
   ui-admin-market-usage: '/qse admin market pause <market> <reason>'
   ui-admin-orders: Order controls
@@ -342,6 +343,7 @@ zh-CN:
   ui-confirm-order: '订单：<0>'
   ui-confirm-submit-failed: '交易请求提交失败，请稍后重试。'
   ui-confirm-submit-result: '交易所请求 <0>：<1>'
+  ui-confirm-back-market: 返回市场
   ui-admin-market: 市场控制
   ui-admin-market-usage: '/qse admin market pause <市场> <原因>'
   ui-admin-orders: 订单控制
