@@ -187,7 +187,7 @@ public final class AdminCommandRouter {
       if (args.length == 3 && "ack".equalsIgnoreCase(args[1])) {
         UUID alertId = UUID.fromString(args[2]);
         executeWrite(actor, () -> {
-          administration.acknowledgeAlert(alertId);
+          administration.acknowledgeAlert(actor.accountId(), alertId);
         });
         return;
       }

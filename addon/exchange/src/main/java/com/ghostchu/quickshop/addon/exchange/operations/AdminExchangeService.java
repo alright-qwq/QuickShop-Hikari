@@ -102,10 +102,22 @@ public final class AdminExchangeService {
         pendingTransferReviews());
   }
 
-  /** Acknowledges one alert so operational dashboards can distinguish reviewed findings. */
-  public void acknowledgeAlert(UUID alertId) throws SQLException {
+  /**
+   * Acknowledges one alert so operational dashboards can distinguish reviewed findings.
+   * Only the first acknowledgement writes an audit record; repeats are idempotent.
+   */
+  public void acknowledgeAlert(UUID actorId, UUID alertId) throws SQLException {
+    Objects.requireNonNull(actorId, "actorId");
     Objects.requireNonNull(alertId, "alertId");
-    requireRepository().acknowledgeAlert(alertId, Instant.now());
+    requireRepository().inTransaction(tx -> {
+      Instant at = Instant.now();
+      if (tx.acknowledgeAlert(alertId, at) == 1) {
+        tx.appendAudit(new AuditRecord(UUID.randomUUID(), actorId,
+            "ACKNOWLEDGE_ALERT", alertId.toString(), "operator acknowledged alert",
+            "OPEN", "ACKNOWLEDGED", at));
+      }
+      return null;
+    });
   }
 
   public OrderReceipt forceCancel(UUID actorId, UUID requestId, String marketId, UUID orderId,

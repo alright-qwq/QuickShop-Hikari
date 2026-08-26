@@ -1737,6 +1737,17 @@ public final class JdbcExchangeRepository
     }
 
     @Override
+    public int acknowledgeAlert(UUID alertId, Instant acknowledgedAt) throws SQLException {
+      try (PreparedStatement update = connection.prepareStatement(
+          "UPDATE " + tables.auditAlerts()
+              + " SET acknowledged_at=? WHERE alert_id=? AND acknowledged_at IS NULL")) {
+        update.setLong(1, acknowledgedAt.toEpochMilli());
+        update.setString(2, alertId.toString());
+        return update.executeUpdate();
+      }
+    }
+
+    @Override
     public void appendAudit(AuditRecord record) throws SQLException {
       Objects.requireNonNull(record, "record");
       try (PreparedStatement insert = connection.prepareStatement(

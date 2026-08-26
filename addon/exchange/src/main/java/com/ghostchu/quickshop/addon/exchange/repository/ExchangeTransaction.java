@@ -62,6 +62,10 @@ public interface ExchangeTransaction {
   void updateMarketState(MarketState state, long expectedVersion) throws SQLException;
   void insertHighAlert(UUID alertId, String marketId, String alertType,
                        String payload, Instant createdAt) throws SQLException;
+
+  /** Marks one unacknowledged alert acknowledged; returns 1 when newly acknowledged, 0 otherwise. */
+  int acknowledgeAlert(UUID alertId, Instant acknowledgedAt) throws SQLException;
+
   void appendAudit(AuditRecord record) throws SQLException;
   void insertOrder(Order order, BigDecimal reservedCurrency, long reservedQuantity)
       throws SQLException;

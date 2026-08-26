@@ -42,6 +42,29 @@ class AdminExchangeServiceTest {
   }
 
   @Test
+  void acknowledgeAlertWritesOneAuditRecordAndIsIdempotent() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AuditAlert alert = new AuditAlert(UUID.randomUUID(), fixture.rules().marketId(), null,
+        "HIGH_CANCEL_PLACE_RATIO", "MEDIUM", "ratio=1.0", Instant.now(), null);
+    fixture.repository().insertAuditAlert(alert);
+    AdminExchangeService admin = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository());
+    UUID actor = UUID.randomUUID();
+
+    admin.acknowledgeAlert(actor, alert.alertId());
+    admin.acknowledgeAlert(actor, alert.alertId());
+
+    assertThat(fixture.repository().openAlerts(10)).isEmpty();
+    assertThat(fixture.repository().auditRecords(Instant.EPOCH, Instant.now().plusSeconds(1)))
+        .singleElement()
+        .satisfies(record -> {
+          assertThat(record.actorId()).isEqualTo(actor);
+          assertThat(record.action()).isEqualTo("ACKNOWLEDGE_ALERT");
+          assertThat(record.targetId()).isEqualTo(alert.alertId().toString());
+        });
+  }
+
+  @Test
   void forceCancelReturnsReservedCurrencyAndAppendsAnAuditRecord() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID buyer = fixture.accountWithCurrency("500.00");
