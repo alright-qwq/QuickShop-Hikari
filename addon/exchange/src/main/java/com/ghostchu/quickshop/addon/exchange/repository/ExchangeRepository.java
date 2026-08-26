@@ -2,7 +2,10 @@ package com.ghostchu.quickshop.addon.exchange.repository;
 
 import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
+import com.ghostchu.quickshop.addon.exchange.operations.AuditAlert;
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
+import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector.OrderActivity;
+import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector.TradeActivity;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
@@ -47,6 +50,34 @@ public interface ExchangeRepository {
   default List<AuditRecord> auditRecords(Instant fromInclusive, Instant toExclusive)
       throws SQLException {
     throw new UnsupportedOperationException("audit records are not supported by this repository");
+  }
+
+  /** Persists a detector-emitted alert outside any settlement transaction. */
+  default void insertAuditAlert(AuditAlert alert) throws SQLException {
+    throw new UnsupportedOperationException("audit alerts are not supported by this repository");
+  }
+
+  /** Reads the most recent alerts, newest first, regardless of acknowledgement state. */
+  default List<AuditAlert> recentAlerts(int limit) throws SQLException {
+    throw new UnsupportedOperationException("audit alerts are not supported by this repository");
+  }
+
+  /** Reads the most recent alerts that have not been acknowledged, newest first. */
+  default List<AuditAlert> openAlerts(int limit) throws SQLException {
+    throw new UnsupportedOperationException("audit alerts are not supported by this repository");
+  }
+
+  /**
+   * Reads trades executed at or after {@code sinceInclusive} across all markets, including both
+   * parties, for suspicious-pattern detection. The read is intentionally immutable.
+   */
+  default List<TradeActivity> tradesForDetection(Instant sinceInclusive) throws SQLException {
+    throw new UnsupportedOperationException("trading activity reads are not supported by this repository");
+  }
+
+  /** Reads order placements and cancellations at or after {@code sinceInclusive} across all markets. */
+  default List<OrderActivity> orderActivities(Instant sinceInclusive) throws SQLException {
+    throw new UnsupportedOperationException("order activity reads are not supported by this repository");
   }
 
   /** Reads a bounded page of a player's currently cancellable orders. */

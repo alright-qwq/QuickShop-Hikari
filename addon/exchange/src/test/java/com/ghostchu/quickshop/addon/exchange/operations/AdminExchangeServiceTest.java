@@ -21,6 +21,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class AdminExchangeServiceTest {
   @Test
+  void auditStatusCombinesMetricsAlertsAndPendingReviews() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    var metrics = new ExchangeMetrics();
+    metrics.recordQueueLength(fixture.rules().marketId(), 3);
+    Instant at = Instant.ofEpochMilli(Instant.now().toEpochMilli());
+    AuditAlert alert = new AuditAlert(UUID.randomUUID(), fixture.rules().marketId(), null,
+        "HIGH_CANCEL_PLACE_RATIO", "MEDIUM", "ratio=1.0", at, null);
+    fixture.repository().insertAuditAlert(alert);
+    AdminExchangeService admin = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository(), null, null,
+        null, null, metrics);
+
+    AdminExchangeService.AuditStatus status = admin.auditStatus();
+
+    assertThat(status.metrics().markets().get(fixture.rules().marketId()).queueLength())
+        .isEqualTo(3);
+    assertThat(status.recentAlerts()).containsExactly(alert);
+    assertThat(status.pendingTransferReviews()).isEmpty();
+  }
+
+  @Test
   void forceCancelReturnsReservedCurrencyAndAppendsAnAuditRecord() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     UUID buyer = fixture.accountWithCurrency("500.00");

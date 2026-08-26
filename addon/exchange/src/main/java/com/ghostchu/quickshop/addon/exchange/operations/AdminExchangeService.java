@@ -40,38 +40,66 @@ public final class AdminExchangeService {
   private final Path auditDirectory;
   private final SecurityService securities;
   private final InventoryGateway inventory;
+  private final ExchangeMetrics metrics;
 
   public AdminExchangeService(Map<String, PersistentOrderService> markets) {
-    this(markets, null, null, null, null, null);
+    this(markets, null, null, null, null, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository) {
-    this(markets, repository, null, null, null, null);
+    this(markets, repository, null, null, null, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository,
       AuditExporter auditExporter, Path auditDirectory) {
-    this(markets, repository, auditExporter, auditDirectory, null, null);
+    this(markets, repository, auditExporter, auditDirectory, null, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository,
       AuditExporter auditExporter, Path auditDirectory, SecurityService securities) {
-    this(markets, repository, auditExporter, auditDirectory, securities, null);
+    this(markets, repository, auditExporter, auditDirectory, securities, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository,
       AuditExporter auditExporter, Path auditDirectory, SecurityService securities,
       InventoryGateway inventory) {
+    this(markets, repository, auditExporter, auditDirectory, securities, inventory, null);
+  }
+
+  public AdminExchangeService(
+      Map<String, PersistentOrderService> markets, ExchangeRepository repository,
+      AuditExporter auditExporter, Path auditDirectory, SecurityService securities,
+      InventoryGateway inventory, ExchangeMetrics metrics) {
     this.markets = Map.copyOf(Objects.requireNonNull(markets, "markets"));
     this.repository = repository;
     this.auditExporter = auditExporter;
     this.auditDirectory = auditDirectory;
     this.securities = securities;
     this.inventory = inventory;
+    this.metrics = metrics;
+  }
+
+  /** Combined operational health view: metrics, recent alerts and pending transfer reviews. */
+  public record AuditStatus(MetricSnapshot metrics, List<AuditAlert> recentAlerts,
+                            List<TransferRecord> pendingTransferReviews) {
+    public AuditStatus {
+      Objects.requireNonNull(metrics, "metrics");
+      recentAlerts = List.copyOf(recentAlerts);
+      pendingTransferReviews = List.copyOf(pendingTransferReviews);
+    }
+  }
+
+  public AuditStatus auditStatus() throws SQLException {
+    ExchangeRepository store = requireRepository();
+    ExchangeMetrics snapshot = this.metrics;
+    return new AuditStatus(
+        snapshot == null ? new MetricSnapshot(java.util.Map.of()) : snapshot.snapshot(),
+        store.recentAlerts(20),
+        pendingTransferReviews());
   }
 
   public OrderReceipt forceCancel(UUID actorId, UUID requestId, String marketId, UUID orderId,

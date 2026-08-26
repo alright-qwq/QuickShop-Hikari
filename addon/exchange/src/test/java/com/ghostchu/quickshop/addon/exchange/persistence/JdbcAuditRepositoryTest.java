@@ -1,6 +1,7 @@
 package com.ghostchu.quickshop.addon.exchange.persistence;
 
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
+import com.ghostchu.quickshop.addon.exchange.operations.AuditAlert;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -33,5 +34,25 @@ class JdbcAuditRepositoryTest {
     });
 
     assertThat(repository.auditRecords(start, start.plusSeconds(10))).containsExactly(included);
+  }
+
+  @Test
+  void persistsAndReadsAuditAlertsOutsideTransactions() throws Exception {
+    ConnectionProvider connections = SqliteTestDatabase.at(temp.resolve("alerts.db"));
+    TableNames tables = new TableNames("qs_");
+    new MigrationRunner(connections, SqlDialect.SQLITE, tables).migrate();
+    ExchangeRepository repository = new JdbcExchangeRepository(connections, SqlDialect.SQLITE, tables);
+    Instant at = Instant.parse("2026-08-27T12:00:00Z");
+    AuditAlert accountAlert = new AuditAlert(UUID.randomUUID(), "concept-stock", UUID.randomUUID(),
+        "HIGH_FREQUENCY_RECIPROCAL_TRADING", "MEDIUM", "trades=3", at, null);
+    AuditAlert marketAlert = new AuditAlert(UUID.randomUUID(), "concept-stock", null,
+        "HIGH_CANCEL_PLACE_RATIO", "MEDIUM", "ratio=1.0", at.plusSeconds(10), at.plusSeconds(60));
+
+    repository.insertAuditAlert(accountAlert);
+    repository.insertAuditAlert(marketAlert);
+
+    assertThat(repository.recentAlerts(20)).containsExactly(marketAlert, accountAlert);
+    assertThat(repository.openAlerts(20)).containsExactly(accountAlert);
+    assertThat(repository.recentAlerts(1)).containsExactly(marketAlert);
   }
 }

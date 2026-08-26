@@ -94,6 +94,20 @@ public final class ExchangeRuntimeFactory {
       MarketRegistry registry = MarketRegistry.load(configFile, marketsFile, repository);
 
     MarketDataService marketData = new MarketDataService(new CandleAggregator(), repository);
+    com.ghostchu.quickshop.addon.exchange.operations.ExchangeMetrics metrics =
+        new com.ghostchu.quickshop.addon.exchange.operations.ExchangeMetrics();
+    java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>
+        lastEventAt = new java.util.concurrent.ConcurrentHashMap<>();
+    marketData.addAuditConsumer(event -> {
+      long now = System.currentTimeMillis();
+      java.util.concurrent.atomic.AtomicLong previous =
+          lastEventAt.put(event.marketId(), new java.util.concurrent.atomic.AtomicLong(now));
+      if (previous != null) {
+        long prior = previous.getAndSet(now);
+        metrics.recordMatchingLatency(event.marketId(),
+            java.time.Duration.ofMillis(Math.max(0L, now - prior)));
+      }
+    });
     Map<String, PersistentOrderService> markets = new java.util.LinkedHashMap<>();
     for (String marketId : registry.marketIds()) {
       MarketDefinition definition = registry.require(marketId);
@@ -183,8 +197,25 @@ public final class ExchangeRuntimeFactory {
         addon.getConfig().getString("operations.audit-export-directory", "audit"));
     AdminExchangeService administration = new AdminExchangeService(
         markets, repository, new com.ghostchu.quickshop.addon.exchange.operations.AuditExporter(),
-        auditDirectory, new SecurityService(repository), inventory);
+        auditDirectory, new SecurityService(repository), inventory, metrics);
     Runnable resumeHalted = () -> resumeExpiredHalts(repository, registry.marketIds(), database.writer());
+    com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector detector =
+        new com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector(Clock.systemUTC());
+    Runnable detectSuspiciousTrading = () -> {
+      try {
+        Instant since = Instant.now().minusSeconds(300);
+        var scan = detector.scan(repository.tradesForDetection(since),
+            repository.orderActivities(since));
+        for (var alert : scan.alerts()) {
+          repository.insertAuditAlert(new com.ghostchu.quickshop.addon.exchange.operations.AuditAlert(
+              UUID.randomUUID(), alert.marketId(), alert.accountId(), alert.type(),
+              alert.severity(), alert.evidence(), alert.at(), null));
+        }
+      } catch (Exception failure) {
+        // Detection is best-effort; the next scheduled tick retries without taking the writer fence.
+      }
+    };
+    maintenance.scheduleWithFixedDelay(detectSuspiciousTrading, 2L, 5L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(() -> flushWhileOwned(
         database.writer(), marketData, Instant.now()), 1L, 1L, TimeUnit.MINUTES);

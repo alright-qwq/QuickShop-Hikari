@@ -126,6 +126,40 @@ class AdminCommandRouterTest {
   }
 
   @Test
+  void reportsAuditStatusThroughTheReadsExecutor() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    var metrics = new com.ghostchu.quickshop.addon.exchange.operations.ExchangeMetrics();
+    metrics.recordQueueLength(fixture.rules().marketId(), 2);
+    metrics.recordMatchingLatency(fixture.rules().marketId(), java.time.Duration.ofMillis(5));
+    fixture.repository().insertAuditAlert(
+        new com.ghostchu.quickshop.addon.exchange.operations.AuditAlert(UUID.randomUUID(),
+            fixture.rules().marketId(), null, "HIGH_CANCEL_PLACE_RATIO", "MEDIUM",
+            "ratio=1.0", Instant.now(), null));
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository(), null, null,
+        null, null, metrics), UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.audit");
+
+    router.execute(actor, new String[] {"audit", "status"});
+
+    assertThat(actor.message).isEqualTo("admin-audit-status");
+    assertThat(actor.arguments).singleElement().asString()
+        .contains(fixture.rules().marketId(), "HIGH_CANCEL_PLACE_RATIO", "pending-reviews=0");
+  }
+
+  @Test
+  void deniesAuditStatusWithoutTheDedicatedPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()), UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.market");
+
+    router.execute(actor, new String[] {"audit", "status"});
+
+    assertThat(actor.message).isEqualTo("permission-denied");
+  }
+
+  @Test
   void listsAndShowsReviewedTransfersWithoutEnteringTheWriterFence() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     TransferRecord reviewed = reviewedMoneyDeposit(fixture);

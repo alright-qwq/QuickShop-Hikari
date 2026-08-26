@@ -13,7 +13,10 @@ import com.ghostchu.quickshop.addon.exchange.ledger.LedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.ledger.LedgerJournal;
 import com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport;
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
+import com.ghostchu.quickshop.addon.exchange.operations.AuditAlert;
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
+import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector.OrderActivity;
+import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector.TradeActivity;
 import com.ghostchu.quickshop.addon.exchange.repository.CurrencyBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountAssetBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountLedgerEntry;
@@ -456,6 +459,134 @@ public final class JdbcExchangeRepository
               Instant.ofEpochMilli(result.getLong("created_at"))));
         }
         return List.copyOf(records);
+      }
+    }
+  }
+
+  @Override
+  public void insertAuditAlert(AuditAlert alert) throws SQLException {
+    Objects.requireNonNull(alert, "alert");
+    try (Connection connection = connections.open();
+         PreparedStatement insert = connection.prepareStatement(
+             "INSERT INTO " + tables.auditAlerts()
+                 + " (alert_id,market_id,account_id,alert_type,severity,payload,created_at,"
+                 + "acknowledged_at) VALUES (?,?,?,?,?,?,?,?)")) {
+      insert.setString(1, alert.alertId().toString());
+      insert.setString(2, alert.marketId());
+      if (alert.accountId() == null) {
+        insert.setNull(3, Types.VARCHAR);
+      } else {
+        insert.setString(3, alert.accountId().toString());
+      }
+      insert.setString(4, alert.type());
+      insert.setString(5, alert.severity());
+      insert.setString(6, alert.payload());
+      insert.setLong(7, alert.createdAt().toEpochMilli());
+      if (alert.acknowledgedAt() == null) {
+        insert.setNull(8, Types.BIGINT);
+      } else {
+        insert.setLong(8, alert.acknowledgedAt().toEpochMilli());
+      }
+      insert.executeUpdate();
+    }
+  }
+
+  @Override
+  public List<AuditAlert> recentAlerts(int limit) throws SQLException {
+    if (limit < 1) {
+      throw new IllegalArgumentException("limit must be positive");
+    }
+    return queryAlerts(
+        "SELECT alert_id,market_id,account_id,alert_type,severity,payload,created_at,"
+            + "acknowledged_at FROM " + tables.auditAlerts()
+            + " ORDER BY created_at DESC,alert_id DESC LIMIT ?",
+        limit);
+  }
+
+  @Override
+  public List<AuditAlert> openAlerts(int limit) throws SQLException {
+    if (limit < 1) {
+      throw new IllegalArgumentException("limit must be positive");
+    }
+    return queryAlerts(
+        "SELECT alert_id,market_id,account_id,alert_type,severity,payload,created_at,"
+            + "acknowledged_at FROM " + tables.auditAlerts()
+            + " WHERE acknowledged_at IS NULL ORDER BY created_at DESC,alert_id DESC LIMIT ?",
+        limit);
+  }
+
+  private List<AuditAlert> queryAlerts(String sql, int limit) throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement select = connection.prepareStatement(sql)) {
+      select.setInt(1, limit);
+      try (ResultSet result = select.executeQuery()) {
+        List<AuditAlert> alerts = new ArrayList<>();
+        while (result.next()) {
+          long acknowledgedMillis = result.getLong("acknowledged_at");
+          Instant acknowledgedAt = result.wasNull() ? null
+              : Instant.ofEpochMilli(acknowledgedMillis);
+          alerts.add(new AuditAlert(UUID.fromString(result.getString("alert_id")),
+              result.getString("market_id"), nullableUuid(result, "account_id"),
+              result.getString("alert_type"), result.getString("severity"),
+              result.getString("payload"), Instant.ofEpochMilli(result.getLong("created_at")),
+              acknowledgedAt));
+        }
+        return List.copyOf(alerts);
+      }
+    }
+  }
+
+  private static UUID nullableUuid(ResultSet result, String column) throws SQLException {
+    String value = result.getString(column);
+    return value == null ? null : UUID.fromString(value);
+  }
+
+  @Override
+  public List<TradeActivity> tradesForDetection(Instant sinceInclusive) throws SQLException {
+    Objects.requireNonNull(sinceInclusive, "sinceInclusive");
+    try (Connection connection = connections.open();
+         PreparedStatement select = connection.prepareStatement(
+             "SELECT market_id,buyer_account_id,seller_account_id,executed_at FROM "
+                 + tables.trades() + " WHERE executed_at>=? ORDER BY executed_at,trade_id")) {
+      select.setLong(1, sinceInclusive.toEpochMilli());
+      try (ResultSet result = select.executeQuery()) {
+        List<TradeActivity> trades = new ArrayList<>();
+        while (result.next()) {
+          trades.add(new TradeActivity(
+              UUID.fromString(result.getString("buyer_account_id")),
+              UUID.fromString(result.getString("seller_account_id")),
+              result.getString("market_id"),
+              Instant.ofEpochMilli(result.getLong("executed_at"))));
+        }
+        return List.copyOf(trades);
+      }
+    }
+  }
+
+  @Override
+  public List<OrderActivity> orderActivities(Instant sinceInclusive) throws SQLException {
+    Objects.requireNonNull(sinceInclusive, "sinceInclusive");
+    try (Connection connection = connections.open();
+         PreparedStatement select = connection.prepareStatement(
+             "SELECT market_id,account_id,side,order_type,status,created_at FROM "
+                 + tables.orders() + " WHERE updated_at>=? ORDER BY updated_at,order_id")) {
+      select.setLong(1, sinceInclusive.toEpochMilli());
+      try (ResultSet result = select.executeQuery()) {
+        List<OrderActivity> activities = new ArrayList<>();
+        while (result.next()) {
+          String status = result.getString("status");
+          if ("PLACED".equals(status) || "OPEN".equals(status) || "PARTIALLY_FILLED".equals(status)) {
+            activities.add(new OrderActivity(result.getString("market_id"),
+                UUID.fromString(result.getString("account_id")), OrderActivity.Kind.PLACE,
+                Instant.ofEpochMilli(result.getLong("created_at"))));
+          } else if ("CANCELLED".equals(status) || "EXPIRED".equals(status)
+              || "FILLED_CANCELLED_REMAINDER".equals(status)) {
+            activities.add(new OrderActivity(result.getString("market_id"),
+                UUID.fromString(result.getString("account_id")), OrderActivity.Kind.CANCEL,
+                Instant.ofEpochMilli(result.getLong("updated_at"))));
+          }
+        }
+        return List.copyOf(activities);
       }
     }
   }

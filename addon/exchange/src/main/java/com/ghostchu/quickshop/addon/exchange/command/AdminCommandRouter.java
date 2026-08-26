@@ -172,6 +172,18 @@ public final class AdminCommandRouter {
         executeReconciliation(actor);
         return;
       }
+      if (args.length == 2 && "status".equalsIgnoreCase(args[1])) {
+        reads.execute(() -> {
+          try {
+            AdminExchangeService.AuditStatus status = administration.auditStatus();
+            String summary = auditStatusSummary(status);
+            actor.executeAtOwner(() -> actor.message("admin-audit-status", summary));
+          } catch (Exception failure) {
+            actor.executeAtOwner(() -> actor.message("admin-command-failed"));
+          }
+        });
+        return;
+      }
       if (args.length == 4 && "export".equalsIgnoreCase(args[1])) {
         java.time.Instant from = parseInstant(args[2]);
         java.time.Instant to = parseInstant(args[3]);
@@ -192,6 +204,26 @@ public final class AdminCommandRouter {
     } catch (Exception failure) {
       actor.message("admin-command-failed");
     }
+  }
+
+  private static String auditStatusSummary(AdminExchangeService.AuditStatus status) {
+    java.util.Map<String, com.ghostchu.quickshop.addon.exchange.operations.MetricSnapshot.MarketMetrics>
+        markets = status.metrics().markets();
+    String metrics = markets.isEmpty() ? "no markets"
+        : markets.entrySet().stream()
+            .map(entry -> {
+              var latency = entry.getValue().matchingLatency();
+              return entry.getKey() + " queue=" + entry.getValue().queueLength()
+                  + " p50=" + latency.p50Millis() + "ms p95=" + latency.p95Millis() + "ms";
+            })
+            .collect(java.util.stream.Collectors.joining(", "));
+    String alerts = status.recentAlerts().isEmpty() ? "none"
+        : status.recentAlerts().stream()
+            .map(alert -> alert.severity() + " " + alert.type() + "@" + alert.marketId()
+                + " " + alert.createdAt())
+            .collect(java.util.stream.Collectors.joining(" | "));
+    return "markets=" + metrics + "\nalerts=" + alerts + "\npending-reviews="
+        + status.pendingTransferReviews().size();
   }
 
   private void executeReconciliation(CommandActor actor) {
