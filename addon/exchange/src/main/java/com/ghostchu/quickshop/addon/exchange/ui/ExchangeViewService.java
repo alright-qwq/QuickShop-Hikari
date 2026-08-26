@@ -95,7 +95,8 @@ public final class ExchangeViewService {
         return presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
             market.displayName(), market.service().marketQuote(marketData),
             market.assetType(), market.symbol(), market.totalSupply(),
-            market.securityStatus().get(), issuedSupply(market)))).getFirst();
+            market.securityStatus().get(), issuedSupply(market), recentTrades(market.marketId()))))
+            .getFirst();
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + marketId, failure);
       }
@@ -170,14 +171,15 @@ public final class ExchangeViewService {
             book.bestAsk(), book.status(), book.asOf());
         MarketListPresenter.Entry entry = new MarketListPresenter.Entry(market.marketId(),
             market.displayName(), quote, market.assetType(), market.symbol(),
-            market.totalSupply(), market.securityStatus().get(), issuedSupply(market));
+            market.totalSupply(), market.securityStatus().get(), issuedSupply(market),
+            recentTrades(market.marketId()));
         MarketRow row = presenter.rows(List.of(entry)).getFirst();
         if (row.notional24h() != null) {
           row = new MarketRow(row.marketId(), row.displayName(), row.lastPrice(),
               row.bestBid(), row.bestAsk(), row.change24h(), row.volume24h(), row.status(),
               row.assetType(), row.symbol(), row.totalSupply(), row.securityStatus(),
               row.volatility24h(), row.high24h(), row.low24h(), row.issuedSupply(),
-              row.notional24h().setScale(2, RoundingMode.HALF_UP));
+              row.notional24h().setScale(2, RoundingMode.HALF_UP), row.recentTrades());
         }
         Instant asOf = book.asOf();
         List<com.ghostchu.quickshop.addon.exchange.marketdata.Candle> candles =
@@ -329,7 +331,8 @@ public final class ExchangeViewService {
             ? market.securityStatus().get() : null;
         entries.add(new MarketListPresenter.Entry(market.marketId(), market.displayName(),
             market.service().marketQuote(marketData), market.assetType(), market.symbol(),
-            market.totalSupply(), securityStatus, issuedSupply(market)));
+            market.totalSupply(), securityStatus, issuedSupply(market),
+            recentTrades(market.marketId())));
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + market.marketId(), failure);
       }
@@ -351,6 +354,21 @@ public final class ExchangeViewService {
   private static Long issuedSupply(MarketView market) {
     return market.assetType() != null && "VIRTUAL_SECURITY".equals(market.assetType())
         ? market.issuedSupply().get() : null;
+  }
+
+  private List<MarketRow.TradeLore> recentTrades(String marketId) {
+    if (repository == null) {
+      return List.of();
+    }
+    try {
+      return repository.marketTrades(marketId, 1).stream()
+          .map(trade -> new MarketRow.TradeLore(trade.price(), trade.quantity(),
+              trade.takerSide().name(),
+              trade.takerSide() == com.ghostchu.quickshop.addon.exchange.core.model.OrderSide.BUY))
+          .toList();
+    } catch (SQLException failure) {
+      throw new IllegalStateException("failed to load recent trades: " + marketId, failure);
+    }
   }
 
   private static BigDecimal spread(BigDecimal bid, BigDecimal ask) {

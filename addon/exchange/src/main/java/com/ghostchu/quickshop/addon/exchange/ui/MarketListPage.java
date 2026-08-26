@@ -105,6 +105,15 @@ final class MarketListPage {
               row.notional24h() == null ? "-"
                   : row.notional24h().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()),
           messages.component(player, "ui-market-status", row.status().name())));
+      for (MarketRow.TradeLore trade : row.recentTrades()) {
+        Component tradeLine = messages.component(player, "ui-market-last-trade",
+            trade.buy() ? trade.side() : "SELL", trade.price().toPlainString(),
+            trade.quantity());
+        tradeLine = tradeLine.color(trade.buy()
+            ? net.kyori.adventure.text.format.NamedTextColor.GREEN
+            : net.kyori.adventure.text.format.NamedTextColor.RED);
+        lore.add(tradeLine);
+      }
       if (row.volatility24h() != null) {
         lore.add(messages.component(player, "ui-market-volatility",
             percent(row.volatility24h())));

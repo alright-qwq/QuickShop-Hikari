@@ -15,7 +15,7 @@ public final class MarketListPresenter {
           quote.bestBid(), quote.bestAsk(), quote.change24h(), quote.volume24h(), quote.status(),
           entry.assetType(), entry.symbol(), entry.totalSupply(), entry.securityStatus(),
           quote.volatility24h(), quote.high24h(), quote.low24h(), entry.issuedSupply(),
-          quote.notional24h());
+          quote.notional24h(), entry.recentTrades());
     }).toList());
   }
 
@@ -56,21 +56,30 @@ public final class MarketListPresenter {
         quote.bestBid(), quote.bestAsk(), quote.change24h(), quote.volume24h(), quote.status(),
         entry.assetType(), entry.symbol(), entry.totalSupply(), entry.securityStatus(),
         quote.volatility24h(), quote.high24h(), quote.low24h(), entry.issuedSupply(),
-        quote.notional24h());
+        quote.notional24h(), entry.recentTrades());
   }
 
   public record Entry(String marketId, String displayName, MarketQuote quote,
                       String assetType, String symbol, Long totalSupply, String securityStatus,
-                      Long issuedSupply) {
+                      Long issuedSupply, List<MarketRow.TradeLore> recentTrades) {
     public Entry {
       if (marketId == null || marketId.isBlank() || displayName == null || displayName.isBlank()) {
         throw new IllegalArgumentException("market display data is required");
       }
       Objects.requireNonNull(quote, "quote");
+      recentTrades = List.copyOf(recentTrades == null ? List.of() : recentTrades);
     }
 
     public Entry(String marketId, String displayName, MarketQuote quote) {
-      this(marketId, displayName, quote, null, null, null, null, null);
+      this(marketId, displayName, quote, null, null, null, null, null, List.of());
+    }
+
+    /** Backwards-compatible projection without recent-trade lore. */
+    public Entry(String marketId, String displayName, MarketQuote quote,
+                 String assetType, String symbol, Long totalSupply, String securityStatus,
+                 Long issuedSupply) {
+      this(marketId, displayName, quote, assetType, symbol, totalSupply, securityStatus,
+          issuedSupply, List.of());
     }
   }
 }

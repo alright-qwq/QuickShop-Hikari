@@ -16,12 +16,36 @@ class MarketListPresenterTest {
     MarketQuote quote = new MarketQuote("diamond-usd", new BigDecimal("100"),
         new BigDecimal("100"), new BigDecimal("99"), new BigDecimal("101"),
         new BigDecimal("0.01"), 12, new BigDecimal("1200"), MarketStatus.OPEN, Instant.EPOCH);
+    List<MarketRow.TradeLore> recent = List.of(
+        new MarketRow.TradeLore(new BigDecimal("99.5"), 2, "BUY", true));
+    MarketListPresenter.Entry entry = new MarketListPresenter.Entry("diamond-usd", "Diamond",
+        quote, null, null, null, null, null, recent);
 
-    assertThat(presenter.rows(List.of(new MarketListPresenter.Entry("diamond-usd", "Diamond", quote))))
+    assertThat(presenter.rows(List.of(entry)))
         .containsExactly(new MarketRow("diamond-usd", "Diamond", new BigDecimal("100"),
             new BigDecimal("99"), new BigDecimal("101"), new BigDecimal("0.01"), 12,
             MarketStatus.OPEN, null, null, null, null, null, null, null, null,
-            new BigDecimal("1200")));
+            new BigDecimal("1200"), recent));
+  }
+
+  @Test
+  void carriesRecentTradesIntoRowsAndToleratesMissingTrades() {
+    MarketListPresenter presenter = new MarketListPresenter();
+    MarketQuote quote = new MarketQuote("alpha", new BigDecimal("10"),
+        new BigDecimal("10"), new BigDecimal("9"), new BigDecimal("11"),
+        BigDecimal.ZERO, 5, new BigDecimal("50"), MarketStatus.OPEN, Instant.EPOCH);
+    List<MarketRow.TradeLore> recent = List.of(
+        new MarketRow.TradeLore(new BigDecimal("10"), 3, "SELL", false));
+
+    MarketRow withTrades = presenter.rows(List.of(
+        new MarketListPresenter.Entry("alpha", "Alpha", quote, "VIRTUAL_SECURITY", "ALPHA",
+            1000L, "OPEN", 100L, recent))).getFirst();
+    MarketRow withoutTrades = presenter.rows(List.of(
+        new MarketListPresenter.Entry("alpha", "Alpha", quote))).getFirst();
+
+    assertThat(withTrades.recentTrades()).containsExactly(
+        new MarketRow.TradeLore(new BigDecimal("10"), 3, "SELL", false));
+    assertThat(withoutTrades.recentTrades()).isEmpty();
   }
 
   @Test
