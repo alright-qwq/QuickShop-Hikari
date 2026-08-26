@@ -10,16 +10,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AssetPageRowsTest {
   @Test
   void includesConfiguredTargetsWithZeroBalanceAndPreservesKnownBalances() {
-    List<AssetPageRows.Row> rows = AssetPageRows.merge(
+    AssetPageRows.Merged merged = AssetPageRows.merge(
         List.of(TransferTarget.currency("default"),
             TransferTarget.item("diamond/default", "Diamond / Default")),
         List.of(new AccountAssetBalance("currency", "default",
             new BigDecimal("12.50"), new BigDecimal("1.00"))));
 
-    assertThat(rows).containsExactly(
+    assertThat(merged.rows()).containsExactly(
         new AssetPageRows.Row(TransferTarget.currency("default"),
             new BigDecimal("12.50"), new BigDecimal("1.00")),
         new AssetPageRows.Row(TransferTarget.item("diamond/default", "Diamond / Default"),
             BigDecimal.ZERO, BigDecimal.ZERO));
+    assertThat(merged.securities()).isEmpty();
   }
 }

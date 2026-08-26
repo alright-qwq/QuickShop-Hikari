@@ -62,7 +62,8 @@ final class AssetsPage {
     }
     addMarketsNavigation(page, player);
     int slot = 9;
-    for (AssetPageRows.Row row : AssetPageRows.merge(views.transferTargets(), snapshot.assets())) {
+    AssetPageRows.Merged merged = AssetPageRows.merge(views.transferTargets(), snapshot.assets());
+    for (AssetPageRows.Row row : merged.rows()) {
       if (slot >= 45) break;
       TransferTarget target = row.target();
       List<Component> lore = List.of(
@@ -77,6 +78,18 @@ final class AssetsPage {
           new RunnableAction(click -> requestTransfer(playerId, target, true), ActionType.LEFT_CLICK),
           new RunnableAction(click -> requestTransfer(playerId, target, false), ActionType.RIGHT_CLICK))
           .withSlot(slot++);
+      page.addIcon(playerId, icon.build());
+    }
+    for (AssetPageRows.SecurityRow security : merged.securities()) {
+      if (slot >= 45) break;
+      List<Component> lore = List.of(
+          messages.component(player, "ui-assets-virtual-security"),
+          messages.component(player, "ui-assets-symbol", security.symbol()),
+          messages.component(player, "ui-assets-available", security.available().toPlainString()),
+          messages.component(player, "ui-assets-frozen", security.frozen().toPlainString()));
+      IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
+          .customName(Component.text(security.displayName())).lore(lore));
+      icon.withSlot(slot++);
       page.addIcon(playerId, icon.build());
     }
     for (TransferRecord transfer : snapshot.transfers()) {

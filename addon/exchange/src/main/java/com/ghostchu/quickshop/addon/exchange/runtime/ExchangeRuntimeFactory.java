@@ -132,14 +132,22 @@ public final class ExchangeRuntimeFactory {
         new java.util.LinkedHashMap<>();
     for (Map.Entry<String, PersistentOrderService> entry : markets.entrySet()) {
       MarketDefinition definition = registry.require(entry.getKey());
+      String assetType = definition.assetType().name();
+      String symbol = definition.assetType() == AssetType.VIRTUAL_SECURITY
+          ? definition.security().symbol() : null;
+      Long totalSupply = definition.assetType() == AssetType.VIRTUAL_SECURITY
+          ? definition.security().totalSupply() : null;
       marketViews.put(entry.getKey(), new ExchangeViewService.MarketView(
-          entry.getKey(), definition.displayName(), entry.getValue()));
+          entry.getKey(), definition.displayName(), entry.getValue(),
+          assetType, symbol, totalSupply, null));
       String currencyId = definition.structural().currencyId();
       transferTargets.putIfAbsent("currency:" + currencyId,
           com.ghostchu.quickshop.addon.exchange.ui.TransferTarget.currency(currencyId));
-      transferTargets.put("item:" + entry.getKey(),
-          com.ghostchu.quickshop.addon.exchange.ui.TransferTarget.item(
-              entry.getKey(), definition.displayName()));
+      if (definition.assetType() != AssetType.VIRTUAL_SECURITY) {
+        transferTargets.put("item:" + entry.getKey(),
+            com.ghostchu.quickshop.addon.exchange.ui.TransferTarget.item(
+                entry.getKey(), definition.displayName()));
+      }
     }
     ExchangeViewService views = new ExchangeViewService(marketViews, marketData, maintenance,
         repository, java.util.List.copyOf(transferTargets.values()));

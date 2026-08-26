@@ -3,8 +3,10 @@ package com.ghostchu.quickshop.addon.exchange.ui;
 import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import net.kyori.adventure.text.Component;
 import net.tnemc.menu.core.PlayerInstancePage;
 import net.tnemc.menu.core.builder.IconBuilder;
 import net.tnemc.menu.core.callbacks.page.PageOpenCallback;
@@ -72,13 +74,23 @@ final class MarketListPage {
       if (slot >= 45) break;
       String bid = row.bestBid() == null ? "-" : row.bestBid().toPlainString();
       String ask = row.bestAsk() == null ? "-" : row.bestAsk().toPlainString();
+      List<Component> lore = new ArrayList<>(List.of(
+          messages.component(player, "ui-market-last", row.lastPrice().toPlainString()),
+          messages.component(player, "ui-market-bid-ask", bid, ask),
+          messages.component(player, "ui-market-volume", row.volume24h()),
+          messages.component(player, "ui-market-status", row.status().name())));
+      if (row.assetType() != null) {
+        lore.add(messages.component(player, "ui-market-asset-type", row.assetType()));
+      }
+      if (row.symbol() != null) {
+        lore.add(messages.component(player, "ui-market-symbol", row.symbol()));
+      }
+      if (row.totalSupply() != null) {
+        lore.add(messages.component(player, "ui-market-total-supply", row.totalSupply()));
+      }
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
           .customName(net.kyori.adventure.text.Component.text(row.displayName()))
-          .lore(List.of(
-              messages.component(player, "ui-market-last", row.lastPrice().toPlainString()),
-              messages.component(player, "ui-market-bid-ask", bid, ask),
-              messages.component(player, "ui-market-volume", row.volume24h()),
-              messages.component(player, "ui-market-status", row.status().name()))))
+          .lore(lore))
           .withActions(new RunnableAction(click -> {
             contexts.put(playerId, ExchangeMenuRequest.market(row.marketId()));
             MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKET_DETAIL.page(),

@@ -11,6 +11,8 @@ import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.InsufficientAssetsException;
 import com.ghostchu.quickshop.addon.exchange.repository.ItemBalance;
+import com.ghostchu.quickshop.addon.exchange.repository.AccountAssetBalance;
+import com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -23,6 +25,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ConcurrentModificationException;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -88,6 +91,44 @@ class JdbcBalanceRepositoryTest {
     });
 
     assertItems(repository.inTransaction(tx -> tx.inventory(account, "DIAMOND")), 5, 2, 4);
+  }
+
+  @Test
+  void accountAssetsIncludesSecurityBalancesWithSymbolAndName() throws Exception {
+    UUID account = UUID.randomUUID();
+    try (Connection connection = connections.open();
+         PreparedStatement market = connection.prepareStatement(
+             "INSERT INTO " + tables.markets()
+                 + " (market_id,currency_id,item_fingerprint,item_template,structural_payload,"
+                 + "fee_schedule_payload,risk_payload,structural_version,risk_version,created_at)"
+                 + " VALUES (?,?,?,?,?,?,?,?,?,?)")) {
+      market.setString(1, "concept_alpha");
+      market.setString(2, "default");
+      market.setString(3, "");
+      market.setString(4, "");
+      market.setString(5, "{}");
+      market.setString(6, "{}");
+      market.setString(7, "{}");
+      market.setLong(8, 1);
+      market.setLong(9, 1);
+      market.setLong(10, 0);
+      market.executeUpdate();
+    }
+    Instant now = Instant.ofEpochMilli(1000);
+    repository.inTransaction(tx -> {
+      tx.insertSecurityDefinition(new SecurityDefinitionState("concept_alpha", "ALPHA", "Alpha",
+          "Concept stock", "default", new BigDecimal("10.00"), 1000, 0, 1, "OPEN", null,
+          now, now, 0));
+      tx.creditAvailableSecurity(account, "concept_alpha", 25);
+      tx.freezeSecurity(account, "concept_alpha", 5);
+      return null;
+    });
+
+    List<AccountAssetBalance> assets = repository.accountAssets(account);
+
+    assertThat(assets).contains(new AccountAssetBalance(AccountAssetBalance.Kind.SECURITY,
+        "concept_alpha", new BigDecimal("20"), new BigDecimal("5"),
+        "Alpha (ALPHA)"));
   }
 
   @Test

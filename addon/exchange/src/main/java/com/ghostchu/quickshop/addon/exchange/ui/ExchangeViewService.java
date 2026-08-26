@@ -91,7 +91,9 @@ public final class ExchangeViewService {
     return CompletableFuture.supplyAsync(() -> {
       try {
         return presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
-            market.displayName(), market.service().marketQuote(marketData)))).getFirst();
+            market.displayName(), market.service().marketQuote(marketData),
+            market.assetType(), market.symbol(), market.totalSupply(),
+            market.securityStatus()))).getFirst();
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + marketId, failure);
       }
@@ -107,7 +109,8 @@ public final class ExchangeViewService {
         MarketQuote quote = marketData.quote(marketId, book.referencePrice(), book.bestBid(),
             book.bestAsk(), book.status(), book.asOf());
         MarketRow row = presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
-            market.displayName(), quote))).getFirst();
+            market.displayName(), quote, market.assetType(), market.symbol(),
+            market.totalSupply(), market.securityStatus()))).getFirst();
         Instant asOf = book.asOf();
         List<com.ghostchu.quickshop.addon.exchange.marketdata.Candle> candles =
             marketData.recentCandles(marketId, asOf.minus(Duration.ofMinutes(9)),
@@ -209,7 +212,8 @@ public final class ExchangeViewService {
     for (MarketView market : markets.values()) {
       try {
         entries.add(new MarketListPresenter.Entry(market.marketId(), market.displayName(),
-            market.service().marketQuote(marketData)));
+            market.service().marketQuote(marketData), market.assetType(), market.symbol(),
+            market.totalSupply(), market.securityStatus()));
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + market.marketId(), failure);
       }
@@ -240,7 +244,13 @@ public final class ExchangeViewService {
     return midpoint.signum() == 0 ? null : spread.divide(midpoint, 8, RoundingMode.HALF_UP);
   }
 
-  public record MarketView(String marketId, String displayName, PersistentOrderService service) {
+  public record MarketView(String marketId, String displayName, PersistentOrderService service,
+                           String assetType, String symbol, Long totalSupply,
+                           String securityStatus) {
+    public MarketView(String marketId, String displayName, PersistentOrderService service) {
+      this(marketId, displayName, service, null, null, null, null);
+    }
+
     public MarketView {
       if (marketId == null || marketId.isBlank() || displayName == null || displayName.isBlank()) {
         throw new IllegalArgumentException("market display data is required");

@@ -33,6 +33,10 @@ en-US:
   ui-market-volume: '24h volume: <0>'
   ui-market-status: 'Status: <0>'
   ui-market-spread: 'Spread: <0> (<1>)'
+  ui-market-asset-type: 'Asset: <0>'
+  ui-market-symbol: 'Symbol: <0>'
+  ui-market-total-supply: 'Total supply: <0>'
+  ui-market-security-status: 'Security status: <0>'
   ui-nav-markets: Markets
   ui-nav-assets: Assets
   ui-nav-orders: My orders
@@ -65,6 +69,8 @@ en-US:
   ui-trend-volume: 'Volume: <0>'
   ui-assets-available: 'Available: <0>'
   ui-assets-frozen: 'Frozen: <0>'
+  ui-assets-virtual-security: Virtual security (ledger-only, cannot deposit or withdraw)
+  ui-assets-symbol: 'Symbol: <0>'
   ui-assets-deposit-action: 'Left click: deposit'
   ui-assets-withdraw-action: 'Right click: withdraw'
   ui-assets-transfer-title: 'Transfer <0>'
@@ -149,6 +155,10 @@ zh-CN:
   ui-market-volume: '24 小时成交量：<0>'
   ui-market-status: '状态：<0>'
   ui-market-spread: '价差：<0>（<1>）'
+  ui-market-asset-type: '资产类型：<0>'
+  ui-market-symbol: '代码：<0>'
+  ui-market-total-supply: '总发行量：<0>'
+  ui-market-security-status: '证券状态：<0>'
   ui-nav-markets: 市场列表
   ui-nav-assets: 我的资产
   ui-nav-orders: 我的订单
@@ -181,6 +191,8 @@ zh-CN:
   ui-trend-volume: '成交量：<0>'
   ui-assets-available: '可用：<0>'
   ui-assets-frozen: '冻结：<0>'
+  ui-assets-virtual-security: '虚拟证券（纯账本，不可充值/提现）'
+  ui-assets-symbol: '代码：<0>'
   ui-assets-deposit-action: '左键：充值'
   ui-assets-withdraw-action: '右键：提现'
   ui-assets-transfer-title: '转账 <0>'

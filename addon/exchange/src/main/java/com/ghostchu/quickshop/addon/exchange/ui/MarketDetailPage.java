@@ -86,14 +86,26 @@ final class MarketDetailPage {
     String spreadPercent = dashboard.spreadPercent() == null ? "-"
         : dashboard.spreadPercent().multiply(java.math.BigDecimal.valueOf(100)).stripTrailingZeros()
             .toPlainString() + "%";
-    List<Component> lore = List.of(
+    java.util.ArrayList<Component> lore = new java.util.ArrayList<>(List.of(
         messages.component(player, "ui-market-last", row.lastPrice().toPlainString()),
         messages.component(player, "ui-market-bid", bid),
         messages.component(player, "ui-market-ask", ask),
         messages.component(player, "ui-market-spread", spread, spreadPercent),
         messages.component(player, "ui-market-change", row.change24h().toPlainString()),
         messages.component(player, "ui-market-volume", row.volume24h()),
-        messages.component(player, "ui-market-status", row.status().name()));
+        messages.component(player, "ui-market-status", row.status().name())));
+    if (row.assetType() != null) {
+      lore.add(messages.component(player, "ui-market-asset-type", row.assetType()));
+    }
+    if (row.symbol() != null) {
+      lore.add(messages.component(player, "ui-market-symbol", row.symbol()));
+    }
+    if (row.totalSupply() != null) {
+      lore.add(messages.component(player, "ui-market-total-supply", row.totalSupply()));
+    }
+    if (row.securityStatus() != null) {
+      lore.add(messages.component(player, "ui-market-security-status", row.securityStatus()));
+    }
     page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
         .customName(Component.text(row.displayName())).lore(lore)).withSlot(4).build());
     addNavigation(page, player, 0, "COMPASS", "ui-nav-markets", ExchangeMenuPage.MARKETS);

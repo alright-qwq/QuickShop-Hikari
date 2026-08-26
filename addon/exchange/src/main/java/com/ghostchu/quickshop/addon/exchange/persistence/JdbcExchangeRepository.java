@@ -213,21 +213,38 @@ public final class JdbcExchangeRepository
                  + " WHERE account_id=? AND (available<>0 OR frozen<>0)");
          PreparedStatement items = connection.prepareStatement(
              "SELECT market_id,available_quantity,frozen_quantity FROM " + tables.inventory()
-                 + " WHERE account_id=? AND (available_quantity<>0 OR frozen_quantity<>0)")) {
+                 + " WHERE account_id=? AND (available_quantity<>0 OR frozen_quantity<>0)");
+         PreparedStatement securities = connection.prepareStatement(
+             "SELECT b.market_id,s.symbol,s.name,b.available,b.frozen FROM "
+                 + tables.securityBalances() + " b JOIN " + tables.securities()
+                 + " s ON s.market_id=b.market_id"
+                 + " WHERE b.owner_id=? AND (b.available<>0 OR b.frozen<>0)")) {
       currencies.setString(1, accountId.toString());
       try (ResultSet result = currencies.executeQuery()) {
         while (result.next()) {
-          balances.add(new AccountAssetBalance("currency", result.getString("currency_id"),
+          balances.add(new AccountAssetBalance(AccountAssetBalance.Kind.CURRENCY,
+              result.getString("currency_id"),
               new BigDecimal(result.getString("available")),
-              new BigDecimal(result.getString("frozen"))));
+              new BigDecimal(result.getString("frozen")), null));
         }
       }
       items.setString(1, accountId.toString());
       try (ResultSet result = items.executeQuery()) {
         while (result.next()) {
-          balances.add(new AccountAssetBalance("item", result.getString("market_id"),
+          balances.add(new AccountAssetBalance(AccountAssetBalance.Kind.ITEM,
+              result.getString("market_id"),
               BigDecimal.valueOf(result.getLong("available_quantity")),
-              BigDecimal.valueOf(result.getLong("frozen_quantity"))));
+              BigDecimal.valueOf(result.getLong("frozen_quantity")), null));
+        }
+      }
+      securities.setString(1, accountId.toString());
+      try (ResultSet result = securities.executeQuery()) {
+        while (result.next()) {
+          balances.add(new AccountAssetBalance(AccountAssetBalance.Kind.SECURITY,
+              result.getString("market_id"),
+              BigDecimal.valueOf(result.getLong("available")),
+              BigDecimal.valueOf(result.getLong("frozen")),
+              result.getString("name") + " (" + result.getString("symbol") + ")"));
         }
       }
     }
