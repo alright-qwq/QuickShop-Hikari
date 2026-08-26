@@ -4,14 +4,14 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `7837ed828`
+- Current HEAD: `60a153e12`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
   be retried with `git -c http.version=HTTP/1.1 push origin codex/exchange-order-book` — never
   change the remote URL.
 - Build: `export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home`
-- Verify: `mvn -pl addon/exchange -am test -q` then `git diff --check`; last full run 415/415 green.
+- Verify: `mvn -pl addon/exchange -am test -q` then `git diff --check`; last full run 441/441 green.
 
 ## What shipped since the last handoff (after 2026-07-28)
 
@@ -303,6 +303,18 @@ Full exchange test suite: 416 tests, 0 failures.
 - UI snapshots are immutable records; all DB reads happen on the maintenance executor
   (`ExchangeViewService`), never on the player thread. Confirm-page quote loads route through
   `marketQuoteAsync` on that same executor.
+
+## Twenty-first continuation (same day)
+
+- Audit status now highlights the open-alert line in red with a warning glyph when any
+  alert is still unacknowledged (`/qse admin audit status`), and tab completion under
+  `/qse admin audit` suggests `status`, `ack`, `reconcile`, `export` plus an `<alertId>`
+  placeholder after `ack`. (`60a153e12`)
+- Documented the single-consumer replace semantics of `MarketDataService` player
+  subscriptions (one active view per player; a second subscribe replaces the old
+  callback rather than stacking refreshes).
+
+Full exchange test suite: 441 tests, 0 failures.
 
 ## Next iteration candidates (user-granted autonomy)
 
