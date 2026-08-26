@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `24e0c7d5e`
+- Current HEAD: `235bf176f`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -151,6 +151,13 @@ Full exchange test suite: 435 tests, 0 failures.
 
 - `/qse help` prints a bilingual command overview for players; tab completion includes
   `help`. (`24e0c7d5e`)
+
+Full exchange test suite: 436 tests, 0 failures.
+
+## Fourteenth continuation (same day)
+
+- Trade-history header now shows the market's 24h change alongside last price and best
+  bid/ask, matching the market detail view. (`235bf176f`)
 
 Full exchange test suite: 436 tests, 0 failures.
 
