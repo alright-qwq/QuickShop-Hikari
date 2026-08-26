@@ -128,6 +128,8 @@ To close a stock, first cancel or let all open orders finish, then:
   fixed sections. Transfers are paginated (12 per page) with previous/next controls and a page
   indicator; if there are more currency assets or securities than fit on the page, the last row
   shows a "+N more" notice pointing to the history page or market list.
+- The assets page and My Orders page refresh automatically when a trade occurs in any market,
+  so balances, holdings, and remaining order quantities stay current while the menu is open.
 - The order confirmation page shows the current best quote, tells you whether a limit order
   will match immediately or rest on the book, shows the applicable fee rate, an estimated
   fee, and how much currency a buy order will freeze on submit (worst-case fees included,
@@ -135,6 +137,9 @@ To close a stock, first cancel or let all open orders finish, then:
   confirmations also show the estimated net proceeds after fees.
 - The cancellation confirmation page shows the market, side, remaining quantity, and the exact
   frozen currency/quantity that will be released when the order is cancelled.
+- After a confirmation is submitted successfully you are returned to the relevant page:
+  the market detail for an order, My Orders after a cancellation, and the assets page after a
+  deposit/withdrawal. Failed/rejected requests stay on the confirmation page.
 - The market detail page shows an "Executable depth" summary: the total bid and ask quantity
   currently executable (inside the price cage) across the whole book, so you can see at a
   glance how much liquidity is immediately available.

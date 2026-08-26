@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `cfe231c0e`
+- Current HEAD: `3732e8cf8`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -109,6 +109,23 @@ Full exchange test suite: 416 tests, 0 failures.
   cancel; a loading line is shown while the async read is in flight. (8fb9cc582)
 - Market detail adds an "executable depth" summary (slot 7): the total bid and ask
   quantity currently executable (inside the price cage) across the whole book. (cfe231c0e)
+
+Full exchange test suite: 421 tests, 0 failures.
+
+## Fourth continuation (same day)
+
+- Account history sections now use the same N+1 next-page probe as orders/trades, so a
+  full 12-row page no longer shows a phantom "next page" button. (7a15ee146)
+- Assets and My Orders pages live-refresh on market trade updates, so balances and open
+  orders stay current while the menu is open. (af1f54b6c, 133edbafa)
+- Confirmation pages now show the actual worst-case frozen amount (notional + max fee
+  rate) matching `ReservationCalculator`, and the fee estimate uses the taker rate for
+  a limit order that crosses the book and the maker rate for a resting one. (536e50a94,
+  07e73ac80)
+- Market list sort/filter controls are clearer (comparator icon for sort, explicit
+  "current" line, and a distinct filter icon). (5fa1a0260)
+- After a successful submission the player is returned to the relevant page: market
+  detail for orders, My Orders after a cancel, and Assets after a transfer. (3732e8cf8)
 
 Full exchange test suite: 421 tests, 0 failures.
 
