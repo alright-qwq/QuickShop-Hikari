@@ -123,6 +123,49 @@ class VirtualSecuritySettlementTest {
         .hasMessageContaining("multiple of minimum unit");
   }
 
+  @Test
+  void reconciliationCountsSecurityBalancesAsCustodyLiabilities() throws Exception {
+    ConnectionProvider connections = SqliteTestDatabase.at(temp.resolve("virtual-reconcile.db"));
+    TableNames tables = new TableNames("qs_");
+    new MigrationRunner(connections, SqlDialect.SQLITE, tables).migrate();
+    MarketRules rules = new MarketRules("concept_alpha", "USD", new BigDecimal("10.00"),
+        new BigDecimal("1.00"), new BigDecimal("100.00"), new BigDecimal("0.01"),
+        1, 10000, 2, new BigDecimal("0.001"), new BigDecimal("0.002"));
+    JdbcExchangeRepository repository =
+        new JdbcExchangeRepository(connections, SqlDialect.SQLITE, tables);
+    seedMarket(connections, tables, rules);
+    seedSecurity(connections, tables, rules.marketId());
+    UUID holder = UUID.randomUUID();
+    new com.ghostchu.quickshop.addon.exchange.security.SecurityService(repository).issue(
+        UUID.randomUUID(), UUID.randomUUID(), rules.marketId(), holder, 30,
+        "reconciliation fixture");
+    repository.inTransaction(tx -> {
+      tx.freezeSecurity(holder, rules.marketId(), 10);
+      return null;
+    });
+
+    com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport report =
+        new com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationService(repository).run();
+
+    assertThat(report.ledgerDifferences()).isEmpty();
+    assertThat(report.custodyDifferences()).isEmpty();
+    assertThat(report.underReservedOrders()).isZero();
+    assertThat(report.balanced()).isTrue();
+
+    // A tampered security balance must surface as a custody difference.
+    try (Connection connection = connections.open();
+         PreparedStatement tamper = connection.prepareStatement(
+             "UPDATE " + tables.securityBalances()
+                 + " SET available=available+5,version=version+1 WHERE market_id=?")) {
+      tamper.setString(1, rules.marketId());
+      tamper.executeUpdate();
+    }
+    com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport detected =
+        new com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationService(repository).run();
+    assertThat(detected.custodyDifferences().get(rules.marketId())).isEqualByComparingTo("5");
+    assertThat(detected.balanced()).isFalse();
+  }
+
   private static void seedMarket(ConnectionProvider connections, TableNames tables,
                                  MarketRules rules) throws Exception {
     try (Connection connection = connections.open()) {

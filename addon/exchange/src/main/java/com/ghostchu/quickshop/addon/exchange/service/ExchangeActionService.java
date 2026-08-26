@@ -9,14 +9,22 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Predicate;
 
 /** Backend action facade used by command and GUI adapters. */
 public final class ExchangeActionService {
   private final Map<String, PersistentOrderService> markets;
   private final TransferActions transfers;
+  private final Predicate<String> virtualSecurityMarket;
 
   public ExchangeActionService(Map<String, PersistentOrderService> markets,
                                MoneyTransferService money, ItemTransferService items) {
+    this(markets, money, items, marketId -> false);
+  }
+
+  public ExchangeActionService(Map<String, PersistentOrderService> markets,
+                               MoneyTransferService money, ItemTransferService items,
+                               Predicate<String> virtualSecurityMarket) {
     this(markets, new TransferActions() {
       @Override
       public CompletableFuture<TransferRecord> moneyDeposit(
@@ -40,12 +48,20 @@ public final class ExchangeActionService {
           ExchangeMenuRequest.TransferDraft draft) {
         return items.withdraw(draft.requestId(), draft.accountId(), draft.marketId(), draft.quantity());
       }
-    });
+    }, Objects.requireNonNull(virtualSecurityMarket, "virtualSecurityMarket"));
   }
 
-  ExchangeActionService(Map<String, PersistentOrderService> markets, TransferActions transfers) {
+  ExchangeActionService(Map<String, PersistentOrderService> markets,
+                        TransferActions transfers) {
+    this(markets, transfers, marketId -> false);
+  }
+
+  ExchangeActionService(Map<String, PersistentOrderService> markets, TransferActions transfers,
+                        Predicate<String> virtualSecurityMarket) {
     this.markets = Map.copyOf(Objects.requireNonNull(markets, "markets"));
     this.transfers = Objects.requireNonNull(transfers, "transfers");
+    this.virtualSecurityMarket =
+        Objects.requireNonNull(virtualSecurityMarket, "virtualSecurityMarket");
   }
 
   public OrderReceipt submitOrder(ExchangeMenuRequest.OrderDraft draft) throws SQLException {
@@ -83,14 +99,22 @@ public final class ExchangeActionService {
       case MONEY_DEPOSIT -> transfers.moneyDeposit(draft);
       case MONEY_WITHDRAWAL -> transfers.moneyWithdrawal(draft);
       case ITEM_DEPOSIT -> {
-        market(draft.marketId());
+        requirePhysicalMarket(draft.marketId());
         yield transfers.itemDeposit(draft);
       }
       case ITEM_WITHDRAWAL -> {
-        market(draft.marketId());
+        requirePhysicalMarket(draft.marketId());
         yield transfers.itemWithdrawal(draft);
       }
     };
+  }
+
+  private void requirePhysicalMarket(String marketId) {
+    market(marketId);
+    if (virtualSecurityMarket.test(marketId)) {
+      throw new IllegalArgumentException(
+          "virtual security markets do not support item transfers: " + marketId);
+    }
   }
 
   public PersistentOrderService market(String marketId) {

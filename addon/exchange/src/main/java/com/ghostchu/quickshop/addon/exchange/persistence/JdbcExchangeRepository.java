@@ -1590,12 +1590,20 @@ public final class JdbcExchangeRepository
       Map<String, BigDecimal> custody = readExactTotals(
           "SELECT asset_id,amount FROM " + tables.entries()
               + " WHERE account_code LIKE 'custody:%'", "amount");
+      mergeTotals(custody, negatedTotals(
+          "SELECT market_id AS asset_id,issued_supply FROM " + tables.securities(),
+          "issued_supply"));
+
       Map<String, BigDecimal> liabilities = readExactTotals(
           "SELECT currency_id AS asset_id,available,frozen FROM " + tables.accounts(),
           "available", "frozen");
       mergeTotals(liabilities, readExactTotals(
           "SELECT market_id AS asset_id,available_quantity,frozen_quantity FROM "
               + tables.inventory(), "available_quantity", "frozen_quantity"));
+      mergeTotals(liabilities, readExactTotals(
+          "SELECT market_id AS asset_id,available,frozen FROM " + tables.securityBalances(),
+          "available", "frozen"));
+
       return new ReconciliationReport(ledgerDifferences, custodyDifferences(custody, liabilities),
           underReservedOrderCount());
     }
@@ -1628,6 +1636,13 @@ public final class JdbcExchangeRepository
     private static void mergeTotals(Map<String, BigDecimal> destination,
                                     Map<String, BigDecimal> additions) {
       additions.forEach((asset, total) -> destination.merge(asset, total, BigDecimal::add));
+    }
+
+    private Map<String, BigDecimal> negatedTotals(String sql, String... amountColumns)
+        throws SQLException {
+      Map<String, BigDecimal> totals = readExactTotals(sql, amountColumns);
+      totals.replaceAll((asset, total) -> total.negate());
+      return totals;
     }
 
     private static Map<String, BigDecimal> custodyDifferences(

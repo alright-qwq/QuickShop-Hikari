@@ -23,6 +23,31 @@ class ExchangeActionServiceTest {
         .hasMessageContaining("unknown market");
   }
 
+  @Test
+  void rejectsItemTransfersForVirtualSecurityMarkets() {
+    ExchangeMenuRequest.TransferDraft draft = new ExchangeMenuRequest.TransferDraft(
+        UUID.randomUUID(), UUID.randomUUID(), ExchangeMenuRequest.TransferKind.ITEM_DEPOSIT,
+        "concept_alpha", null, 1, "concept_alpha");
+    PersistentOrderService physicalService = new PersistentOrderService(
+        new com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository() {
+          @Override
+          public <T> T inTransaction(TransactionWork<T> work) {
+            throw new AssertionError();
+          }
+        },
+        com.ghostchu.quickshop.addon.exchange.core.TestFixtures.rules(),
+        com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP,
+        com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits.defaults(),
+        null, ItemAssetCustody.INSTANCE);
+    ExchangeActionService actions = new ExchangeActionService(Map.of("concept_alpha",
+        physicalService), transfers(), marketId -> marketId.equals("concept_alpha"));
+
+    assertThatThrownBy(() -> actions.submitTransfer(draft))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("virtual security markets do not support item transfers");
+  }
+
   private static ExchangeActionService.TransferActions transfers() {
     return new ExchangeActionService.TransferActions() {
       public java.util.concurrent.CompletableFuture<com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord>

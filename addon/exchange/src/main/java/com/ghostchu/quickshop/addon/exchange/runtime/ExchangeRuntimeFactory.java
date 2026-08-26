@@ -84,6 +84,7 @@ public final class ExchangeRuntimeFactory {
         JdbcExchangeRepository repository = new JdbcExchangeRepository(
             database.connections(), database.dialect(), tables);
         registerMarkets(database.connections(), tables, configured);
+        validateRegisteredMarkets(database.connections(), tables, configured);
         bootstrapped.set(repository);
       });
       if (!startupOwned || bootstrapped.get() == null) {
@@ -115,7 +116,9 @@ public final class ExchangeRuntimeFactory {
     ItemTransferService itemTransfers = new ItemTransferService(repository, repository, inventory,
         marketId -> itemTemplate(registry.require(marketId)), playerOperations,
         Clock.systemUTC(), UUID::randomUUID);
-    ExchangeActionService actions = new ExchangeActionService(markets, moneyTransfers, itemTransfers);
+    ExchangeActionService actions = new ExchangeActionService(
+        markets, moneyTransfers, itemTransfers,
+        marketId -> registry.require(marketId).assetType() == AssetType.VIRTUAL_SECURITY);
     DrainingExecutor recoveryExecutor = new DrainingExecutor(
         "qs-exchange-recovery-", Duration.ofSeconds(30));
     DrainingExecutor recoveryFenceExecutor = new DrainingExecutor(
@@ -309,32 +312,85 @@ public final class ExchangeRuntimeFactory {
     }
   }
 
+  private static void validateRegisteredMarkets(
+      ConnectionProvider connections, TableNames tables, MarketRegistry registry)
+      throws SQLException {
+    try (Connection connection = connections.open()) {
+      for (String marketId : registry.marketIds()) {
+        MarketDefinition definition = registry.require(marketId);
+        String assetType;
+        try (PreparedStatement query = connection.prepareStatement(
+            "SELECT asset_type FROM " + tables.markets() + " WHERE market_id=?")) {
+          query.setString(1, marketId);
+          try (ResultSet result = query.executeQuery()) {
+            if (!result.next()) {
+              throw new IllegalStateException(
+                  "configured market is missing from the database: " + marketId);
+            }
+            assetType = result.getString("asset_type");
+          }
+        }
+        if (definition.assetType().name().equals(assetType)) {
+          if (definition.assetType() == AssetType.VIRTUAL_SECURITY) {
+            try (PreparedStatement query = connection.prepareStatement(
+                "SELECT market_id FROM " + tables.securities() + " WHERE market_id=?")) {
+              query.setString(1, marketId);
+              try (ResultSet result = query.executeQuery()) {
+                if (!result.next()) {
+                  throw new IllegalStateException(
+                      "virtual security market is missing its security definition: " + marketId);
+                }
+              }
+            }
+          }
+          continue;
+        }
+        throw new IllegalStateException(
+            "configured market asset type changed: " + marketId + " expected "
+                + definition.assetType().name() + " but database has " + assetType);
+      }
+    }
+  }
+
   private static void insertMarket(Connection connection, TableNames tables, MarketDefinition definition)
       throws SQLException {
     MarketRules rules = rules(definition);
+    boolean virtual = definition.assetType() == AssetType.VIRTUAL_SECURITY;
     try (PreparedStatement market = connection.prepareStatement(
         "INSERT INTO " + tables.markets()
-            + " (market_id,currency_id,item_fingerprint,item_template,structural_payload,"
+            + " (market_id,currency_id,item_fingerprint,item_template,asset_type,structural_payload,"
             + "fee_schedule_payload,risk_payload,structural_version,risk_version,created_at)"
-            + " VALUES (?,?,?,?,?,?,?,?,?,?)");
+            + " VALUES (?,?,?,?,?,?,?,?,?,?,?)");
          PreparedStatement state = connection.prepareStatement(
              "INSERT INTO " + tables.marketState()
                  + " (market_id,status,priority_sequence,match_sequence,reference_price,"
                  + "last_price,halted_until,discovery_quantity,circuit_breaker_level,version)"
-                 + " VALUES (?,?,?,?,?,?,?,?,?,?)")) {
+                 + " VALUES (?,?,?,?,?,?,?,?,?,?)");
+         PreparedStatement security = virtual ? connection.prepareStatement(
+             "INSERT INTO " + tables.securities()
+                 + " (market_id,symbol,name,description,currency_id,base_price,total_supply,"
+                 + "issued_supply,minimum_unit,status,recovery_account,created_at,updated_at,version)"
+                 + " VALUES (?,?,?,?,?,?,?,0,?,?,NULL,?,?,0)")
+             : null) {
       market.setString(1, definition.marketId());
       market.setString(2, definition.structural().currencyId());
-      market.setString(3, definition.item().fingerprint() == null
-          ? definition.item().material() : definition.item().fingerprint());
-      market.setString(4, Optional.ofNullable(definition.item().encodedTemplate()).orElse(""));
-      market.setString(5, "{}");
-      market.setString(6, "{\"makerFeeRate\":\"" + rules.makerFeeRate().toPlainString()
+      if (virtual) {
+        market.setString(3, "");
+        market.setString(4, "");
+      } else {
+        market.setString(3, definition.item().fingerprint() == null
+            ? definition.item().material() : definition.item().fingerprint());
+        market.setString(4, Optional.ofNullable(definition.item().encodedTemplate()).orElse(""));
+      }
+      market.setString(5, definition.assetType().name());
+      market.setString(6, "{}");
+      market.setString(7, "{\"makerFeeRate\":\"" + rules.makerFeeRate().toPlainString()
           + "\",\"takerFeeRate\":\"" + rules.takerFeeRate().toPlainString()
           + "\",\"currencyScale\":" + definition.structural().currencyScale() + "}");
-      market.setString(7, "{}");
-      market.setLong(8, 1L);
+      market.setString(8, "{}");
       market.setLong(9, 1L);
-      market.setLong(10, Instant.now().toEpochMilli());
+      market.setLong(10, 1L);
+      market.setLong(11, Instant.now().toEpochMilli());
       market.executeUpdate();
 
       state.setString(1, definition.marketId());
@@ -348,6 +404,21 @@ public final class ExchangeRuntimeFactory {
       state.setInt(9, 0);
       state.setLong(10, 0L);
       state.executeUpdate();
+
+      if (virtual) {
+        security.setString(1, definition.marketId());
+        security.setString(2, definition.security().symbol());
+        security.setString(3, definition.security().name());
+        security.setString(4, definition.security().description());
+        security.setString(5, definition.security().currencyId());
+        security.setString(6, rules.basePrice().toPlainString());
+        security.setLong(7, definition.security().totalSupply());
+        security.setLong(8, definition.security().minimumUnit());
+        security.setString(9, definition.enabled() ? "OPEN" : "CLOSED");
+        security.setLong(10, Instant.now().toEpochMilli());
+        security.setLong(11, Instant.now().toEpochMilli());
+        security.executeUpdate();
+      }
     }
   }
 
@@ -382,6 +453,10 @@ public final class ExchangeRuntimeFactory {
   }
 
   private ItemStack itemTemplate(MarketDefinition definition) {
+    if (definition.assetType() == AssetType.VIRTUAL_SECURITY) {
+      throw new IllegalStateException(
+          "virtual security markets must not construct item templates: " + definition.marketId());
+    }
     if (definition.item().encodedTemplate() != null && !definition.item().encodedTemplate().isBlank()) {
       ItemStack decoded = quickShop.platform().decodeStack(definition.item().encodedTemplate());
       if (decoded == null) {

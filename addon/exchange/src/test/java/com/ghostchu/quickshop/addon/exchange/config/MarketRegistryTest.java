@@ -125,6 +125,20 @@ class MarketRegistryTest {
   }
 
   @Test
+  void loadsDisabledExampleStockFromBundledYaml() throws Exception {
+    File config = new File(getClass().getClassLoader().getResource("config.yml").toURI());
+    File markets = new File(getClass().getClassLoader().getResource("markets.yml").toURI());
+
+    MarketRegistry registry = MarketRegistry.load(config, markets);
+    MarketDefinition alpha = registry.require("concept_alpha");
+
+    assertThat(alpha.assetType()).isEqualTo(AssetType.VIRTUAL_SECURITY);
+    assertThat(alpha.enabled()).isFalse();
+    assertThat(alpha.security().symbol()).isEqualTo("ALPHA");
+    assertThat(alpha.security().totalSupply()).isEqualTo(1000);
+  }
+
+  @Test
   void rejectsVirtualSecurityMarketWithItemSection(@TempDir Path temp) throws Exception {
     Path config = temp.resolve("config.yml");
     Path markets = temp.resolve("markets.yml");
