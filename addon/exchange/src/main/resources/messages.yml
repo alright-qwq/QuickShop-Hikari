@@ -53,6 +53,7 @@ en-US:
   ui-market-my-currency: 'Your currency: <0> available / <1> frozen'
   ui-market-my-items: 'Your holding: <0> available / <1> frozen'
   ui-market-my-security: 'Your holding: <0> available / <1> frozen'
+  ui-market-my-open-orders: 'Your open orders in this market: <0>'
   ui-market-trades-24h: '24h trades: <0>'
   ui-market-trades-buy-sell: '24h buys / sells: <0> / <1>'
   ui-market-trades-title: '24h trade summary'
@@ -263,6 +264,7 @@ zh-CN:
   ui-market-my-currency: '你的货币：可用 <0> / 冻结 <1>'
   ui-market-my-items: '你的持仓：可用 <0> / 冻结 <1>'
   ui-market-my-security: '你的持仓：可用 <0> / 冻结 <1>'
+  ui-market-my-open-orders: '你在该市场的挂单：<0>'
   ui-market-trades-24h: '24 小时成交笔数：<0>'
   ui-market-trades-buy-sell: '24 小时主动买 / 主动卖：<0> / <1>'
   ui-market-trades-title: 24 小时成交统计

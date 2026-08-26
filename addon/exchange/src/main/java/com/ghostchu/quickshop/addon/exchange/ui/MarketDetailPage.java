@@ -74,23 +74,31 @@ final class MarketDetailPage {
     Duration window = timeframes.getOrDefault(playerId, TIMEFRAMES.getFirst());
     views.marketDashboard(request.marketId(), window)
         .thenCombine(views.accountAssets(playerId).handle((assets, ignored) ->
-            assets == null ? List.<AccountAssetBalance>of() : assets), PageData::new)
+            assets == null ? List.<AccountAssetBalance>of() : assets),
+            (dashboard, assets) -> new PageData(dashboard, assets, List.of()))
+        .thenCombine(views.accountOrders(playerId, 36, 0).handle((orders, ignored) ->
+            orders == null ? List.<com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder>of()
+                : orders), (data, orders) -> new PageData(data.dashboard(), data.assets(), orders))
         .whenComplete((data, failure) -> {
           if (!ExchangePageRenderGuard.permits(contexts, playerId, request, player::isOnline)) return;
           QuickShop.folia().getScheduler().runAtEntityLater(player,
               () -> {
                 if (ExchangePageRenderGuard.permits(contexts, playerId, request, player::isOnline)) {
                   render(page, player, data == null ? null : data.dashboard(),
-                      data == null ? List.of() : data.assets(), failure);
+                      data == null ? List.of() : data.assets(),
+                      data == null ? List.of() : data.orders(), failure);
                 }
               }, 1L);
         });
   }
 
-  private record PageData(MarketDashboardSnapshot dashboard, List<AccountAssetBalance> assets) {}
+  private record PageData(MarketDashboardSnapshot dashboard, List<AccountAssetBalance> assets,
+                          List<com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder> orders) {}
 
   private void render(PlayerInstancePage page, Player player, MarketDashboardSnapshot dashboard,
-                      List<AccountAssetBalance> assets, Throwable failure) {
+                      List<AccountAssetBalance> assets,
+                      List<com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder> orders,
+                      Throwable failure) {
     UUID playerId = player.getUniqueId();
     if (failure != null || dashboard == null) {
       renderFailure(page, player, playerId, "ui-data-unavailable");
@@ -148,6 +156,7 @@ final class MarketDetailPage {
       lore.add(messages.component(player, "ui-market-security-status", row.securityStatus()));
     }
     addPlayerBalances(lore, player, row, assets);
+    addOpenOrderCount(lore, player, row, orders);
     page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
         .customName(Component.text(row.displayName())).lore(lore)).withSlot(4).build());
     addNavigation(page, player, 0, "COMPASS", "ui-nav-markets", ExchangeMenuPage.MARKETS);
@@ -226,6 +235,19 @@ final class MarketDetailPage {
     if (holding != null) {
       lore.add(messages.component(player, "ui-market-my-items",
           holding.available().toPlainString(), holding.frozen().toPlainString()));
+    }
+  }
+
+  private void addOpenOrderCount(List<Component> lore, Player player, MarketRow row,
+                                 List<com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder> orders) {
+    if (orders == null || orders.isEmpty()) {
+      return;
+    }
+    long count = orders.stream()
+        .filter(persisted -> row.marketId().equals(persisted.order().marketId()))
+        .count();
+    if (count > 0) {
+      lore.add(messages.component(player, "ui-market-my-open-orders", count));
     }
   }
 
