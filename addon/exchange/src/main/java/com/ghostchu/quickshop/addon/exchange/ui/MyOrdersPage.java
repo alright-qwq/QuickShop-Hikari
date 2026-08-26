@@ -65,7 +65,8 @@ final class MyOrdersPage {
           messages.component(player, "ui-order-price", order.limitPrice() == null
               ? order.slippageBoundary() : order.limitPrice()));
       IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
-          .customName(messages.component(player, "ui-order-title", order.side(), order.marketId()))
+          .customName(messages.component(player, "ui-order-title", order.side(),
+              views.marketDisplayName(order.marketId())))
           .lore(lore));
       icon.withActions(new RunnableAction(click -> {
         Player online = Bukkit.getPlayer(playerId);

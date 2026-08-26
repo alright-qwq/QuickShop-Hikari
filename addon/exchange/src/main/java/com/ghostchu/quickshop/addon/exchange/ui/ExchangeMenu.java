@@ -21,13 +21,13 @@ public final class ExchangeMenu extends Menu {
     addPage(page(ExchangeMenuPage.MARKET_DETAIL,
         new MarketDetailPage(views, contexts, rollout, messages)::open));
     addPage(page(ExchangeMenuPage.ORDER_CONFIRM,
-        new RequestSummaryPage(ExchangeMenuPage.ORDER_CONFIRM, contexts, submitter, rollout,
+        new RequestSummaryPage(views, ExchangeMenuPage.ORDER_CONFIRM, contexts, submitter, rollout,
             messages)::open));
     addPage(page(ExchangeMenuPage.CANCEL_CONFIRM,
-        new RequestSummaryPage(ExchangeMenuPage.CANCEL_CONFIRM, contexts, submitter, rollout,
+        new RequestSummaryPage(views, ExchangeMenuPage.CANCEL_CONFIRM, contexts, submitter, rollout,
             messages)::open));
     addPage(page(ExchangeMenuPage.TRANSFER_CONFIRM,
-        new RequestSummaryPage(ExchangeMenuPage.TRANSFER_CONFIRM, contexts, submitter, rollout,
+        new RequestSummaryPage(views, ExchangeMenuPage.TRANSFER_CONFIRM, contexts, submitter, rollout,
             messages)::open));
     addPage(page(ExchangeMenuPage.ORDERS, new MyOrdersPage(views, contexts, messages)::open));
     addPage(page(ExchangeMenuPage.ASSETS, new AssetsPage(views, contexts, messages)::open));

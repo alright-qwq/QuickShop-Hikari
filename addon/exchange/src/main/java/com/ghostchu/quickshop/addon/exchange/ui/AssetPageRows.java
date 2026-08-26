@@ -36,7 +36,7 @@ final class AssetPageRows {
         .map(balance -> new SecurityRow(balance.symbol() == null ? balance.assetId()
                 : balance.symbol(),
             balance.displayName() == null ? balance.assetId() : balance.displayName(),
-            balance.available(), balance.frozen()))
+            balance.available(), balance.frozen(), balance.assetId()))
         .toList();
     return new Merged(List.copyOf(rows), List.copyOf(securities));
   }
@@ -58,7 +58,7 @@ final class AssetPageRows {
   }
 
   record SecurityRow(String symbol, String displayName, BigDecimal available,
-                     BigDecimal frozen) {
+                     BigDecimal frozen, String marketId) {
     SecurityRow {
       if (symbol == null || symbol.isBlank() || displayName == null || displayName.isBlank()
           || available == null || frozen == null || available.signum() < 0

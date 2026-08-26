@@ -23,4 +23,17 @@ class AssetPageRowsTest {
             BigDecimal.ZERO, BigDecimal.ZERO));
     assertThat(merged.securities()).isEmpty();
   }
+
+  @Test
+  void securityRowsCarryTheirMarketIdForValuation() {
+    AssetPageRows.Merged merged = AssetPageRows.merge(
+        List.of(),
+        List.of(new AccountAssetBalance(AccountAssetBalance.Kind.SECURITY, "concept_alpha",
+            new BigDecimal("25"), new BigDecimal("5"), "Alpha (ALPHA)", "ALPHA")));
+
+    assertThat(merged.securities()).singleElement().satisfies(row -> {
+      assertThat(row.symbol()).isEqualTo("ALPHA");
+      assertThat(row.marketId()).isEqualTo("concept_alpha");
+    });
+  }
 }

@@ -134,8 +134,23 @@ public final class MarketDataService {
         .subtract(ticker.getFirst().open())
         .divide(ticker.getFirst().open(), 8, RoundingMode.HALF_UP)
         .stripTrailingZeros();
+    BigDecimal volatility = volatility(ticker, lastPrice);
     return new MarketQuote(marketId, lastPrice, referencePrice, bestBid, bestAsk, change,
-        volume, notional, status, asOf);
+        volume, notional, status, asOf, volatility);
+  }
+
+  /** Spread of the 24h candle close prices as a fraction of the latest close. */
+  static BigDecimal volatility(List<Candle> candles, BigDecimal latestClose) {
+    if (candles.size() < 2 || latestClose == null || latestClose.signum() <= 0) {
+      return null;
+    }
+    BigDecimal minimum = candles.stream().map(Candle::low).min(BigDecimal::compareTo).orElse(null);
+    BigDecimal maximum = candles.stream().map(Candle::high).max(BigDecimal::compareTo).orElse(null);
+    if (minimum == null || maximum == null) {
+      return null;
+    }
+    return maximum.subtract(minimum).divide(latestClose, 8, RoundingMode.HALF_UP)
+        .stripTrailingZeros();
   }
 
   /** Returns persisted and current in-memory candles in chronological bucket order. */

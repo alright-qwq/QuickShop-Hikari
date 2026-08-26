@@ -82,28 +82,50 @@ final class AssetsPage {
     }
     for (AssetPageRows.SecurityRow security : merged.securities()) {
       if (slot >= 45) break;
-      List<Component> lore = List.of(
+      java.util.ArrayList<Component> securityLore = new java.util.ArrayList<>(List.of(
           messages.component(player, "ui-assets-virtual-security"),
           messages.component(player, "ui-assets-symbol", security.symbol()),
           messages.component(player, "ui-assets-available", security.available().toPlainString()),
-          messages.component(player, "ui-assets-frozen", security.frozen().toPlainString()));
+          messages.component(player, "ui-assets-frozen", security.frozen().toPlainString())));
+      java.math.BigDecimal marketValue = marketValue(security);
+      if (marketValue != null) {
+        securityLore.add(messages.component(player, "ui-assets-market-value",
+            marketValue.toPlainString()));
+      }
       IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
-          .customName(Component.text(security.displayName())).lore(lore));
+          .customName(Component.text(security.displayName())).lore(securityLore));
       icon.withSlot(slot++);
       page.addIcon(playerId, icon.build());
     }
     for (TransferRecord transfer : snapshot.transfers()) {
       if (slot >= 45) break;
       String reason = transfer.failureReason() == null ? "" : " " + transfer.failureReason();
+      java.util.List<Component> transferLore = List.of(
+          messages.component(player, "ui-assets-transfer-kind",
+              transfer.type(), transfer.assetId()),
+          messages.component(player, "ui-assets-transfer-amount",
+              transfer.amount().toPlainString()),
+          messages.component(player, "ui-assets-transfer-status",
+              transfer.status() + reason),
+          messages.component(player, "ui-history-created-at",
+              messages.relativeTime(transfer.updatedAt())));
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("HOPPER", 1)
           .customName(messages.component(player, "ui-assets-transfer-title", transfer.status()))
-          .lore(List.of(messages.component(player, "ui-assets-transfer-kind",
-                  transfer.type(), transfer.assetId()),
-              messages.component(player, "ui-assets-transfer-amount",
-                  transfer.amount().toPlainString()),
-              messages.component(player, "ui-assets-transfer-status",
-                  transfer.status() + reason)))).withSlot(slot++).build());
+          .lore(transferLore)).withSlot(slot++).build());
     }
+  }
+
+  private java.math.BigDecimal marketValue(AssetPageRows.SecurityRow security) {
+    String marketId = security.marketId();
+    if (marketId == null) {
+      return null;
+    }
+    com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote = views.marketQuote(marketId);
+    if (quote == null || quote.lastPrice() == null) {
+      return null;
+    }
+    java.math.BigDecimal quantity = security.available().add(security.frozen());
+    return quote.lastPrice().multiply(quantity);
   }
 
   private void addMarketsNavigation(PlayerInstancePage page, Player player) {

@@ -52,4 +52,13 @@ public record OrderConfirmation(
     return new OrderConfirmation(UUID.randomUUID(), side, marketId, quantity,
         boundary, notional, fee, frozen);
   }
+
+  /** Plain quantity-times-price estimate shown on the confirmation page. */
+  public static BigDecimal estimatedNotional(BigDecimal price, long quantity) {
+    Objects.requireNonNull(price, "price");
+    if (price.signum() <= 0 || quantity <= 0) {
+      throw new IllegalArgumentException("estimated notional requires a positive price and quantity");
+    }
+    return price.multiply(BigDecimal.valueOf(quantity));
+  }
 }

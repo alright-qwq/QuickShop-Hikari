@@ -3,6 +3,7 @@ package com.ghostchu.quickshop.addon.exchange.ui;
 import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -79,6 +80,10 @@ final class MarketListPage {
           messages.component(player, "ui-market-bid-ask", bid, ask),
           messages.component(player, "ui-market-volume", row.volume24h()),
           messages.component(player, "ui-market-status", row.status().name())));
+      if (row.volatility24h() != null) {
+        lore.add(messages.component(player, "ui-market-volatility",
+            percent(row.volatility24h())));
+      }
       if (row.assetType() != null) {
         lore.add(messages.component(player, "ui-market-asset-type", row.assetType()));
       }
@@ -115,6 +120,12 @@ final class MarketListPage {
             messages.component(player, "ui-overview-active", active),
             messages.component(player, "ui-overview-gainer", gainer),
             messages.component(player, "ui-overview-loser", loser)))).withSlot(4).build());
+  }
+
+  private static String percent(BigDecimal fraction) {
+    return fraction == null ? "-"
+        : fraction.multiply(java.math.BigDecimal.valueOf(100)).stripTrailingZeros()
+            .toPlainString() + "%";
   }
 
   private void addNavigation(PlayerInstancePage page, Player player, int slot, String material,

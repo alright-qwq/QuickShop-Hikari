@@ -13,7 +13,18 @@ public record MarketDashboardSnapshot(
     List<MarketDataService.DepthLevel> bids,
     List<MarketDataService.DepthLevel> asks,
     BigDecimal spread,
-    BigDecimal spreadPercent) {
+    BigDecimal spreadPercent,
+    BigDecimal notional24h) {
+  public MarketDashboardSnapshot(
+      MarketRow market,
+      List<Candle> recentCandles,
+      List<MarketDataService.DepthLevel> bids,
+      List<MarketDataService.DepthLevel> asks,
+      BigDecimal spread,
+      BigDecimal spreadPercent) {
+    this(market, recentCandles, bids, asks, spread, spreadPercent, null);
+  }
+
   public MarketDashboardSnapshot {
     market = Objects.requireNonNull(market, "market");
     recentCandles = List.copyOf(Objects.requireNonNull(recentCandles, "recentCandles"));
@@ -21,6 +32,7 @@ public record MarketDashboardSnapshot(
     asks = List.copyOf(Objects.requireNonNull(asks, "asks"));
     requireNonNegative(spread, "spread");
     requireNonNegative(spreadPercent, "spreadPercent");
+    requireNonNegative(notional24h, "notional24h");
   }
 
   private static void requireNonNegative(BigDecimal value, String name) {

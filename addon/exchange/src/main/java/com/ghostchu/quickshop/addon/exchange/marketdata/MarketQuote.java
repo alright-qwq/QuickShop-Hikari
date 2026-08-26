@@ -8,12 +8,23 @@ import java.time.Instant;
 public record MarketQuote(String marketId, BigDecimal lastPrice, BigDecimal referencePrice,
                           BigDecimal bestBid, BigDecimal bestAsk,
                           BigDecimal change24h, long volume24h, BigDecimal notional24h,
-                          MarketStatus status, Instant asOf) {
+                          MarketStatus status, Instant asOf, BigDecimal volatility24h) {
+  public MarketQuote(String marketId, BigDecimal lastPrice, BigDecimal referencePrice,
+                     BigDecimal bestBid, BigDecimal bestAsk,
+                     BigDecimal change24h, long volume24h, BigDecimal notional24h,
+                     MarketStatus status, Instant asOf) {
+    this(marketId, lastPrice, referencePrice, bestBid, bestAsk,
+        change24h, volume24h, notional24h, status, asOf, null);
+  }
+
   public MarketQuote {
     if (marketId == null || marketId.isBlank() || referencePrice == null
         || referencePrice.signum() <= 0 || change24h == null || volume24h < 0
         || notional24h == null || notional24h.signum() < 0 || status == null || asOf == null) {
       throw new IllegalArgumentException("invalid market quote");
+    }
+    if (volatility24h != null && volatility24h.signum() < 0) {
+      throw new IllegalArgumentException("volatility must be non-negative");
     }
   }
 }

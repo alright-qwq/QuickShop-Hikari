@@ -113,6 +113,25 @@ public final class ExchangeViewService {
     return null;
   }
 
+  /** Returns the latest market quote for a market id, or null when the market is unknown. */
+  public MarketQuote marketQuote(String marketId) {
+    MarketView market = markets.get(marketId);
+    if (market == null) {
+      return null;
+    }
+    try {
+      return market.service().marketQuote(marketData);
+    } catch (SQLException failure) {
+      throw new IllegalStateException("failed to load market quote: " + marketId, failure);
+    }
+  }
+
+  /** Returns the configured market display name, or the market id when unknown. */
+  public String marketDisplayName(String marketId) {
+    MarketView market = markets.get(marketId);
+    return market == null ? marketId : market.displayName();
+  }
+
   public CompletableFuture<MarketDashboardSnapshot> marketDashboard(String marketId) {
     MarketView market = requiredMarket(marketId);
     return CompletableFuture.supplyAsync(() -> {
@@ -130,7 +149,7 @@ public final class ExchangeViewService {
                 asOf.plusSeconds(60));
         BigDecimal spread = spread(quote.bestBid(), quote.bestAsk());
         return new MarketDashboardSnapshot(row, candles, book.bids(), book.asks(), spread,
-            spreadPercent(spread, quote.bestBid(), quote.bestAsk()));
+            spreadPercent(spread, quote.bestBid(), quote.bestAsk()), quote.notional24h());
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market dashboard: " + marketId, failure);
       }

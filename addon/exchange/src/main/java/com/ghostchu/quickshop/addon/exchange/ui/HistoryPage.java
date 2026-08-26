@@ -71,7 +71,7 @@ final class HistoryPage {
           text(player, "ui-history-trade-quantity", trade.quantity()),
           text(player, "ui-history-maker-fee", trade.makerFee().toPlainString()),
           text(player, "ui-history-taker-fee", trade.takerFee().toPlainString()),
-          text(player, "ui-history-created-at", trade.executedAt()));
+          text(player, "ui-history-created-at", relativeTime(trade.executedAt())));
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
           .customName(text(player, "ui-history-trade-title", trade.marketId(),
               trade.price().toPlainString())).lore(lore)).withSlot(slot++).build());
@@ -83,7 +83,7 @@ final class HistoryPage {
           text(player, "ui-history-transfer-asset", transfer.assetId()),
           text(player, "ui-history-transfer-amount", transfer.amount().toPlainString()),
           text(player, "ui-history-transfer-status", transfer.status()),
-          text(player, "ui-history-created-at", transfer.updatedAt()));
+          text(player, "ui-history-created-at", relativeTime(transfer.updatedAt())));
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("HOPPER", 1)
           .customName(text(player, "ui-history-transfer-title", transfer.type())).lore(lore))
           .withSlot(slot++).build());
@@ -94,7 +94,7 @@ final class HistoryPage {
       List<Component> lore = List.of(
           text(player, "ui-history-ledger-asset", entry.assetId()),
           text(player, "ui-history-ledger-amount", entry.amount().toPlainString()),
-          text(player, "ui-history-created-at", entry.createdAt()));
+          text(player, "ui-history-created-at", relativeTime(entry.createdAt())));
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("WRITABLE_BOOK", 1)
           .customName(text(player, "ui-history-ledger-title", entry.journalType())).lore(lore))
           .withSlot(slot++).build());
@@ -126,5 +126,10 @@ final class HistoryPage {
     if (messages == null) return Component.text(key);
     Locale locale = player.locale();
     return Component.text(messages.message(key, locale, arguments));
+  }
+
+  private String relativeTime(java.time.Instant at) {
+    return messages == null ? String.valueOf(at)
+        : new ExchangeUiMessages(messages).relativeTime(at);
   }
 }

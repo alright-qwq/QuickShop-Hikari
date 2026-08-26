@@ -39,13 +39,13 @@ class VirtualSecurityAssetsPageTest {
         TransferTarget.currency("default"), new BigDecimal("12.50"), BigDecimal.ONE));
     assertThat(merged.securities()).containsExactly(new AssetPageRows.SecurityRow(
         "ALPHA", "Alpha Holdings (ALPHA)", new BigDecimal("25"),
-        new BigDecimal("5")));
+        new BigDecimal("5"), "concept_alpha"));
   }
 
   @Test
   void securityRowRejectsBlankDisplayName() {
     assertThatThrownBy(() -> new AssetPageRows.SecurityRow("concept_alpha", " ",
-        BigDecimal.ZERO, BigDecimal.ZERO))
+        BigDecimal.ZERO, BigDecimal.ZERO, "concept_alpha"))
         .isInstanceOf(IllegalArgumentException.class);
   }
 

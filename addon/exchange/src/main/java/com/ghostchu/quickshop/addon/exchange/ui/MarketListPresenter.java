@@ -13,7 +13,8 @@ public final class MarketListPresenter {
       MarketQuote quote = entry.quote();
       return new MarketRow(entry.marketId(), entry.displayName(), quote.lastPrice(),
           quote.bestBid(), quote.bestAsk(), quote.change24h(), quote.volume24h(), quote.status(),
-          entry.assetType(), entry.symbol(), entry.totalSupply(), entry.securityStatus());
+          entry.assetType(), entry.symbol(), entry.totalSupply(), entry.securityStatus(),
+          quote.volatility24h());
     }).toList());
   }
 
@@ -47,7 +48,8 @@ public final class MarketListPresenter {
     MarketQuote quote = entry.quote();
     return new MarketRow(entry.marketId(), entry.displayName(), quote.lastPrice(),
         quote.bestBid(), quote.bestAsk(), quote.change24h(), quote.volume24h(), quote.status(),
-        entry.assetType(), entry.symbol(), entry.totalSupply(), entry.securityStatus());
+        entry.assetType(), entry.symbol(), entry.totalSupply(), entry.securityStatus(),
+        quote.volatility24h());
   }
 
   public record Entry(String marketId, String displayName, MarketQuote quote,

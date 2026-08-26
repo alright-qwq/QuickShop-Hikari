@@ -91,7 +91,14 @@ final class MarketDetailPage {
         messages.component(player, "ui-market-bid", bid),
         messages.component(player, "ui-market-ask", ask),
         messages.component(player, "ui-market-spread", spread, spreadPercent),
-        messages.component(player, "ui-market-change", row.change24h().toPlainString()),
+        messages.component(player, "ui-market-change-percent",
+            row.change24h().multiply(java.math.BigDecimal.valueOf(100)).stripTrailingZeros()
+                .toPlainString()),
+        messages.component(player, "ui-market-notional", notional(dashboard)),
+        messages.component(player, "ui-market-volatility",
+            row.volatility24h() == null ? "-"
+                : row.volatility24h().multiply(java.math.BigDecimal.valueOf(100))
+                    .stripTrailingZeros().toPlainString() + "%"),
         messages.component(player, "ui-market-volume", row.volume24h()),
         messages.component(player, "ui-market-status", row.status().name())));
     if (row.assetType() != null) {
@@ -192,6 +199,10 @@ final class MarketDetailPage {
           contexts.put(playerId, ExchangeMenuRequest.page(target.menuName()));
           MenuManager.instance().open(ExchangeMenu.NAME, target.page(), click.player());
         })).withSlot(slot).build());
+  }
+
+  private static String notional(MarketDashboardSnapshot dashboard) {
+    return dashboard.notional24h() == null ? "-" : dashboard.notional24h().toPlainString();
   }
 
   private static String directionKey(MarketDashboardPresenter.CandleDirection direction) {

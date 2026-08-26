@@ -17,6 +17,7 @@ import org.bukkit.entity.Player;
 
 /** Renders the exact request held for a confirmation or account page. */
 final class RequestSummaryPage {
+  private final ExchangeViewService views;
   private final ExchangeMenuPage expected;
   private final ExchangeMenuContextStore contexts;
   private final ExchangeRequestSubmitter submitter;
@@ -25,12 +26,13 @@ final class RequestSummaryPage {
 
   RequestSummaryPage(ExchangeMenuPage expected, ExchangeMenuContextStore contexts,
                      ExchangeRequestSubmitter submitter, AddonMessageService messages) {
-    this(expected, contexts, submitter, RolloutPolicy.DISABLED, messages);
+    this(null, expected, contexts, submitter, RolloutPolicy.DISABLED, messages);
   }
 
-  RequestSummaryPage(ExchangeMenuPage expected, ExchangeMenuContextStore contexts,
-                     ExchangeRequestSubmitter submitter, RolloutPolicy rollout,
-                     AddonMessageService messages) {
+  RequestSummaryPage(ExchangeViewService views, ExchangeMenuPage expected,
+                     ExchangeMenuContextStore contexts, ExchangeRequestSubmitter submitter,
+                     RolloutPolicy rollout, AddonMessageService messages) {
+    this.views = views;
     this.expected = expected;
     this.contexts = contexts;
     this.submitter = submitter;
@@ -94,10 +96,15 @@ final class RequestSummaryPage {
       lines.add(messages.component(player, "ui-confirm-quantity", order.quantity()));
       if (order.price() != null) {
         lines.add(messages.component(player, "ui-confirm-price", order.price().toPlainString()));
+        lines.add(messages.component(player, "ui-confirm-estimated-notional",
+            OrderConfirmation.estimatedNotional(order.price(), order.quantity()).toPlainString()));
       }
       if (order.slippageBoundary() != null) {
         lines.add(messages.component(player, "ui-confirm-protection",
             order.slippageBoundary().toPlainString()));
+        lines.add(messages.component(player, "ui-confirm-estimated-notional",
+            OrderConfirmation.estimatedNotional(order.slippageBoundary(), order.quantity())
+                .toPlainString()));
       }
     }
     if (request.transfer() != null) {
