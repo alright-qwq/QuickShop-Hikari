@@ -58,7 +58,7 @@ final class RequestSummaryPage {
       page.addIcon(playerId, icon.build());
       return;
     }
-    render(page, player, request, null, null);
+    render(page, player, request, null, null, false);
     if (request.order() != null && views != null) {
       views.marketQuoteAsync(request.marketId())
           .whenComplete((quote, failure) -> {
@@ -68,7 +68,7 @@ final class RequestSummaryPage {
             QuickShop.folia().getScheduler().runAtEntityLater(online,
                 () -> {
                   if (ExchangePageRenderGuard.permits(contexts, playerId, request, online::isOnline)) {
-                    render(page, online, request, quote, null);
+                    render(page, online, request, quote, null, false);
                   }
                 }, 1L);
           });
@@ -81,7 +81,8 @@ final class RequestSummaryPage {
             QuickShop.folia().getScheduler().runAtEntityLater(online,
                 () -> {
                   if (ExchangePageRenderGuard.permits(contexts, playerId, request, online::isOnline)) {
-                    render(page, online, request, null, failure == null ? order.orElse(null) : null);
+                    render(page, online, request, null,
+                        failure == null ? order.orElse(null) : null, true);
                   }
                 }, 1L);
           });
@@ -90,11 +91,11 @@ final class RequestSummaryPage {
 
   private void render(PlayerInstancePage page, Player player, ExchangeMenuRequest request,
                       com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote,
-                      ExchangeTransaction.PersistedOrder cancelOrder) {
+                      ExchangeTransaction.PersistedOrder cancelOrder, boolean cancelLoaded) {
     UUID playerId = player.getUniqueId();
     page.getIcons(playerId).clear();
     page.setLockEmptySlots(true);
-    List<Component> lore = summary(player, request, quote, cancelOrder);
+    List<Component> lore = summary(player, request, quote, cancelOrder, cancelLoaded);
     IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
         .customName(messages.component(player, titleKey(request), titleArgument(request)))
         .lore(lore)).withSlot(22);
@@ -153,7 +154,8 @@ final class RequestSummaryPage {
 
   private List<Component> summary(Player player, ExchangeMenuRequest request,
                                   com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote,
-                                  ExchangeTransaction.PersistedOrder cancelOrder) {
+                                  ExchangeTransaction.PersistedOrder cancelOrder,
+                                  boolean cancelLoaded) {
     List<Component> lines = new ArrayList<>();
     if (request.requestId() != null) {
       lines.add(messages.component(player, "ui-confirm-request", request.requestId()));
@@ -234,7 +236,8 @@ final class RequestSummaryPage {
             order.side() == OrderSide.BUY
                 ? cancelOrder.reservedCurrency() : cancelOrder.reservedQuantity()));
       } else {
-        lines.add(messages.component(player, "ui-confirm-cancel-loading"));
+        lines.add(messages.component(player, cancelLoaded
+            ? "ui-confirm-cancel-gone" : "ui-confirm-cancel-loading"));
       }
     }
     return List.copyOf(lines);
