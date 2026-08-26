@@ -132,3 +132,8 @@ Operational differences to remember:
 - `/qse stocks` opens the market list; `/qse stock <symbol>` opens that market's detail page.
 - `stock pause/resume/close` keeps the security definition and the market state in sync:
   pausing stops order entry, resuming reopens a paused market, and closing closes the market.
+- `/qse` and admin stock commands tab-complete security symbols, and admin stock lifecycle
+  commands accept either market ids or symbols.
+- The market list can be sorted and filtered by asset type, and the market-detail chart
+  switches timeframes (1m/15m/1h/4h). The assets page shows estimated values and links
+  securities to their market detail pages.

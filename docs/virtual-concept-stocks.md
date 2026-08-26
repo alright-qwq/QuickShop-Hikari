@@ -73,11 +73,14 @@ an idempotent request id.
 
 ```text
 /qse admin stock create <symbol> <name> <currency> <basePrice> <totalSupply> [minimumUnit] [description...]
-/qse admin stock issue <marketId> <playerUUID> <quantity> <reason...>
-/qse admin stock pause <marketId> <reason...>
-/qse admin stock resume <marketId> <reason...>
-/qse admin stock close <marketId> <recoveryAccountUUID> <reason...>
+/qse admin stock issue <marketId|symbol> <playerUUID> <quantity> <reason...>
+/qse admin stock pause <marketId|symbol> <reason...>
+/qse admin stock resume <marketId|symbol> <reason...>
+/qse admin stock close <marketId|symbol> <recoveryAccountUUID> <reason...>
 ```
+
+All lifecycle commands accept either the market id or the security symbol
+(case-insensitive, resolved through the same registry as `/qse stock`).
 
 Lifecycle status values: `OPEN`, `PAUSED`, `HALTED`, `CLOSED`.
 
@@ -108,9 +111,15 @@ To close a stock, first cancel or let all open orders finish, then:
 
 - `/qse stocks` opens the market list (all virtual and physical markets).
 - `/qse stock <symbol>` or clicking the market in the list opens the market detail page.
+- The market list supports sorting (by 24h volume, 24h change, or last price) and filtering
+  (all / virtual securities / physical items) through the control icons.
+- The market detail chart switches between 1-minute, 15-minute, 1-hour, and 4-hour candles,
+  and shows 24h high/low, 24h notional, 24h volatility, and the issued/total supply ratio
+  for virtual securities.
 - The assets page (`/qse assets`) shows each security as a paper icon with the explicit text
   "Virtual security (ledger-only, cannot deposit or withdraw)", plus symbol, available, and frozen
-  quantities. Security rows have no left/right deposit/withdraw actions.
+  quantities, an estimated market value, and the total portfolio value. Clicking a security row
+  opens its market detail page. Security rows have no left/right deposit/withdraw actions.
 - Market list/detail rows display `Asset: VIRTUAL_SECURITY`, `Symbol`, `Total supply`, and
   `Security status` (read live from the security definition) in addition to the normal
   price/volume/status lore.
