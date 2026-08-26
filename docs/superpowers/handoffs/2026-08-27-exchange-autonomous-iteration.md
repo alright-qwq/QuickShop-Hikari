@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `7776e0618`
+- Current HEAD: `63afd65ce`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -161,6 +161,17 @@ Full exchange test suite: 436 tests, 0 failures.
   `AdminExchangeService.auditStatus()` reflects both metrics and alerts. (`398dd34d7`)
 
 Full exchange test suite: 437 tests, 0 failures.
+
+## Nineteenth continuation (same day)
+
+- Alert acknowledgement is now audited: the actor is recorded in `exchange_audit_records`
+  (`ACKNOWLEDGE_ALERT`) and repeats are idempotent (only the first write appends a record).
+  (`0fbe40e4a`)
+- Audit status now prints the open (unacknowledged) alert count. (`ae639b181`)
+- Detection scans no longer full-scan: `orders(created_at)` and `trades(executed_at)` indexes
+  cover the five-minute detection windows. (`63afd65ce`)
+
+Full exchange test suite: 438 tests, 0 failures.
 
 ## Eighteenth continuation (same day)
 
