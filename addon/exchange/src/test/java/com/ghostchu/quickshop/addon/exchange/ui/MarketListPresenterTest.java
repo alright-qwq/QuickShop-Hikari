@@ -20,7 +20,7 @@ class MarketListPresenterTest {
     assertThat(presenter.rows(List.of(new MarketListPresenter.Entry("diamond-usd", "Diamond", quote))))
         .containsExactly(new MarketRow("diamond-usd", "Diamond", new BigDecimal("100"),
             new BigDecimal("99"), new BigDecimal("101"), new BigDecimal("0.01"), 12,
-            MarketStatus.OPEN));
+            MarketStatus.OPEN, null, null, null, null, null, null, null, null));
   }
 
   @Test
@@ -47,7 +47,7 @@ class MarketListPresenterTest {
   void filtersMarketsByAssetType() {
     MarketRow security = new MarketRow("concept_alpha", "Alpha", new BigDecimal("10"),
         new BigDecimal("9"), new BigDecimal("11"), BigDecimal.ZERO, 10, MarketStatus.OPEN,
-        "VIRTUAL_SECURITY", "ALPHA", 1000L, "OPEN", null, null, null);
+        "VIRTUAL_SECURITY", "ALPHA", 1000L, "OPEN", null, null, null, null);
     MarketRow item = new MarketRow("diamond-usd", "Diamond", new BigDecimal("100"),
         new BigDecimal("99"), new BigDecimal("101"), BigDecimal.ZERO, 10, MarketStatus.OPEN);
     List<MarketRow> rows = List.of(security, item);

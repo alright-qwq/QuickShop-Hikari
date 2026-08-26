@@ -94,7 +94,7 @@ public final class ExchangeViewService {
         return presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
             market.displayName(), market.service().marketQuote(marketData),
             market.assetType(), market.symbol(), market.totalSupply(),
-            market.securityStatus().get()))).getFirst();
+            market.securityStatus().get(), issuedSupply(market)))).getFirst();
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + marketId, failure);
       }
@@ -159,7 +159,7 @@ public final class ExchangeViewService {
             book.bestAsk(), book.status(), book.asOf());
         MarketRow row = presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
             market.displayName(), quote, market.assetType(), market.symbol(),
-            market.totalSupply(), market.securityStatus().get()))).getFirst();
+            market.totalSupply(), market.securityStatus().get(), issuedSupply(market)))).getFirst();
         Instant asOf = book.asOf();
         List<com.ghostchu.quickshop.addon.exchange.marketdata.Candle> candles =
             marketData.recentCandles(marketId, asOf.minus(window),
@@ -265,7 +265,7 @@ public final class ExchangeViewService {
             ? market.securityStatus().get() : null;
         entries.add(new MarketListPresenter.Entry(market.marketId(), market.displayName(),
             market.service().marketQuote(marketData), market.assetType(), market.symbol(),
-            market.totalSupply(), securityStatus));
+            market.totalSupply(), securityStatus, issuedSupply(market)));
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + market.marketId(), failure);
       }
@@ -284,6 +284,11 @@ public final class ExchangeViewService {
     return market;
   }
 
+  private static Long issuedSupply(MarketView market) {
+    return market.assetType() != null && "VIRTUAL_SECURITY".equals(market.assetType())
+        ? market.issuedSupply().get() : null;
+  }
+
   private static BigDecimal spread(BigDecimal bid, BigDecimal ask) {
     return bid == null || ask == null ? null : ask.subtract(bid);
   }
@@ -298,9 +303,9 @@ public final class ExchangeViewService {
 
   public record MarketView(String marketId, String displayName, PersistentOrderService service,
                            String assetType, String symbol, Long totalSupply,
-                           Supplier<String> securityStatus) {
+                           Supplier<String> securityStatus, Supplier<Long> issuedSupply) {
     public MarketView(String marketId, String displayName, PersistentOrderService service) {
-      this(marketId, displayName, service, null, null, null, () -> null);
+      this(marketId, displayName, service, null, null, null, () -> null, () -> null);
     }
 
     public MarketView {
@@ -309,6 +314,7 @@ public final class ExchangeViewService {
       }
       Objects.requireNonNull(service, "service");
       Objects.requireNonNull(securityStatus, "securityStatus");
+      Objects.requireNonNull(issuedSupply, "issuedSupply");
     }
   }
 }

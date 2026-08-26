@@ -154,6 +154,18 @@ public final class ExchangeRuntimeFactory {
               throw new IllegalStateException(
                   "failed to load security status: " + entry.getKey(), failure);
             }
+          },
+          () -> {
+            if (definition.assetType() != AssetType.VIRTUAL_SECURITY) {
+              return null;
+            }
+            try {
+              return repository.inTransaction(
+                  tx -> tx.securityDefinition(entry.getKey()).issuedSupply());
+            } catch (SQLException failure) {
+              throw new IllegalStateException(
+                  "failed to load issued supply: " + entry.getKey(), failure);
+            }
           }));
       String currencyId = definition.structural().currencyId();
       transferTargets.putIfAbsent("currency:" + currencyId,

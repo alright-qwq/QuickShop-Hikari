@@ -123,6 +123,10 @@ final class MarketDetailPage {
     if (row.totalSupply() != null) {
       lore.add(messages.component(player, "ui-market-total-supply", row.totalSupply()));
     }
+    if (row.issuedSupply() != null) {
+      lore.add(messages.component(player, "ui-market-issued-supply", row.issuedSupply(),
+          row.totalSupply()));
+    }
     if (row.securityStatus() != null) {
       lore.add(messages.component(player, "ui-market-security-status", row.securityStatus()));
     }

@@ -162,7 +162,7 @@ class ExchangeViewServiceTest {
     MarketDataService marketData = new MarketDataService(new CandleAggregator());
     ExchangeViewService views = new ExchangeViewService(java.util.Map.of("concept_alpha",
         new ExchangeViewService.MarketView("concept_alpha", "Alpha", fixture.service(),
-            "VIRTUAL_SECURITY", "ALPHA", 1000L, () -> "OPEN")),
+            "VIRTUAL_SECURITY", "ALPHA", 1000L, () -> "OPEN", () -> 400L)),
         marketData, Runnable::run);
 
     assertThat(views.resolveMarketIdBySymbol("alpha")).isEqualTo("concept_alpha");

@@ -14,7 +14,7 @@ public final class MarketListPresenter {
       return new MarketRow(entry.marketId(), entry.displayName(), quote.lastPrice(),
           quote.bestBid(), quote.bestAsk(), quote.change24h(), quote.volume24h(), quote.status(),
           entry.assetType(), entry.symbol(), entry.totalSupply(), entry.securityStatus(),
-          quote.volatility24h(), quote.high24h(), quote.low24h());
+          quote.volatility24h(), quote.high24h(), quote.low24h(), entry.issuedSupply());
     }).toList());
   }
 
@@ -49,11 +49,12 @@ public final class MarketListPresenter {
     return new MarketRow(entry.marketId(), entry.displayName(), quote.lastPrice(),
         quote.bestBid(), quote.bestAsk(), quote.change24h(), quote.volume24h(), quote.status(),
         entry.assetType(), entry.symbol(), entry.totalSupply(), entry.securityStatus(),
-        quote.volatility24h(), quote.high24h(), quote.low24h());
+        quote.volatility24h(), quote.high24h(), quote.low24h(), entry.issuedSupply());
   }
 
   public record Entry(String marketId, String displayName, MarketQuote quote,
-                      String assetType, String symbol, Long totalSupply, String securityStatus) {
+                      String assetType, String symbol, Long totalSupply, String securityStatus,
+                      Long issuedSupply) {
     public Entry {
       if (marketId == null || marketId.isBlank() || displayName == null || displayName.isBlank()) {
         throw new IllegalArgumentException("market display data is required");
@@ -62,7 +63,7 @@ public final class MarketListPresenter {
     }
 
     public Entry(String marketId, String displayName, MarketQuote quote) {
-      this(marketId, displayName, quote, null, null, null, null);
+      this(marketId, displayName, quote, null, null, null, null, null);
     }
   }
 }

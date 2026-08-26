@@ -57,11 +57,12 @@ class VirtualSecurityAssetsPageTest {
         BigDecimal.ZERO, 100, new BigDecimal("1000.00"), MarketStatus.OPEN, Instant.EPOCH);
 
     MarketRow row = presenter.rows(List.of(new MarketListPresenter.Entry("concept_alpha",
-        "Alpha", quote, "VIRTUAL_SECURITY", "ALPHA", 1000L, "OPEN"))).getFirst();
+        "Alpha", quote, "VIRTUAL_SECURITY", "ALPHA", 1000L, "OPEN", 400L))).getFirst();
 
     assertThat(row.assetType()).isEqualTo("VIRTUAL_SECURITY");
     assertThat(row.symbol()).isEqualTo("ALPHA");
     assertThat(row.totalSupply()).isEqualTo(1000L);
+    assertThat(row.issuedSupply()).isEqualTo(400L);
     assertThat(row.securityStatus()).isEqualTo("OPEN");
   }
 
