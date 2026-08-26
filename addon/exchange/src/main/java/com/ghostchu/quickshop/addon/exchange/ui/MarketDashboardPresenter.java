@@ -26,8 +26,15 @@ public final class MarketDashboardPresenter {
     List<Candle> candles = timeframe.getSeconds() <= 60
         ? snapshot.recentCandles()
         : CandleSeries.aggregate(snapshot.recentCandles(), timeframe);
-    return new DashboardRows(depthRows(snapshot.bids(), Comparator.reverseOrder()),
-        depthRows(snapshot.asks(), Comparator.naturalOrder()), candleRows(candles));
+    List<DepthRow> bids = depthRows(snapshot.bids(), Comparator.reverseOrder());
+    List<DepthRow> asks = depthRows(snapshot.asks(), Comparator.naturalOrder());
+    return new DashboardRows(bids, asks, candleRows(candles),
+        executableQuantity(snapshot.bids()), executableQuantity(snapshot.asks()));
+  }
+
+  private static long executableQuantity(List<MarketDataService.DepthLevel> levels) {
+    return levels.stream().filter(MarketDataService.DepthLevel::executable)
+        .mapToLong(MarketDataService.DepthLevel::quantity).sum();
   }
 
   private static List<DepthRow> depthRows(List<MarketDataService.DepthLevel> levels,
@@ -78,11 +85,15 @@ public final class MarketDashboardPresenter {
   }
 
   public record DashboardRows(List<DepthRow> bids, List<DepthRow> asks,
-                              List<CandleRow> candles) {
+                              List<CandleRow> candles, long executableBidQuantity,
+                              long executableAskQuantity) {
     public DashboardRows {
       bids = List.copyOf(bids);
       asks = List.copyOf(asks);
       candles = List.copyOf(candles);
+      if (executableBidQuantity < 0 || executableAskQuantity < 0) {
+        throw new IllegalArgumentException("executable quantity must be non-negative");
+      }
     }
   }
 

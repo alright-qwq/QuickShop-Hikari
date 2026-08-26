@@ -89,6 +89,7 @@ en-US:
   ui-depth-distance: 'Distance from last: <0>'
   ui-depth-executable: Executable now
   ui-depth-protected: Outside price cage
+  ui-depth-executable-summary: 'Executable depth: <0> bid / <1> ask'
   ui-trend-title: '1m trade: <0>'
   ui-trend-up: Up
   ui-trend-down: Down
@@ -287,6 +288,7 @@ zh-CN:
   ui-depth-distance: '距最新价：<0>'
   ui-depth-executable: 当前可成交
   ui-depth-protected: 当前超出价格笼子
+  ui-depth-executable-summary: '可立即成交深度：买 <0> / 卖 <1>'
   ui-trend-title: '1 分钟成交：<0>'
   ui-trend-up: 上涨
   ui-trend-down: 下跌

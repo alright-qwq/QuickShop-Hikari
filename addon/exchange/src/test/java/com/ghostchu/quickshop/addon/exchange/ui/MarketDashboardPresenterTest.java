@@ -38,6 +38,24 @@ class MarketDashboardPresenterTest {
   }
 
   @Test
+  void totalsExecutableBidAndAskQuantityAcrossTheWholeBook() {
+    MarketDashboardSnapshot snapshot = new MarketDashboardSnapshot(row("diamond-usd", "0.10", 10),
+        List.of(), List.of(
+            new MarketDataService.DepthLevel(new BigDecimal("98"), 5, true),
+            new MarketDataService.DepthLevel(new BigDecimal("97"), 7, false),
+            new MarketDataService.DepthLevel(new BigDecimal("96"), 3, true)),
+        List.of(new MarketDataService.DepthLevel(new BigDecimal("102"), 4, true),
+            new MarketDataService.DepthLevel(new BigDecimal("103"), 6, false),
+            new MarketDataService.DepthLevel(new BigDecimal("104"), 2, true)),
+        new BigDecimal("2"), new BigDecimal("0.02"));
+
+    MarketDashboardPresenter.DashboardRows rows = presenter.present(snapshot);
+
+    assertThat(rows.executableBidQuantity()).isEqualTo(8);
+    assertThat(rows.executableAskQuantity()).isEqualTo(6);
+  }
+
+  @Test
   void padsChartsWithExplicitEmptyRowsInsteadOfInventingLiquidityOrTrades() {
     MarketDashboardSnapshot snapshot = new MarketDashboardSnapshot(row("diamond-usd", "0", 0),
         List.of(), List.of(), List.of(), null, null);

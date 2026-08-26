@@ -150,6 +150,7 @@ final class MarketDetailPage {
     addTradeSummary(page, player, dashboard);
     Duration window = timeframes.getOrDefault(playerId, TIMEFRAMES.getFirst());
     MarketDashboardPresenter.DashboardRows rows = presenter.present(dashboard, window);
+    addExecutableDepthSummary(page, player, rows);
     renderDepth(page, player, rows, row);
     renderCandles(page, player, rows);
     renderRecentTrades(page, player, dashboard);
@@ -186,6 +187,15 @@ final class MarketDetailPage {
       addDepthIcon(page, player, rows.bids().get(index), true, 9 + index, market);
       addDepthIcon(page, player, rows.asks().get(index), false, 14 + index, market);
     }
+  }
+
+  private void addExecutableDepthSummary(PlayerInstancePage page, Player player,
+                                         MarketDashboardPresenter.DashboardRows rows) {
+    page.addIcon(player.getUniqueId(), new IconBuilder(
+        QuickShop.getInstance().stack().of("STRUCTURE_BLOCK", 1)
+            .customName(messages.component(player, "ui-depth-executable-summary",
+                rows.executableBidQuantity(), rows.executableAskQuantity())))
+        .withSlot(7).build());
   }
 
   private void addDepthIcon(PlayerInstancePage page, Player player,
