@@ -142,7 +142,19 @@ public final class ExchangeRuntimeFactory {
           ? definition.security().totalSupply() : null;
       marketViews.put(entry.getKey(), new ExchangeViewService.MarketView(
           entry.getKey(), definition.displayName(), entry.getValue(),
-          assetType, symbol, totalSupply, null));
+          assetType, symbol, totalSupply,
+          () -> {
+            if (definition.assetType() != AssetType.VIRTUAL_SECURITY) {
+              return null;
+            }
+            try {
+              return repository.inTransaction(
+                  tx -> tx.securityDefinition(entry.getKey()).status());
+            } catch (SQLException failure) {
+              throw new IllegalStateException(
+                  "failed to load security status: " + entry.getKey(), failure);
+            }
+          }));
       String currencyId = definition.structural().currencyId();
       transferTargets.putIfAbsent("currency:" + currencyId,
           com.ghostchu.quickshop.addon.exchange.ui.TransferTarget.currency(currencyId));

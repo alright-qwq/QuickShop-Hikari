@@ -244,7 +244,8 @@ public final class JdbcExchangeRepository
               result.getString("market_id"),
               BigDecimal.valueOf(result.getLong("available")),
               BigDecimal.valueOf(result.getLong("frozen")),
-              result.getString("name") + " (" + result.getString("symbol") + ")"));
+              result.getString("name") + " (" + result.getString("symbol") + ")",
+              result.getString("symbol")));
         }
       }
     }

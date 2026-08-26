@@ -18,7 +18,7 @@ class VirtualSecurityAssetsPageTest {
   void acceptsSecurityKindAndCarriesSymbolName() {
     AccountAssetBalance balance = new AccountAssetBalance(AccountAssetBalance.Kind.SECURITY,
         "concept_alpha", new BigDecimal("25"), new BigDecimal("5"),
-        "Alpha Holdings (ALPHA)");
+        "Alpha Holdings (ALPHA)", "ALPHA");
 
     assertThat(balance.kind()).isEqualTo(AccountAssetBalance.Kind.SECURITY);
     assertThat(balance.kindName()).isEqualTo("security");
@@ -33,12 +33,12 @@ class VirtualSecurityAssetsPageTest {
                 new BigDecimal("12.50"), BigDecimal.ONE, null),
             new AccountAssetBalance(AccountAssetBalance.Kind.SECURITY, "concept_alpha",
                 new BigDecimal("25"), new BigDecimal("5"),
-                "Alpha Holdings (ALPHA)")));
+                "Alpha Holdings (ALPHA)", "ALPHA")));
 
     assertThat(merged.rows()).containsExactly(new AssetPageRows.Row(
         TransferTarget.currency("default"), new BigDecimal("12.50"), BigDecimal.ONE));
     assertThat(merged.securities()).containsExactly(new AssetPageRows.SecurityRow(
-        "concept_alpha", "Alpha Holdings (ALPHA)", new BigDecimal("25"),
+        "ALPHA", "Alpha Holdings (ALPHA)", new BigDecimal("25"),
         new BigDecimal("5")));
   }
 

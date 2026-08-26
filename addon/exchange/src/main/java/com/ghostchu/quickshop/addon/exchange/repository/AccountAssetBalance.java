@@ -6,7 +6,8 @@ import java.util.Objects;
 
 /** Read-only account asset projection for player views. */
 public record AccountAssetBalance(
-    Kind kind, String assetId, BigDecimal available, BigDecimal frozen, String displayName) {
+    Kind kind, String assetId, BigDecimal available, BigDecimal frozen, String displayName,
+    String symbol) {
 
   public enum Kind {
     CURRENCY,
@@ -22,16 +23,25 @@ public record AccountAssetBalance(
 
   public AccountAssetBalance(Kind kind, String assetId, BigDecimal available,
                              BigDecimal frozen, String displayName) {
+    this(kind, assetId, available, frozen, displayName, null);
+  }
+
+  public AccountAssetBalance(Kind kind, String assetId, BigDecimal available,
+                             BigDecimal frozen, String displayName, String symbol) {
     Objects.requireNonNull(kind, "kind");
     if (assetId == null || assetId.isBlank() || available == null || frozen == null
         || available.signum() < 0 || frozen.signum() < 0) {
       throw new IllegalArgumentException("invalid account asset balance");
+    }
+    if (kind == Kind.SECURITY && (symbol == null || symbol.isBlank())) {
+      throw new IllegalArgumentException("security balance requires a symbol");
     }
     this.kind = kind;
     this.assetId = assetId;
     this.available = available;
     this.frozen = frozen;
     this.displayName = displayName == null || displayName.isBlank() ? null : displayName;
+    this.symbol = symbol == null || symbol.isBlank() ? null : symbol;
   }
 
   public String kindName() {

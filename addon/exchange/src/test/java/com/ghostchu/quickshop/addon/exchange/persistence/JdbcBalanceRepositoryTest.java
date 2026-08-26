@@ -128,7 +128,7 @@ class JdbcBalanceRepositoryTest {
 
     assertThat(assets).contains(new AccountAssetBalance(AccountAssetBalance.Kind.SECURITY,
         "concept_alpha", new BigDecimal("20"), new BigDecimal("5"),
-        "Alpha (ALPHA)"));
+        "Alpha (ALPHA)", "ALPHA"));
   }
 
   @Test

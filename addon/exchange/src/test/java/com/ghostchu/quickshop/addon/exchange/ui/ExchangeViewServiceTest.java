@@ -156,6 +156,20 @@ class ExchangeViewServiceTest {
     assertThat(updates).hasValue(1);
   }
 
+  @Test
+  void resolvesSecuritySymbolToItsMarketIdCaseInsensitively() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketDataService marketData = new MarketDataService(new CandleAggregator());
+    ExchangeViewService views = new ExchangeViewService(java.util.Map.of("concept_alpha",
+        new ExchangeViewService.MarketView("concept_alpha", "Alpha", fixture.service(),
+            "VIRTUAL_SECURITY", "ALPHA", 1000L, () -> "OPEN")),
+        marketData, Runnable::run);
+
+    assertThat(views.resolveMarketIdBySymbol("alpha")).isEqualTo("concept_alpha");
+    assertThat(views.resolveMarketIdBySymbol("ALPHA")).isEqualTo("concept_alpha");
+    assertThat(views.resolveMarketIdBySymbol("BETA")).isNull();
+  }
+
   private static final class RecordingRepository implements ExchangeRepository {
     private final Order order = new Order(UUID.randomUUID(), UUID.randomUUID(), "diamond-usd",
         UUID.randomUUID(), OrderSide.BUY, OrderType.LIMIT, TimeInForce.GTC,

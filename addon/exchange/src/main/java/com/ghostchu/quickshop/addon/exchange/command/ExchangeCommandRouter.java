@@ -9,26 +9,34 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 public final class ExchangeCommandRouter {
   private final Supplier<UUID> requestIds;
   private final AdminCommandRouter administration;
   private final RolloutPolicy rollout;
+  private final Function<String, String> symbolToMarketId;
 
   public ExchangeCommandRouter(Supplier<UUID> requestIds) {
-    this(requestIds, null, RolloutPolicy.DISABLED);
+    this(requestIds, null, RolloutPolicy.DISABLED, Function.identity());
   }
 
   public ExchangeCommandRouter(Supplier<UUID> requestIds, AdminCommandRouter administration) {
-    this(requestIds, administration, RolloutPolicy.DISABLED);
+    this(requestIds, administration, RolloutPolicy.DISABLED, Function.identity());
   }
 
   public ExchangeCommandRouter(Supplier<UUID> requestIds, AdminCommandRouter administration,
                                RolloutPolicy rollout) {
+    this(requestIds, administration, rollout, Function.identity());
+  }
+
+  public ExchangeCommandRouter(Supplier<UUID> requestIds, AdminCommandRouter administration,
+                               RolloutPolicy rollout, Function<String, String> symbolToMarketId) {
     this.requestIds = Objects.requireNonNull(requestIds, "requestIds");
     this.administration = administration;
     this.rollout = Objects.requireNonNull(rollout, "rollout");
+    this.symbolToMarketId = Objects.requireNonNull(symbolToMarketId, "symbolToMarketId");
   }
 
   public void execute(CommandActor actor, String[] args) {
@@ -104,8 +112,13 @@ public final class ExchangeCommandRouter {
         invalid(actor);
         return;
       }
+      String marketId = symbolToMarketId.apply(args[1]);
+      if (marketId == null || marketId.isBlank()) {
+        invalid(actor);
+        return;
+      }
       actor.message("request-ready", requestIds.get());
-      actor.openMenu(ExchangeMenuRequest.market(args[1]));
+      actor.openMenu(ExchangeMenuRequest.market(marketId));
       return;
     }
     invalid(actor);

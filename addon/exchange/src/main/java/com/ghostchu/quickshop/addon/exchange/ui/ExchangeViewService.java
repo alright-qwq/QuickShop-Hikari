@@ -23,6 +23,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /** Background-only read facade used by exchange UI pages. */
 public final class ExchangeViewService {
@@ -93,11 +94,23 @@ public final class ExchangeViewService {
         return presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
             market.displayName(), market.service().marketQuote(marketData),
             market.assetType(), market.symbol(), market.totalSupply(),
-            market.securityStatus()))).getFirst();
+            market.securityStatus().get()))).getFirst();
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + marketId, failure);
       }
     }, executor);
+  }
+
+  public String resolveMarketIdBySymbol(String symbol) {
+    if (symbol == null || symbol.isBlank()) {
+      return null;
+    }
+    for (MarketView market : markets.values()) {
+      if (market.symbol() != null && market.symbol().equalsIgnoreCase(symbol)) {
+        return market.marketId();
+      }
+    }
+    return null;
   }
 
   public CompletableFuture<MarketDashboardSnapshot> marketDashboard(String marketId) {
@@ -110,7 +123,7 @@ public final class ExchangeViewService {
             book.bestAsk(), book.status(), book.asOf());
         MarketRow row = presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
             market.displayName(), quote, market.assetType(), market.symbol(),
-            market.totalSupply(), market.securityStatus()))).getFirst();
+            market.totalSupply(), market.securityStatus().get()))).getFirst();
         Instant asOf = book.asOf();
         List<com.ghostchu.quickshop.addon.exchange.marketdata.Candle> candles =
             marketData.recentCandles(marketId, asOf.minus(Duration.ofMinutes(9)),
@@ -213,7 +226,7 @@ public final class ExchangeViewService {
       try {
         entries.add(new MarketListPresenter.Entry(market.marketId(), market.displayName(),
             market.service().marketQuote(marketData), market.assetType(), market.symbol(),
-            market.totalSupply(), market.securityStatus()));
+            market.totalSupply(), market.securityStatus().get()));
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + market.marketId(), failure);
       }
@@ -246,9 +259,9 @@ public final class ExchangeViewService {
 
   public record MarketView(String marketId, String displayName, PersistentOrderService service,
                            String assetType, String symbol, Long totalSupply,
-                           String securityStatus) {
+                           Supplier<String> securityStatus) {
     public MarketView(String marketId, String displayName, PersistentOrderService service) {
-      this(marketId, displayName, service, null, null, null, null);
+      this(marketId, displayName, service, null, null, null, () -> null);
     }
 
     public MarketView {
@@ -256,6 +269,7 @@ public final class ExchangeViewService {
         throw new IllegalArgumentException("market display data is required");
       }
       Objects.requireNonNull(service, "service");
+      Objects.requireNonNull(securityStatus, "securityStatus");
     }
   }
 }

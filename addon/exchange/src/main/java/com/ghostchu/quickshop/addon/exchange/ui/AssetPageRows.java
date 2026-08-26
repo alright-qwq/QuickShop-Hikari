@@ -33,7 +33,8 @@ final class AssetPageRows {
     }
     List<SecurityRow> securities = balances.stream()
         .filter(balance -> balance.kind() == AccountAssetBalance.Kind.SECURITY)
-        .map(balance -> new SecurityRow(balance.assetId(),
+        .map(balance -> new SecurityRow(balance.symbol() == null ? balance.assetId()
+                : balance.symbol(),
             balance.displayName() == null ? balance.assetId() : balance.displayName(),
             balance.available(), balance.frozen()))
         .toList();

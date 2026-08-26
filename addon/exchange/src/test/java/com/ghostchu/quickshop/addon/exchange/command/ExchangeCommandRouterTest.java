@@ -5,6 +5,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,6 +47,32 @@ class ExchangeCommandRouterTest {
     assertThat(actor.opened).isNotNull();
     assertThat(actor.opened.marketId()).isEqualTo("diamond-usd");
     assertThat(actor.opened.menuName()).isEqualTo("market-detail");
+  }
+
+  @Test
+  void resolvesStockSymbolToItsMarketId() {
+    Actor actor = new Actor("quickshop.exchange.use");
+    ExchangeCommandRouter router = new ExchangeCommandRouter(
+        UUID::randomUUID, null, RolloutPolicy.DISABLED,
+        symbol -> "alpha".equalsIgnoreCase(symbol) ? "concept_alpha" : null);
+
+    router.execute(actor, new String[] {"stock", "ALPHA"});
+
+    assertThat(actor.opened).isNotNull();
+    assertThat(actor.opened.marketId()).isEqualTo("concept_alpha");
+    assertThat(actor.opened.menuName()).isEqualTo("market-detail");
+  }
+
+  @Test
+  void rejectsStockSymbolWithNoMatchingMarket() {
+    Actor actor = new Actor("quickshop.exchange.use");
+    ExchangeCommandRouter router = new ExchangeCommandRouter(
+        UUID::randomUUID, null, RolloutPolicy.DISABLED, symbol -> null);
+
+    router.execute(actor, new String[] {"stock", "ALPHA"});
+
+    assertThat(actor.message).isEqualTo("command-invalid");
+    assertThat(actor.opened).isNull();
   }
 
   @Test

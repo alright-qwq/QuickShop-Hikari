@@ -82,8 +82,9 @@ an idempotent request id.
 Lifecycle status values: `OPEN`, `PAUSED`, `HALTED`, `CLOSED`.
 
 - `OPEN`: new orders are accepted.
-- `PAUSED`: issuance is still possible, but the operator should also pause the matching market
-  state to stop order entry. The security status is the authoritative lifecycle signal.
+- `PAUSED`: issuance is still possible, but order entry is stopped because the matching market
+  state is paused in the same transaction. The security status and the market status stay in
+  sync automatically.
 - `HALTED`: reserved for circuit-breaker style halts (not yet wired to automatic market halts).
 - `CLOSED`: no new issuance; `close` requires zero open orders and moves every outstanding balance
   to the recovery account, then marks the definition closed.
@@ -94,7 +95,8 @@ Lifecycle status values: `OPEN`, `PAUSED`, `HALTED`, `CLOSED`.
 2. Start the server once so the market and security rows are created.
 3. Set the market to `enabled: true` and restart, or use the market pause/resume admin commands.
 4. Resume the security (`/qse admin stock resume <marketId> ...`) only after the market state is
-   `OPEN`.
+   `OPEN`. Resuming the security also opens the market state if it was paused by `stock pause`;
+   a market halted for another reason (e.g. reconciliation) stays halted.
 5. Issue initial supply with `/qse admin stock issue`.
 6. Confirm the assets page shows the security balance and the market detail page shows
    `Asset: VIRTUAL_SECURITY`, `Symbol: <symbol>`, `Total supply: <total>`.
@@ -110,7 +112,10 @@ To close a stock, first cancel or let all open orders finish, then:
   "Virtual security (ledger-only, cannot deposit or withdraw)", plus symbol, available, and frozen
   quantities. Security rows have no left/right deposit/withdraw actions.
 - Market list/detail rows display `Asset: VIRTUAL_SECURITY`, `Symbol`, `Total supply`, and
-  `Security status` in addition to the normal price/volume/status lore.
+  `Security status` (read live from the security definition) in addition to the normal
+  price/volume/status lore.
+- `/qse stock <symbol>` resolves the symbol to its market id (case-insensitive) and opens that
+  market's detail page; an unknown symbol is rejected instead of opening a broken page.
 - When the market status is not `OPEN`, order-entry buttons remain visible but clicking them
   returns "This market currently accepts queries and cancellations only." The same guard applies
   to paused/closed virtual markets.

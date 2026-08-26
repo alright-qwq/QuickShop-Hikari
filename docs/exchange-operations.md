@@ -130,3 +130,5 @@ Operational differences to remember:
   their security definition. Fix configuration or database state, then restart; do not hand-edit
   the securities, security balances, or security ledger tables.
 - `/qse stocks` opens the market list; `/qse stock <symbol>` opens that market's detail page.
+- `stock pause/resume/close` keeps the security definition and the market state in sync:
+  pausing stops order entry, resuming reopens a paused market, and closing closes the market.
