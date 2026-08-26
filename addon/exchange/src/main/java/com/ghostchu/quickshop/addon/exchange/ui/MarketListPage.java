@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.ui;
 
 import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -109,9 +110,22 @@ final class MarketListPage {
         lore.add(messages.component(player, "ui-market-issued-supply",
             row.issuedSupply(), row.totalSupply()));
       }
-      lore.add(messages.component(player, "ui-market-change-percent",
-          percent(row.change24h())));
-      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
+      Component changeLine = messages.component(player, "ui-market-change-percent",
+          percent(row.change24h()));
+      if (row.change24h() != null && row.change24h().signum() > 0) {
+        changeLine = changeLine.color(net.kyori.adventure.text.format.NamedTextColor.GREEN);
+      } else if (row.change24h() != null && row.change24h().signum() < 0) {
+        changeLine = changeLine.color(net.kyori.adventure.text.format.NamedTextColor.RED);
+      }
+      lore.add(changeLine);
+      String material = "CHEST";
+      if (row.status() == MarketStatus.OPEN
+          && "VIRTUAL_SECURITY".equals(row.assetType())) {
+        material = "EMERALD";
+      } else if (row.status() != MarketStatus.OPEN) {
+        material = "BARRIER";
+      }
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of(material, 1)
           .customName(net.kyori.adventure.text.Component.text(row.displayName()))
           .lore(lore))
           .withActions(new RunnableAction(click -> {

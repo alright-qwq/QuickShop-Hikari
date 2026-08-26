@@ -77,6 +77,10 @@ final class MyOrdersPage {
       return;
     }
     addMarketsNavigation(page, player);
+    if (orders.isEmpty()) {
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
+          .customName(messages.component(player, "ui-orders-empty"))).withSlot(22).build());
+    }
     int slot = 9;
     for (ExchangeTransaction.PersistedOrder persisted : orders) {
       if (slot >= 45) break;

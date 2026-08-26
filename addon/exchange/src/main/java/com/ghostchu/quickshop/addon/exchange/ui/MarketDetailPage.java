@@ -9,6 +9,7 @@ import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.menu.shared.GuiChatInputManager;
 import java.util.List;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.function.Function;
@@ -104,7 +105,7 @@ final class MarketDetailPage {
         messages.component(player, "ui-market-spread", spread, spreadPercent),
         messages.component(player, "ui-market-change-percent",
             row.change24h().multiply(java.math.BigDecimal.valueOf(100)).stripTrailingZeros()
-                .toPlainString()),
+                .toPlainString()).color(changeColor(row.change24h())),
         messages.component(player, "ui-market-notional", notional(dashboard)),
         messages.component(player, "ui-market-volatility",
             row.volatility24h() == null ? "-"
@@ -311,6 +312,15 @@ final class MarketDetailPage {
             MenuManager.instance().open(ExchangeMenu.NAME, target.page(), click.player());
           }
         })).withSlot(slot).build());
+  }
+
+  private static net.kyori.adventure.text.format.NamedTextColor changeColor(BigDecimal change) {
+    if (change == null) {
+      return net.kyori.adventure.text.format.NamedTextColor.GRAY;
+    }
+    return change.signum() > 0 ? net.kyori.adventure.text.format.NamedTextColor.GREEN
+        : change.signum() < 0 ? net.kyori.adventure.text.format.NamedTextColor.RED
+        : net.kyori.adventure.text.format.NamedTextColor.YELLOW;
   }
 
   private static String notional(MarketDashboardSnapshot dashboard) {
