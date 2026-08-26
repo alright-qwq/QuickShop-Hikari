@@ -136,7 +136,8 @@ To close a stock, first cancel or let all open orders finish, then:
   matching the actual on-chain reservation). Sell
   confirmations also show the estimated net proceeds after fees.
 - The cancellation confirmation page shows the market, side, remaining quantity, and the exact
-  frozen currency/quantity that will be released when the order is cancelled.
+  frozen currency/quantity that will be released when the order is cancelled. If the order is
+  no longer cancellable (already filled or cancelled), the page says so instead of waiting.
 - After a confirmation is submitted successfully you are returned to the relevant page:
   the market detail for an order, My Orders after a cancellation, and the assets page after a
   deposit/withdrawal. Failed/rejected requests stay on the confirmation page.

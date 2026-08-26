@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `3732e8cf8`
+- Current HEAD: `96b4c70b7`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -109,6 +109,15 @@ Full exchange test suite: 416 tests, 0 failures.
   cancel; a loading line is shown while the async read is in flight. (8fb9cc582)
 - Market detail adds an "executable depth" summary (slot 7): the total bid and ask
   quantity currently executable (inside the price cage) across the whole book. (cfe231c0e)
+
+Full exchange test suite: 421 tests, 0 failures.
+
+## Fifth continuation (same day)
+
+- Cancellation confirmation now distinguishes "loading" from "no longer cancellable"
+  (filled or already cancelled) instead of showing a stuck loading line. (21b29bc7f)
+- Account history ledger rows show the associated reference id, and transfer rows show
+  failure reasons when present. (96b4c70b7)
 
 Full exchange test suite: 421 tests, 0 failures.
 
