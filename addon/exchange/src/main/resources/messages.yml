@@ -75,6 +75,7 @@ en-US:
   ui-assets-available: 'Available: <0>'
   ui-assets-frozen: 'Frozen: <0>'
   ui-assets-virtual-security: Virtual security (ledger-only, cannot deposit or withdraw)
+  ui-assets-open-market: 'Click to open the market'
   ui-assets-symbol: 'Symbol: <0>'
   ui-assets-market-value: 'Estimated value: <0>'
   ui-assets-deposit-action: 'Left click: deposit'
@@ -91,6 +92,7 @@ en-US:
   ui-order-status: 'Status: <0>'
   ui-order-remaining: 'Remaining: <0>/<1>'
   ui-order-price: 'Price / protection: <0>'
+  ui-order-time: 'Placed: <0>'
   ui-market-not-selected: No market is selected.
   ui-market-bid: 'Best bid: <0>'
   ui-market-ask: 'Best ask: <0>'
@@ -204,6 +206,7 @@ zh-CN:
   ui-assets-available: '可用：<0>'
   ui-assets-frozen: '冻结：<0>'
   ui-assets-virtual-security: '虚拟证券（纯账本，不可充值/提现）'
+  ui-assets-open-market: '点击打开市场'
   ui-assets-symbol: '代码：<0>'
   ui-assets-market-value: '预估市值：<0>'
   ui-assets-deposit-action: '左键：充值'
@@ -220,6 +223,7 @@ zh-CN:
   ui-order-status: '状态：<0>'
   ui-order-remaining: '剩余：<0>/<1>'
   ui-order-price: '价格 / 保护边界：<0>'
+  ui-order-time: '下单时间：<0>'
   ui-market-not-selected: '尚未选择市场。'
   ui-market-bid: '最佳买价：<0>'
   ui-market-ask: '最佳卖价：<0>'

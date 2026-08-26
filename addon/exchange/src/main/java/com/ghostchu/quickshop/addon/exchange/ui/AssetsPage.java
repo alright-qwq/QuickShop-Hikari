@@ -86,7 +86,8 @@ final class AssetsPage {
           messages.component(player, "ui-assets-virtual-security"),
           messages.component(player, "ui-assets-symbol", security.symbol()),
           messages.component(player, "ui-assets-available", security.available().toPlainString()),
-          messages.component(player, "ui-assets-frozen", security.frozen().toPlainString())));
+          messages.component(player, "ui-assets-frozen", security.frozen().toPlainString()),
+          messages.component(player, "ui-assets-open-market")));
       java.math.BigDecimal marketValue = marketValue(security);
       if (marketValue != null) {
         securityLore.add(messages.component(player, "ui-assets-market-value",
@@ -94,7 +95,13 @@ final class AssetsPage {
       }
       IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
           .customName(Component.text(security.displayName())).lore(securityLore));
-      icon.withSlot(slot++);
+      icon.withActions(new RunnableAction(click -> {
+        Player online = Bukkit.getPlayer(playerId);
+        if (online == null || !online.isOnline()) return;
+        contexts.put(playerId, ExchangeMenuRequest.market(security.marketId()));
+        MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKET_DETAIL.page(),
+            click.player());
+      })).withSlot(slot++);
       page.addIcon(playerId, icon.build());
     }
     for (TransferRecord transfer : snapshot.transfers()) {

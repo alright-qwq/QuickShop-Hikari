@@ -17,6 +17,8 @@ import org.bukkit.entity.Player;
 
 /** Displays the first bounded page of a player's currently cancellable orders. */
 final class MyOrdersPage {
+  static final int PAGE_SIZE = 27;
+
   private final ExchangeViewService views;
   private final ExchangeMenuContextStore contexts;
   private final ExchangeUiMessages messages;
@@ -32,8 +34,10 @@ final class MyOrdersPage {
     if (!(callback.getPage() instanceof PlayerInstancePage page)) return;
     UUID playerId = callback.getPlayer().identifier();
     ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
-    views.accountOrders(playerId, 36, 0).whenComplete((orders, failure) -> {
-      if (opened == null || !contexts.isCurrent(playerId, opened)) return;
+    int offset = Math.max(0, (opened == null ? 1 : opened.page()) - 1) * PAGE_SIZE;
+    views.accountOrders(playerId, PAGE_SIZE, offset).whenComplete((orders, failure) -> {
+      if (opened == null) return;
+      if (!contexts.isCurrent(playerId, opened)) return;
       Player player = Bukkit.getPlayer(playerId);
       if (player == null || !player.isOnline()) return;
       QuickShop.folia().getScheduler().runAtEntityLater(player,
@@ -63,7 +67,9 @@ final class MyOrdersPage {
           messages.component(player, "ui-order-remaining", order.remainingQuantity(),
               order.originalQuantity()),
           messages.component(player, "ui-order-price", order.limitPrice() == null
-              ? order.slippageBoundary() : order.limitPrice()));
+              ? order.slippageBoundary() : order.limitPrice()),
+          messages.component(player, "ui-order-time",
+              messages.relativeTime(order.createdAt())));
       IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
           .customName(messages.component(player, "ui-order-title", order.side(),
               views.marketDisplayName(order.marketId())))
@@ -81,6 +87,13 @@ final class MyOrdersPage {
       })).withSlot(slot++);
       page.addIcon(playerId, icon.build());
     }
+    ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
+    if (opened != null && opened.page() > 1) {
+      addNavigation(page, player, 45, "ARROW", "ui-history-previous", opened.page() - 1);
+    }
+    if (orders.size() == PAGE_SIZE) {
+      addNavigation(page, player, 53, "ARROW", "ui-history-next", opened.page() + 1);
+    }
   }
 
   private void addMarketsNavigation(PlayerInstancePage page, Player player) {
@@ -92,5 +105,19 @@ final class MyOrdersPage {
           MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKETS.page(),
               click.player());
         })).withSlot(0).build());
+  }
+
+  private void addNavigation(PlayerInstancePage page, Player player, int slot, String material,
+                             String key, int targetPage) {
+    UUID playerId = player.getUniqueId();
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of(material, 1)
+        .customName(messages.component(player, key)))
+        .withActions(new RunnableAction(click -> {
+          ExchangeMenuRequest request = ExchangeMenuRequest.page(
+              ExchangeMenuPage.ORDERS.menuName(), targetPage);
+          contexts.put(playerId, request);
+          MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.ORDERS.page(),
+              click.player());
+        })).withSlot(slot).build());
   }
 }
