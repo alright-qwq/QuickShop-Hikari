@@ -136,6 +136,11 @@ public final class ExchangeViewService {
     }
   }
 
+  /** Loads the latest market quote on the background read executor. */
+  public CompletableFuture<MarketQuote> marketQuoteAsync(String marketId) {
+    return CompletableFuture.supplyAsync(() -> marketQuote(marketId), executor);
+  }
+
   /** Returns the configured market display name, or the market id when unknown. */
   public String marketDisplayName(String marketId) {
     MarketView market = markets.get(marketId);

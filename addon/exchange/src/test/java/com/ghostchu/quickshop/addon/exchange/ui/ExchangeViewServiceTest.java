@@ -139,6 +139,21 @@ class ExchangeViewServiceTest {
   }
 
   @Test
+  void loadsMarketQuoteAsyncThroughTheBackgroundExecutor() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketDataService marketData = new MarketDataService(new CandleAggregator());
+    ExchangeViewService views = new ExchangeViewService(java.util.Map.of("diamond-usd",
+        new ExchangeViewService.MarketView("diamond-usd", "Diamond", fixture.service())),
+        marketData, Runnable::run);
+
+    com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote =
+        views.marketQuoteAsync("diamond-usd").join();
+
+    assertThat(quote).isNotNull();
+    assertThat(quote.marketId()).isEqualTo("diamond-usd");
+  }
+
+  @Test
   void forwardsCoalescedMarketUpdatesUntilThePlayerUnsubscribes() {
     MarketDataService marketData = new MarketDataService(new CandleAggregator());
     ExchangeViewService views = new ExchangeViewService(java.util.Map.of(), marketData,

@@ -8,7 +8,6 @@ import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.tnemc.menu.core.PlayerInstancePage;
 import net.tnemc.menu.core.builder.IconBuilder;
@@ -59,7 +58,7 @@ final class RequestSummaryPage {
     }
     render(page, player, request, null);
     if (request.order() != null && request.order().slippageBoundary() != null && views != null) {
-      CompletableFuture.supplyAsync(() -> views.marketQuote(request.marketId()))
+      views.marketQuoteAsync(request.marketId())
           .whenComplete((quote, failure) -> {
             if (failure != null || !contexts.isCurrent(playerId, request)) return;
             Player online = Bukkit.getPlayer(playerId);
