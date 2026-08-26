@@ -246,7 +246,8 @@ final class MarketDetailPage {
     List<Component> lore = List.of(
         messages.component(player, "ui-market-trades-24h", summary.tradeCount()),
         messages.component(player, "ui-market-trades-buy-sell", summary.buyCount(),
-            summary.sellCount()));
+            summary.sellCount()),
+        messages.component(player, "ui-market-volume", summary.volume()));
     page.addIcon(player.getUniqueId(), new IconBuilder(
         QuickShop.getInstance().stack().of("BARREL", 1)
             .customName(messages.component(player, "ui-market-trades-title")).lore(lore))
