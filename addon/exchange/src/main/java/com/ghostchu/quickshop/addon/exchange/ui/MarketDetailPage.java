@@ -240,14 +240,19 @@ final class MarketDetailPage {
 
   private void addOpenOrderCount(List<Component> lore, Player player, MarketRow row,
                                  List<com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder> orders) {
-    if (orders == null || orders.isEmpty()) {
+    if (orders == null) {
       return;
     }
     long count = orders.stream()
         .filter(persisted -> row.marketId().equals(persisted.order().marketId()))
         .count();
-    if (count > 0) {
-      lore.add(messages.component(player, "ui-market-my-open-orders", count));
+    ExchangeViewService.MarketView market = views.market(row.marketId());
+    int limit = market == null ? 0
+        : market.service().accountOrderLimits().maximumOpenOrders();
+    if (limit > 0) {
+      lore.add(messages.component(player, "ui-market-my-open-orders", count, limit));
+    } else if (count > 0) {
+      lore.add(messages.component(player, "ui-market-my-open-orders-count", count));
     }
   }
 

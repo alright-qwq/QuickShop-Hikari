@@ -89,6 +89,10 @@ public final class PersistentOrderService {
     return rules;
   }
 
+  public AccountOrderLimits accountOrderLimits() {
+    return accountLimits;
+  }
+
   /** Production wiring should prefer the constructor that supplies a recovery handler. */
   public PersistentOrderService(ExchangeRepository repository, MarketRules rules) {
     this(repository, rules, RiskLimits.defaults(), RecoveryHandler.NO_OP,
