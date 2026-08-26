@@ -99,6 +99,9 @@ final class MarketDetailPage {
             row.volatility24h() == null ? "-"
                 : row.volatility24h().multiply(java.math.BigDecimal.valueOf(100))
                     .stripTrailingZeros().toPlainString() + "%"),
+        messages.component(player, "ui-market-high-low",
+            row.high24h() == null ? "-" : row.high24h().toPlainString(),
+            row.low24h() == null ? "-" : row.low24h().toPlainString()),
         messages.component(player, "ui-market-volume", row.volume24h()),
         messages.component(player, "ui-market-status", row.status().name())));
     if (row.assetType() != null) {

@@ -135,8 +135,10 @@ public final class MarketDataService {
         .divide(ticker.getFirst().open(), 8, RoundingMode.HALF_UP)
         .stripTrailingZeros();
     BigDecimal volatility = volatility(ticker, lastPrice);
+    BigDecimal high24h = ticker.stream().map(Candle::high).max(BigDecimal::compareTo).orElse(null);
+    BigDecimal low24h = ticker.stream().map(Candle::low).min(BigDecimal::compareTo).orElse(null);
     return new MarketQuote(marketId, lastPrice, referencePrice, bestBid, bestAsk, change,
-        volume, notional, status, asOf, volatility);
+        volume, notional, status, asOf, volatility, high24h, low24h);
   }
 
   /** Spread of the 24h candle close prices as a fraction of the latest close. */

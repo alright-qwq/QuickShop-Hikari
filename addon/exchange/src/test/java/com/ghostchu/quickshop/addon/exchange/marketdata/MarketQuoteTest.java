@@ -37,4 +37,15 @@ class MarketQuoteTest {
   void volatilityRequiresAtLeastTwoCandles() {
     assertThat(MarketDataService.volatility(List.of(), new BigDecimal("100"))).isNull();
   }
+
+  @Test
+  void carriesTwentyFourHourHighAndLow() {
+    MarketQuote quote = new MarketQuote("diamond-usd", new BigDecimal("100"),
+        new BigDecimal("100"), new BigDecimal("99"), new BigDecimal("101"),
+        BigDecimal.ZERO, 10, new BigDecimal("1000"), MarketStatus.OPEN, Instant.EPOCH,
+        new BigDecimal("0.1"), new BigDecimal("110"), new BigDecimal("90"));
+
+    assertThat(quote.high24h()).isEqualByComparingTo("110");
+    assertThat(quote.low24h()).isEqualByComparingTo("90");
+  }
 }
