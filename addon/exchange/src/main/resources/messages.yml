@@ -112,6 +112,7 @@ en-US:
   ui-assets-market-value: 'Estimated value: <0>'
   ui-assets-total-value: Total portfolio value
   ui-assets-total-value-amount: 'Estimated total: <0>'
+  ui-assets-total-value-frozen: 'Frozen total: <0>'
   ui-assets-deposit-action: 'Left click: deposit'
   ui-assets-withdraw-action: 'Right click: withdraw'
   ui-assets-transfer-title: 'Transfer <0>'
@@ -298,6 +299,7 @@ zh-CN:
   ui-assets-market-value: '预估市值：<0>'
   ui-assets-total-value: 总资产估值
   ui-assets-total-value-amount: '预计总资产：<0>'
+  ui-assets-total-value-frozen: '冻结总额：<0>'
   ui-assets-deposit-action: '左键：充值'
   ui-assets-withdraw-action: '右键：提现'
   ui-assets-transfer-title: '转账 <0>'
