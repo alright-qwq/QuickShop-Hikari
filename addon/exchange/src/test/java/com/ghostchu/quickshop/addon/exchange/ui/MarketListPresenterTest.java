@@ -47,6 +47,22 @@ class MarketListPresenterTest {
   }
 
   @Test
+  void sortsNullChangeAndNullLastMarketsWithoutThrowing() {
+    MarketRow noTrades = new MarketRow("new-stock", "New Stock", null, null, null, null, 0,
+        MarketStatus.OPEN, "VIRTUAL_SECURITY", "NEW", 1000L, "OPEN", null, null, null, null, null);
+    MarketRow traded = new MarketRow("diamond-usd", "Diamond", new BigDecimal("100"),
+        new BigDecimal("99"), new BigDecimal("101"), new BigDecimal("0.10"), 20,
+        MarketStatus.OPEN, null, null, null, null, null, null, null, null,
+        new BigDecimal("2000"));
+    List<MarketRow> rows = List.of(noTrades, traded);
+
+    assertThat(MarketListSnapshot.sorted(rows, MarketListSnapshot.SortMode.CHANGE))
+        .extracting(MarketRow::marketId).containsExactly("diamond-usd", "new-stock");
+    assertThat(MarketListSnapshot.sorted(rows, MarketListSnapshot.SortMode.LAST))
+        .extracting(MarketRow::marketId).containsExactly("diamond-usd", "new-stock");
+  }
+
+  @Test
   void filtersMarketsByAssetType() {
     MarketRow security = new MarketRow("concept_alpha", "Alpha", new BigDecimal("10"),
         new BigDecimal("9"), new BigDecimal("11"), BigDecimal.ZERO, 10, MarketStatus.OPEN,

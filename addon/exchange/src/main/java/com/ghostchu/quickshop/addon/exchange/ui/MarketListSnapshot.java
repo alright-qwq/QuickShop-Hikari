@@ -29,8 +29,10 @@ public record MarketListSnapshot(List<MarketRow> markets, MarketOverviewSnapshot
     Comparator<MarketRow> comparator = switch (mode) {
       case NOTIONAL -> Comparator.comparing((MarketRow row) ->
           row.notional24h() == null ? java.math.BigDecimal.ZERO : row.notional24h()).reversed();
-      case CHANGE -> Comparator.comparing(MarketRow::change24h).reversed();
-      case LAST -> Comparator.comparing(MarketRow::lastPrice).reversed();
+      case CHANGE -> Comparator.comparing((MarketRow row) ->
+          row.change24h() == null ? java.math.BigDecimal.ZERO : row.change24h()).reversed();
+      case LAST -> Comparator.comparing((MarketRow row) ->
+          row.lastPrice() == null ? java.math.BigDecimal.ZERO : row.lastPrice()).reversed();
     };
     return rows.stream().sorted(comparator).toList();
   }

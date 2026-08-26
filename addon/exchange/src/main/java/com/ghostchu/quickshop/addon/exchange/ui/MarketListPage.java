@@ -19,6 +19,8 @@ import org.bukkit.entity.Player;
 
 /** Renders market summaries using locale-aware player text. */
 final class MarketListPage {
+  private static final int MARKET_PAGE_SIZE = 36;
+
   private final ExchangeViewService views;
   private final ExchangeMenuContextStore contexts;
   private final ExchangeUiMessages messages;
@@ -78,10 +80,19 @@ final class MarketListPage {
     addNavigation(page, player, 0, "CHEST", "ui-nav-assets", ExchangeMenuPage.ASSETS);
     addNavigation(page, player, 8, "WRITABLE_BOOK", "ui-nav-orders", ExchangeMenuPage.ORDERS);
     int slot = 9;
+    ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
+    int currentPage = opened == null ? 1 : Math.max(1, opened.page());
     List<MarketRow> filtered = MarketListSnapshot.filtered(snapshot.markets(),
         assetFilters.getOrDefault(playerId, AssetFilter.ALL).name());
-    for (MarketRow row : MarketListSnapshot.sorted(filtered,
-        sortModes.getOrDefault(playerId, MarketListSnapshot.SortMode.NOTIONAL))) {
+    List<MarketRow> sorted = MarketListSnapshot.sorted(filtered,
+        sortModes.getOrDefault(playerId, MarketListSnapshot.SortMode.NOTIONAL));
+    int start = (currentPage - 1) * MARKET_PAGE_SIZE;
+    if (start > sorted.size()) {
+      currentPage = Math.max(1, (sorted.size() - 1) / MARKET_PAGE_SIZE + 1);
+      start = (currentPage - 1) * MARKET_PAGE_SIZE;
+    }
+    int end = Math.min(sorted.size(), start + MARKET_PAGE_SIZE);
+    for (MarketRow row : sorted.subList(start, end)) {
       if (slot >= 45) break;
       String bid = row.bestBid() == null ? "-" : row.bestBid().toPlainString();
       String ask = row.bestAsk() == null ? "-" : row.bestAsk().toPlainString();
@@ -134,6 +145,27 @@ final class MarketListPage {
                 click.player());
           })).withSlot(slot++).build());
     }
+    if (start > 0) {
+      addPageNavigation(page, player, 45, "ARROW", "ui-history-previous", currentPage - 1);
+    }
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("CLOCK", 1)
+        .customName(messages.component(player, "ui-history-page", currentPage))).withSlot(49).build());
+    if (end < sorted.size()) {
+      addPageNavigation(page, player, 53, "ARROW", "ui-history-next", currentPage + 1);
+    }
+  }
+
+  private void addPageNavigation(PlayerInstancePage page, Player player, int slot, String material,
+                                 String key, int targetPage) {
+    UUID playerId = player.getUniqueId();
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of(material, 1)
+        .customName(messages.component(player, key)))
+        .withActions(new RunnableAction(click -> {
+          contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName(),
+              targetPage));
+          MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKETS.page(),
+              click.player());
+        })).withSlot(slot).build());
   }
 
   private void addFilterControl(PlayerInstancePage page, Player player) {
