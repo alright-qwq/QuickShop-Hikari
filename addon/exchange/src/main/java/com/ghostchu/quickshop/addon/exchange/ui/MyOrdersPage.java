@@ -37,9 +37,21 @@ final class MyOrdersPage {
     if (!(callback.getPage() instanceof PlayerInstancePage page)) return;
     UUID playerId = callback.getPlayer().identifier();
     ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
+    if (opened == null) return;
+    Player player = Bukkit.getPlayer(playerId);
+    if (player == null || !player.isOnline()) return;
+    views.subscribeMarketUpdates(playerId, update -> {
+      if (contexts.isCurrent(playerId, opened) && player.isOnline()) {
+        refresh(page, player, opened);
+      }
+    });
+    refresh(page, player, opened);
+  }
+
+  private void refresh(PlayerInstancePage page, Player player, ExchangeMenuRequest opened) {
+    UUID playerId = player.getUniqueId();
     int offset = Math.max(0, (opened == null ? 1 : opened.page()) - 1) * PAGE_SIZE;
     views.accountOrders(playerId, PAGE_SIZE + 1, offset).whenComplete((orders, failure) -> {
-      if (opened == null) return;
       if (!contexts.isCurrent(playerId, opened)) return;
       java.util.Map<String, MarketRow> quotes = new java.util.HashMap<>();
       List<CompletableFuture<Void>> loads = new java.util.ArrayList<>();
@@ -53,7 +65,6 @@ final class MyOrdersPage {
       }
       CompletableFuture.allOf(loads.toArray(new CompletableFuture[0])).whenComplete((ignored, ignoredFailure) -> {
         if (!contexts.isCurrent(playerId, opened)) return;
-        Player player = Bukkit.getPlayer(playerId);
         if (player == null || !player.isOnline()) return;
         QuickShop.folia().getScheduler().runAtEntityLater(player,
             () -> {
