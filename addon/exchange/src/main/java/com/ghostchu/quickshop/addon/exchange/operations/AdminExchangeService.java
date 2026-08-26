@@ -102,6 +102,12 @@ public final class AdminExchangeService {
         pendingTransferReviews());
   }
 
+  /** Acknowledges one alert so operational dashboards can distinguish reviewed findings. */
+  public void acknowledgeAlert(UUID alertId) throws SQLException {
+    Objects.requireNonNull(alertId, "alertId");
+    requireRepository().acknowledgeAlert(alertId, Instant.now());
+  }
+
   public OrderReceipt forceCancel(UUID actorId, UUID requestId, String marketId, UUID orderId,
                                   String reason) throws SQLException {
     if (marketId == null || marketId.isBlank()) {

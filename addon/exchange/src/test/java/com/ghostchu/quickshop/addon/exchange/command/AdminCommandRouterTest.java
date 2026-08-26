@@ -160,6 +160,42 @@ class AdminCommandRouterTest {
   }
 
   @Test
+  void acknowledgesAlertThroughTheWriterFence() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    var alert = new com.ghostchu.quickshop.addon.exchange.operations.AuditAlert(
+        UUID.randomUUID(), fixture.rules().marketId(), null, "HIGH_CANCEL_PLACE_RATIO",
+        "MEDIUM", "ratio=1.0", Instant.now(), null);
+    fixture.repository().insertAuditAlert(alert);
+    java.util.concurrent.atomic.AtomicInteger writes = new java.util.concurrent.atomic.AtomicInteger();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()),
+        UUID::randomUUID, work -> {
+          writes.incrementAndGet();
+          work.run();
+          return true;
+        });
+    Actor actor = new Actor("quickshop.exchange.admin.audit");
+
+    router.execute(actor, new String[] {"audit", "ack", alert.alertId().toString()});
+
+    assertThat(actor.message).isEqualTo("request-accepted");
+    assertThat(writes).hasValue(1);
+    assertThat(fixture.repository().openAlerts(10)).isEmpty();
+  }
+
+  @Test
+  void deniesAlertAcknowledgementWithoutAuditPermission() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    AdminCommandRouter router = new AdminCommandRouter(new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository()), UUID::randomUUID);
+    Actor actor = new Actor("quickshop.exchange.admin.market");
+
+    router.execute(actor, new String[] {"audit", "ack", UUID.randomUUID().toString()});
+
+    assertThat(actor.message).isEqualTo("permission-denied");
+  }
+
+  @Test
   void listsAndShowsReviewedTransfersWithoutEnteringTheWriterFence() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     TransferRecord reviewed = reviewedMoneyDeposit(fixture);

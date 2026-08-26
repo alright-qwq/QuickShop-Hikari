@@ -515,6 +515,20 @@ public final class JdbcExchangeRepository
         limit);
   }
 
+  @Override
+  public void acknowledgeAlert(UUID alertId, Instant acknowledgedAt) throws SQLException {
+    Objects.requireNonNull(alertId, "alertId");
+    Objects.requireNonNull(acknowledgedAt, "acknowledgedAt");
+    try (Connection connection = connections.open();
+         PreparedStatement update = connection.prepareStatement(
+             "UPDATE " + tables.auditAlerts()
+                 + " SET acknowledged_at=? WHERE alert_id=? AND acknowledged_at IS NULL")) {
+      update.setLong(1, acknowledgedAt.toEpochMilli());
+      update.setString(2, alertId.toString());
+      update.executeUpdate();
+    }
+  }
+
   private List<AuditAlert> queryAlerts(String sql, int limit) throws SQLException {
     try (Connection connection = connections.open();
          PreparedStatement select = connection.prepareStatement(sql)) {

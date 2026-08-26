@@ -184,6 +184,13 @@ public final class AdminCommandRouter {
         });
         return;
       }
+      if (args.length == 3 && "ack".equalsIgnoreCase(args[1])) {
+        UUID alertId = UUID.fromString(args[2]);
+        executeWrite(actor, () -> {
+          administration.acknowledgeAlert(alertId);
+        });
+        return;
+      }
       if (args.length == 4 && "export".equalsIgnoreCase(args[1])) {
         java.time.Instant from = parseInstant(args[2]);
         java.time.Instant to = parseInstant(args[3]);

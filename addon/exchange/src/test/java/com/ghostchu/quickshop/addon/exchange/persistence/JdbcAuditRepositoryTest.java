@@ -55,4 +55,26 @@ class JdbcAuditRepositoryTest {
     assertThat(repository.openAlerts(20)).containsExactly(accountAlert);
     assertThat(repository.recentAlerts(1)).containsExactly(marketAlert);
   }
+
+  @Test
+  void acknowledgesOnlyOpenAlerts() throws Exception {
+    ConnectionProvider connections = SqliteTestDatabase.at(temp.resolve("alerts-ack.db"));
+    TableNames tables = new TableNames("qs_");
+    new MigrationRunner(connections, SqlDialect.SQLITE, tables).migrate();
+    ExchangeRepository repository = new JdbcExchangeRepository(connections, SqlDialect.SQLITE, tables);
+    Instant at = Instant.ofEpochMilli(Instant.now().toEpochMilli());
+    AuditAlert open = new AuditAlert(UUID.randomUUID(), "concept-stock", null,
+        "HIGH_CANCEL_PLACE_RATIO", "MEDIUM", "ratio=1.0", at, null);
+    AuditAlert acknowledged = new AuditAlert(UUID.randomUUID(), "concept-stock", null,
+        "HIGH_FREQUENCY_RECIPROCAL_TRADING", "MEDIUM", "trades=3", at, at);
+    repository.insertAuditAlert(open);
+    repository.insertAuditAlert(acknowledged);
+
+    repository.acknowledgeAlert(open.alertId(), at.plusSeconds(10));
+    repository.acknowledgeAlert(acknowledged.alertId(), at.plusSeconds(20));
+
+    assertThat(repository.openAlerts(20)).isEmpty();
+    assertThat(repository.recentAlerts(20)).extracting(AuditAlert::acknowledgedAt)
+        .containsExactly(at.plusSeconds(10), at);
+  }
 }

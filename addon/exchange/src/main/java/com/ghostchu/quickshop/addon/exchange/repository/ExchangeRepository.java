@@ -67,6 +67,11 @@ public interface ExchangeRepository {
     throw new UnsupportedOperationException("audit alerts are not supported by this repository");
   }
 
+  /** Marks one alert acknowledged at the given instant; no-op when the alert is unknown. */
+  default void acknowledgeAlert(UUID alertId, Instant acknowledgedAt) throws SQLException {
+    throw new UnsupportedOperationException("audit alerts are not supported by this repository");
+  }
+
   /**
    * Reads trades executed at or after {@code sinceInclusive} across all markets, including both
    * parties, for suspicious-pattern detection. The read is intentionally immutable.

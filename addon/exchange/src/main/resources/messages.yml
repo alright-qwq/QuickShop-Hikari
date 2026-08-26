@@ -14,6 +14,7 @@ en-US:
   admin-reconciliation-difference: Exchange reconciliation found differences; review the server audit logs.
   admin-audit-exported: 'Exchange audit CSV exported: <0>'
   admin-audit-status: 'Exchange audit status:\n<0>'
+  admin-audit-acknowledged: Exchange alert acknowledged.
   admin-transfer-review-list: 'Transfers awaiting review:\n<0>'
   admin-transfer-review-detail: 'Transfer review detail: <0>'
   ui-data-unavailable: Exchange data is currently unavailable.
@@ -209,7 +210,7 @@ en-US:
   ui-admin-recovery: Recovery controls
   ui-admin-recovery-usage: '/qse admin transfer review list|show|resolve'
   ui-admin-audit: Audit controls
-  ui-admin-audit-usage: '/qse admin audit status|reconcile|export <from> <to>'
+  ui-admin-audit-usage: '/qse admin audit status|ack <alertId>|reconcile|export <from> <to>'
   ui-admin-stock: Stock controls
   ui-admin-stock-usage: '/qse admin stock create|issue|transfer|pause|resume|close'
 zh-CN:
@@ -228,6 +229,7 @@ zh-CN:
   admin-reconciliation-difference: '交易所对账发现差异，请检查服务器审计日志。'
   admin-audit-exported: '交易所审计 CSV 已导出：<0>'
   admin-audit-status: '交易所审计状态：\n<0>'
+  admin-audit-acknowledged: '交易所告警已确认。'
   admin-transfer-review-list: '等待审核的转账：\n<0>'
   admin-transfer-review-detail: '转账审核详情：<0>'
   ui-data-unavailable: '交易所数据暂时不可用。'
@@ -423,6 +425,6 @@ zh-CN:
   ui-admin-recovery: 恢复控制
   ui-admin-recovery-usage: '/qse admin transfer review list|show|resolve'
   ui-admin-audit: 审计控制
-  ui-admin-audit-usage: '/qse admin audit status|reconcile|export <起> <止>'
+  ui-admin-audit-usage: '/qse admin audit status|ack <告警ID>|reconcile|export <起> <止>'
   ui-admin-stock: 证券控制
   ui-admin-stock-usage: '/qse admin stock create|issue|transfer|pause|resume|close'
