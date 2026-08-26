@@ -32,7 +32,7 @@ public final class ExchangeMenu extends Menu {
     addPage(page(ExchangeMenuPage.ORDERS, new MyOrdersPage(views, contexts, messages)::open));
     addPage(page(ExchangeMenuPage.ASSETS, new AssetsPage(views, contexts, messages)::open));
     addPage(page(ExchangeMenuPage.HISTORY, new HistoryPage(views, contexts, messages)::open));
-    addPage(page(ExchangeMenuPage.ADMIN, new AdminPage()::open));
+    addPage(page(ExchangeMenuPage.ADMIN, new AdminPage(messages)::open));
   }
 
   private static PlayerInstancePage page(ExchangeMenuPage target,

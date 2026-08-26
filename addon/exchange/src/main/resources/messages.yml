@@ -137,6 +137,16 @@ en-US:
   ui-confirm-order: 'Order: <0>'
   ui-confirm-submit-failed: Exchange request submission failed. Please try again later.
   ui-confirm-submit-result: 'Exchange <0>: <1>'
+  ui-admin-market: Market controls
+  ui-admin-market-usage: '/qse admin market pause <market> <reason>'
+  ui-admin-orders: Order controls
+  ui-admin-orders-usage: '/qse admin order cancel <order-id> <reason>'
+  ui-admin-recovery: Recovery controls
+  ui-admin-recovery-usage: '/qse admin transfer review list|show|resolve'
+  ui-admin-audit: Audit controls
+  ui-admin-audit-usage: '/qse admin audit reconcile|export <from> <to>'
+  ui-admin-stock: Stock controls
+  ui-admin-stock-usage: '/qse admin stock create|issue|pause|resume|close'
 zh-CN:
   command-description: '打开中央物品交易所'
   permission-denied: '你没有执行此交易所操作的权限。'
@@ -276,3 +286,13 @@ zh-CN:
   ui-confirm-order: '订单：<0>'
   ui-confirm-submit-failed: '交易请求提交失败，请稍后重试。'
   ui-confirm-submit-result: '交易所请求 <0>：<1>'
+  ui-admin-market: 市场控制
+  ui-admin-market-usage: '/qse admin market pause <市场> <原因>'
+  ui-admin-orders: 订单控制
+  ui-admin-orders-usage: '/qse admin order cancel <订单ID> <原因>'
+  ui-admin-recovery: 恢复控制
+  ui-admin-recovery-usage: '/qse admin transfer review list|show|resolve'
+  ui-admin-audit: 审计控制
+  ui-admin-audit-usage: '/qse admin audit reconcile|export <起> <止>'
+  ui-admin-stock: 证券控制
+  ui-admin-stock-usage: '/qse admin stock create|issue|pause|resume|close'
