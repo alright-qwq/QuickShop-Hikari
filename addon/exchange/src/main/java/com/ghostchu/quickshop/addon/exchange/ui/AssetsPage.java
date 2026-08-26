@@ -37,7 +37,18 @@ final class AssetsPage {
     if (!(callback.getPage() instanceof PlayerInstancePage page)) return;
     UUID playerId = callback.getPlayer().identifier();
     ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
-    int pageNumber = AssetTransferPaging.page(opened == null ? 1 : opened.page());
+    if (opened == null) return;
+    views.subscribeMarketUpdates(playerId, update -> {
+      if (contexts.isCurrent(playerId, opened) && Bukkit.getPlayer(playerId) != null
+          && Bukkit.getPlayer(playerId).isOnline()) {
+        refresh(page, playerId, opened);
+      }
+    });
+    refresh(page, playerId, opened);
+  }
+
+  private void refresh(PlayerInstancePage page, UUID playerId, ExchangeMenuRequest opened) {
+    int pageNumber = AssetTransferPaging.page(opened.page());
     int offset = AssetTransferPaging.offset(pageNumber);
     AssetPageSnapshot.combine(views.accountAssets(playerId),
         views.accountTransfers(playerId, AssetTransferPaging.fetchLimit(), offset))
