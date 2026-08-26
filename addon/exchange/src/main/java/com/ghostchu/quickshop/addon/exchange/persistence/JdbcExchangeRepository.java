@@ -845,6 +845,27 @@ public final class JdbcExchangeRepository
     }
 
     @Override
+    public List<SecurityBalance> securityBalances(String marketId) throws SQLException {
+      Objects.requireNonNull(marketId, "marketId");
+      try (PreparedStatement select = connection.prepareStatement(
+          "SELECT owner_id,available,frozen,version FROM " + tables.securityBalances()
+              + " WHERE market_id=? AND (available<>0 OR frozen<>0)"
+              + " ORDER BY owner_id" + dialect.forUpdate())) {
+        select.setString(1, marketId);
+        try (ResultSet result = select.executeQuery()) {
+          ArrayList<SecurityBalance> balances = new ArrayList<>();
+          while (result.next()) {
+            balances.add(new SecurityBalance(
+                UUID.fromString(result.getString("owner_id")), marketId,
+                result.getLong("available"), result.getLong("frozen"),
+                result.getLong("version")));
+          }
+          return List.copyOf(balances);
+        }
+      }
+    }
+
+    @Override
     public Optional<SecurityBalance> existingSecurityBalance(UUID accountId, String marketId)
         throws SQLException {
       try (PreparedStatement select = connection.prepareStatement(

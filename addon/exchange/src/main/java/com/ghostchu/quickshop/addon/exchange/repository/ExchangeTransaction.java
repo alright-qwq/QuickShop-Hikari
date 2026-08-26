@@ -31,6 +31,7 @@ public interface ExchangeTransaction {
   void releaseItems(UUID accountId, String marketId, long quantity) throws SQLException;
   void consumeFrozenItems(UUID accountId, String marketId, long quantity) throws SQLException;
   SecurityBalance securityBalance(UUID accountId, String marketId) throws SQLException;
+  List<SecurityBalance> securityBalances(String marketId) throws SQLException;
   Optional<SecurityBalance> existingSecurityBalance(UUID accountId, String marketId)
       throws SQLException;
   void creditAvailableSecurity(UUID accountId, String marketId, long quantity)

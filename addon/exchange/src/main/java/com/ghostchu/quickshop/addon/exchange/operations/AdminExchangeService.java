@@ -6,6 +6,8 @@ import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.MarketState;
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
+import com.ghostchu.quickshop.addon.exchange.security.SecurityMutationResult;
+import com.ghostchu.quickshop.addon.exchange.security.SecurityService;
 import com.ghostchu.quickshop.addon.exchange.service.OrderReceipt;
 import com.ghostchu.quickshop.addon.exchange.service.PersistentOrderService;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferJournals;
@@ -35,23 +37,31 @@ public final class AdminExchangeService {
   private final ExchangeRepository repository;
   private final AuditExporter auditExporter;
   private final Path auditDirectory;
+  private final SecurityService securities;
 
   public AdminExchangeService(Map<String, PersistentOrderService> markets) {
-    this(markets, null, null, null);
+    this(markets, null, null, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository) {
-    this(markets, repository, null, null);
+    this(markets, repository, null, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository,
       AuditExporter auditExporter, Path auditDirectory) {
+    this(markets, repository, auditExporter, auditDirectory, null);
+  }
+
+  public AdminExchangeService(
+      Map<String, PersistentOrderService> markets, ExchangeRepository repository,
+      AuditExporter auditExporter, Path auditDirectory, SecurityService securities) {
     this.markets = Map.copyOf(Objects.requireNonNull(markets, "markets"));
     this.repository = repository;
     this.auditExporter = auditExporter;
     this.auditDirectory = auditDirectory;
+    this.securities = securities;
   }
 
   public OrderReceipt forceCancel(UUID actorId, UUID requestId, String marketId, UUID orderId,
@@ -64,6 +74,39 @@ public final class AdminExchangeService {
       throw new IllegalArgumentException("unknown market: " + marketId);
     }
     return market.forceCancel(actorId, requestId, orderId, reason);
+  }
+
+  public SecurityMutationResult securityCreate(
+      UUID actorId, UUID requestId, String marketId, String symbol, String name,
+      String description, String currencyId, java.math.BigDecimal basePrice,
+      long totalSupply, long minimumUnit) throws SQLException {
+    return requireSecurities().create(
+        actorId, requestId, marketId, symbol, name, description, currencyId,
+        basePrice, totalSupply, minimumUnit);
+  }
+
+  public SecurityMutationResult securityIssue(
+      UUID actorId, UUID requestId, String marketId, UUID targetAccount, long quantity,
+      String reason) throws SQLException {
+    return requireSecurities().issue(
+        actorId, requestId, marketId, targetAccount, quantity, reason);
+  }
+
+  public SecurityMutationResult securityPause(
+      UUID actorId, UUID requestId, String marketId, String reason) throws SQLException {
+    return requireSecurities().pause(actorId, requestId, marketId, reason);
+  }
+
+  public SecurityMutationResult securityResume(
+      UUID actorId, UUID requestId, String marketId, String reason) throws SQLException {
+    return requireSecurities().resume(actorId, requestId, marketId, reason);
+  }
+
+  public SecurityMutationResult securityClose(
+      UUID actorId, UUID requestId, String marketId, UUID recoveryAccount, String reason)
+      throws SQLException {
+    return requireSecurities().close(
+        actorId, requestId, marketId, recoveryAccount, reason);
   }
 
   public ReconciliationReport reconcile() throws SQLException {
@@ -353,6 +396,11 @@ public final class AdminExchangeService {
   private ExchangeRepository requireRepository() {
     return Objects.requireNonNull(
         repository, "repository is required for exchange administration");
+  }
+
+  private SecurityService requireSecurities() {
+    return Objects.requireNonNull(
+        securities, "security service is required for stock administration");
   }
 
   private void requireMarket(String marketId) {
