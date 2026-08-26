@@ -226,7 +226,8 @@ public final class AdminCommandRouter {
             .collect(java.util.stream.Collectors.joining(", "));
     String alerts = status.recentAlerts().isEmpty() ? "none"
         : status.recentAlerts().stream()
-            .map(alert -> alert.severity() + " " + alert.type() + "@" + alert.marketId()
+            .map(alert -> "[" + alert.alertId() + "] " + alert.severity() + " "
+                + alert.type() + "@" + alert.marketId()
                 + " " + alert.createdAt())
             .collect(java.util.stream.Collectors.joining(" | "));
     return "markets=" + metrics + "\nalerts=" + alerts + "\npending-reviews="

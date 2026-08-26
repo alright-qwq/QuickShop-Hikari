@@ -19,6 +19,7 @@ en-US:
   admin-transfer-review-detail: 'Transfer review detail: <0>'
   ui-data-unavailable: Exchange data is currently unavailable.
   ui-history-trade-title: '<0> trade @ <1>'
+  ui-history-trade-id: 'Trade #<0>'
   ui-history-trade-buy: 'Buy'
   ui-history-trade-sell: 'Sell'
   ui-history-trade-quantity: 'Quantity: <0>'
@@ -235,6 +236,7 @@ zh-CN:
   admin-transfer-review-detail: '转账审核详情：<0>'
   ui-data-unavailable: '交易所数据暂时不可用。'
   ui-history-trade-title: '<0> 成交 @ <1>'
+  ui-history-trade-id: '成交序号 #<0>'
   ui-history-trade-buy: 买入
   ui-history-trade-sell: 卖出
   ui-history-trade-quantity: '数量：<0>'
