@@ -210,6 +210,8 @@ public final class ExchangeRuntimeFactory {
           repository.insertAuditAlert(new com.ghostchu.quickshop.addon.exchange.operations.AuditAlert(
               UUID.randomUUID(), alert.marketId(), alert.accountId(), alert.type(),
               alert.severity(), alert.evidence(), alert.at(), null));
+          addon.getLogger().warning("Exchange suspicious-trading alert: "
+              + alert.type() + "@" + alert.marketId() + " " + alert.evidence());
         }
       } catch (Exception failure) {
         // Detection is best-effort; the next scheduled tick retries without taking the writer fence.
