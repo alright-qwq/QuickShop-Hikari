@@ -130,7 +130,8 @@ To close a stock, first cancel or let all open orders finish, then:
   shows a "+N more" notice pointing to the history page or market list.
 - The order confirmation page shows the current best quote, tells you whether a limit order
   will match immediately or rest on the book, shows the applicable fee rate, an estimated
-  fee, and how much currency a buy order will freeze on submit (before fees). Sell
+  fee, and how much currency a buy order will freeze on submit (worst-case fees included,
+  matching the actual on-chain reservation). Sell
   confirmations also show the estimated net proceeds after fees.
 - The cancellation confirmation page shows the market, side, remaining quantity, and the exact
   frozen currency/quantity that will be released when the order is cancelled.

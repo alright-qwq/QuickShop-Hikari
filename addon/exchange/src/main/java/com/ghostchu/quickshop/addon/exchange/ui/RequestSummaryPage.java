@@ -173,8 +173,7 @@ final class RequestSummaryPage {
             OrderConfirmation.estimatedNotional(order.price(), order.quantity()).toPlainString()));
         if (order.side() == OrderSide.BUY) {
           lines.add(messages.component(player, "ui-confirm-frozen-estimate",
-              OrderConfirmation.estimatedNotional(order.price(), order.quantity())
-                  .toPlainString()));
+              frozenEstimate(order, order.price()).toPlainString()));
         }
         addFeeLines(lines, player, order, order.price());
         if (quote != null) {
@@ -199,8 +198,7 @@ final class RequestSummaryPage {
                 .toPlainString()));
         if (order.side() == OrderSide.BUY) {
           lines.add(messages.component(player, "ui-confirm-frozen-estimate",
-              OrderConfirmation.estimatedNotional(order.slippageBoundary(), order.quantity())
-                  .toPlainString()));
+              frozenEstimate(order, order.slippageBoundary()).toPlainString()));
         }
         addFeeLines(lines, player, order, order.slippageBoundary());
         if (quote != null) {
@@ -264,6 +262,24 @@ final class RequestSummaryPage {
       lines.add(messages.component(player, "ui-confirm-estimated-net",
           notional.subtract(fee).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()));
     }
+  }
+
+  /** Matches {@code ReservationCalculator}: buy orders freeze notional plus worst-case fees. */
+  private java.math.BigDecimal frozenEstimate(ExchangeMenuRequest.OrderDraft order,
+                                              java.math.BigDecimal boundary) {
+    java.math.BigDecimal notional = OrderConfirmation.estimatedNotional(boundary, order.quantity());
+    if (views == null) {
+      return notional;
+    }
+    ExchangeViewService.MarketView market = views.market(order.marketId());
+    if (market == null) {
+      return notional;
+    }
+    var rules = market.service().marketRules();
+    java.math.BigDecimal maximumRate = rules.makerFeeRate().max(rules.takerFeeRate());
+    java.math.BigDecimal fee = notional.multiply(maximumRate)
+        .setScale(2, java.math.RoundingMode.HALF_UP);
+    return notional.add(fee);
   }
 
   private void submit(ExchangeMenuRequest request, UUID playerId) {
