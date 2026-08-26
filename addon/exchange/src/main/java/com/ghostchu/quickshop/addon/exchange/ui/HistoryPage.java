@@ -69,21 +69,22 @@ final class HistoryPage {
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
           .customName(text(player, "ui-history-empty"))).withSlot(22).build());
     }
-    for (Trade trade : snapshot.trades()) {
+    for (var row : snapshot.trades()) {
       if (slot >= 21) break;
+      Trade trade = row.trade();
       boolean bought = trade.buyerAccountId().equals(playerId);
       String direction = string(player, bought
           ? "ui-history-trade-buy" : "ui-history-trade-sell");
       java.math.BigDecimal totalFee = trade.makerFee().add(trade.takerFee());
-      List<Component> lore = List.of(
+      java.math.BigDecimal myFee = row.feeFor(playerId);
+      List<Component> lore = new java.util.ArrayList<>(List.of(
           text(player, "ui-history-trade-quantity", trade.quantity()),
           text(player, "ui-history-trade-notional",
               trade.price().multiply(java.math.BigDecimal.valueOf(trade.quantity()))
                   .stripTrailingZeros().toPlainString()),
-          text(player, "ui-history-maker-fee", trade.makerFee().toPlainString()),
-          text(player, "ui-history-taker-fee", trade.takerFee().toPlainString()),
           text(player, "ui-history-trade-total-fee", totalFee.toPlainString()),
-          text(player, "ui-history-created-at", relativeTime(trade.executedAt())));
+          text(player, "ui-history-trade-my-fee", myFee == null ? "-" : myFee.toPlainString()),
+          text(player, "ui-history-created-at", relativeTime(trade.executedAt()))));
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of(
           bought ? "LIME_STAINED_GLASS_PANE" : "RED_STAINED_GLASS_PANE", 1)
           .customName(text(player, "ui-history-trade-title",

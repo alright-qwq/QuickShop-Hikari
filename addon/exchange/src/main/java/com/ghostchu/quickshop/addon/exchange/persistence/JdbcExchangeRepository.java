@@ -253,20 +253,33 @@ public final class JdbcExchangeRepository
   }
 
   @Override
-  public List<Trade> accountTrades(UUID accountId, int limit, int offset) throws SQLException {
+  public List<ExchangeRepository.AccountTradeRow> accountTrades(
+      UUID accountId, int limit, int offset) throws SQLException {
     Objects.requireNonNull(accountId, "accountId");
     if (limit < 1 || limit > 36 || offset < 0) throw new IllegalArgumentException("invalid account trade page");
     try (Connection connection = connections.open(); PreparedStatement select = connection.prepareStatement(
-        "SELECT trade_id,market_id,maker_order_id,taker_order_id,buyer_account_id,seller_account_id,"
-            + "price,quantity,maker_fee,taker_fee,match_sequence,executed_at FROM " + tables.trades()
-            + " WHERE buyer_account_id=? OR seller_account_id=? ORDER BY executed_at DESC,trade_id LIMIT ? OFFSET ?")) {
+        "SELECT t.trade_id,t.market_id,t.maker_order_id,t.taker_order_id,t.buyer_account_id,"
+            + "t.seller_account_id,t.price,t.quantity,t.maker_fee,t.taker_fee,t.match_sequence,"
+            + "t.executed_at AS executed_at,o.account_id AS taker_account_id"
+            + " FROM " + tables.trades()
+            + " t LEFT JOIN " + tables.orders()
+            + " o ON o.order_id=t.taker_order_id"
+            + " WHERE t.buyer_account_id=? OR t.seller_account_id=?"
+            + " ORDER BY t.executed_at DESC,t.trade_id LIMIT ? OFFSET ?")) {
       select.setString(1, accountId.toString());
       select.setString(2, accountId.toString());
       select.setInt(3, limit);
       select.setInt(4, offset);
       try (ResultSet result = select.executeQuery()) {
-        List<Trade> trades = new ArrayList<>();
-        while (result.next()) trades.add(readTrade(result));
+        List<ExchangeRepository.AccountTradeRow> trades = new ArrayList<>();
+        while (result.next()) {
+          Trade trade = readTrade(result);
+          String taker = result.getString("taker_account_id");
+          if (taker == null) {
+            continue;
+          }
+          trades.add(new ExchangeRepository.AccountTradeRow(trade, UUID.fromString(taker)));
+        }
         return List.copyOf(trades);
       }
     }

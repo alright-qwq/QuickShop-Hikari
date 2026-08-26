@@ -55,12 +55,39 @@ public interface ExchangeRepository {
     throw new UnsupportedOperationException("account order reads are not supported by this repository");
   }
 
-  default List<AccountAssetBalance> accountAssets(UUID accountId) throws SQLException {
-    throw new UnsupportedOperationException("account asset reads are not supported by this repository");
+  /**
+   * Reads a bounded page of a player's trades, newest first, with the taker account id so
+   * views can show the exact fee that this account paid (maker fee for resting orders,
+   * taker fee for aggressive orders).
+   */
+  default List<AccountTradeRow> accountTrades(UUID accountId, int limit, int offset)
+      throws SQLException {
+    throw new UnsupportedOperationException("account trade reads are not supported by this repository");
   }
 
-  default List<Trade> accountTrades(UUID accountId, int limit, int offset) throws SQLException {
-    throw new UnsupportedOperationException("account trade reads are not supported by this repository");
+  /** One account trade plus the taker's account id resolved from the order book. */
+  record AccountTradeRow(Trade trade, UUID takerAccountId) {
+    public AccountTradeRow {
+      if (trade == null || takerAccountId == null) {
+        throw new IllegalArgumentException("account trade row requires trade and taker");
+      }
+    }
+
+    /** Fee charged to the given account for this trade. */
+    public java.math.BigDecimal feeFor(UUID accountId) {
+      if (accountId == null) return null;
+      if (accountId.equals(takerAccountId)) {
+        return trade.takerFee();
+      }
+      if (accountId.equals(trade.buyerAccountId()) || accountId.equals(trade.sellerAccountId())) {
+        return trade.makerFee();
+      }
+      return null;
+    }
+  }
+
+  default List<AccountAssetBalance> accountAssets(UUID accountId) throws SQLException {
+    throw new UnsupportedOperationException("account asset reads are not supported by this repository");
   }
 
   /**

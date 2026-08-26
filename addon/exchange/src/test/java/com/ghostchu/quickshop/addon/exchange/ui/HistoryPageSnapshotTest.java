@@ -1,6 +1,6 @@
 package com.ghostchu.quickshop.addon.exchange.ui;
 
-import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository.AccountTradeRow;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountLedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import java.util.List;
@@ -13,7 +13,7 @@ class HistoryPageSnapshotTest {
   @Test
   void combinesBoundedTradeTransferAndLiabilityLedgerPages() {
     HistoryPageSnapshot snapshot = HistoryPageSnapshot.combine(
-        CompletableFuture.<List<Trade>>completedFuture(List.of()),
+        CompletableFuture.<List<AccountTradeRow>>completedFuture(List.of()),
         CompletableFuture.<List<TransferRecord>>completedFuture(List.of()),
         CompletableFuture.<List<AccountLedgerEntry>>completedFuture(List.of())).join();
 
@@ -29,7 +29,7 @@ class HistoryPageSnapshotTest {
         new IllegalStateException("database offline"));
 
     HistoryPageSnapshot snapshot = HistoryPageSnapshot.combine(
-        CompletableFuture.<List<Trade>>completedFuture(List.of()), transfers,
+        CompletableFuture.<List<AccountTradeRow>>completedFuture(List.of()), transfers,
         CompletableFuture.<List<AccountLedgerEntry>>completedFuture(List.of())).join();
 
     assertThat(snapshot.failure()).isInstanceOf(IllegalStateException.class)

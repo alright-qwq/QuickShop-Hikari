@@ -245,7 +245,8 @@ public final class ExchangeViewService {
     }, executor);
   }
 
-  public CompletableFuture<List<Trade>> accountTrades(UUID accountId, int limit, int offset) {
+  public CompletableFuture<List<com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository.AccountTradeRow>>
+      accountTrades(UUID accountId, int limit, int offset) {
     if (accountId == null || limit < 1 || limit > 36 || offset < 0) {
       throw new IllegalArgumentException("invalid account trade page");
     }

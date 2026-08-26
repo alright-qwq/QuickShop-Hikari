@@ -1,6 +1,6 @@
 package com.ghostchu.quickshop.addon.exchange.ui;
 
-import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository.AccountTradeRow;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountLedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import java.util.List;
@@ -8,7 +8,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
 /** Combined bounded history projections loaded independently on the background executor. */
-record HistoryPageSnapshot(List<Trade> trades, List<TransferRecord> transfers,
+record HistoryPageSnapshot(List<AccountTradeRow> trades, List<TransferRecord> transfers,
                            List<AccountLedgerEntry> ledger, Throwable failure) {
   static final int SECTION_SIZE = 12;
 
@@ -19,7 +19,7 @@ record HistoryPageSnapshot(List<Trade> trades, List<TransferRecord> transfers,
   }
 
   static CompletableFuture<HistoryPageSnapshot> combine(
-      CompletableFuture<List<Trade>> trades,
+      CompletableFuture<List<AccountTradeRow>> trades,
       CompletableFuture<List<TransferRecord>> transfers,
       CompletableFuture<List<AccountLedgerEntry>> ledger) {
     return result(trades).thenCombine(result(transfers), Pair::new)
@@ -60,7 +60,7 @@ record HistoryPageSnapshot(List<Trade> trades, List<TransferRecord> transfers,
     return failure;
   }
 
-  private record Pair(Result<List<Trade>> first, Result<List<TransferRecord>> second) {}
+  private record Pair(Result<List<AccountTradeRow>> first, Result<List<TransferRecord>> second) {}
 
   private record Result<T>(T value, Throwable failure) {}
 }

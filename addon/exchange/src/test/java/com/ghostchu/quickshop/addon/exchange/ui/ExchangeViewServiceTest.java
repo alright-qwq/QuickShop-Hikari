@@ -98,13 +98,30 @@ class ExchangeViewServiceTest {
   }
 
   @Test
+  void attributesMakerAndTakerFeesToTheCorrectAccount() {
+    UUID taker = UUID.randomUUID();
+    UUID maker = UUID.randomUUID();
+    Trade trade = new Trade(UUID.randomUUID(), "diamond-usd", UUID.randomUUID(),
+        UUID.randomUUID(), taker, maker, new BigDecimal("100.00"), 2,
+        new BigDecimal("0.50"), new BigDecimal("1.50"), 1, Instant.EPOCH);
+    var row = new com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository.AccountTradeRow(
+        trade, taker);
+
+    assertThat(row.feeFor(taker)).isEqualByComparingTo("1.50");
+    assertThat(row.feeFor(maker)).isEqualByComparingTo("0.50");
+    assertThat(row.feeFor(UUID.randomUUID())).isNull();
+  }
+
+  @Test
   void loadsOnlyTheRequestedAccountTradePage() {
     UUID accountId = UUID.randomUUID();
     RecordingRepository repository = new RecordingRepository();
     ExchangeViewService views = new ExchangeViewService(
         java.util.Map.of(), new MarketDataService(new CandleAggregator()), Runnable::run, repository);
 
-    assertThat(views.accountTrades(accountId, 36, 36).join()).containsExactly(repository.trade);
+    assertThat(views.accountTrades(accountId, 36, 36).join())
+        .containsExactly(new com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository.AccountTradeRow(
+            repository.trade, repository.tradeTakerAccountId));
     assertThat(repository.tradeAccountId).isEqualTo(accountId);
     assertThat(repository.tradeLimit).isEqualTo(36);
     assertThat(repository.tradeOffset).isEqualTo(36);
@@ -226,6 +243,7 @@ class ExchangeViewServiceTest {
     private UUID tradeAccountId;
     private int tradeLimit;
     private int tradeOffset;
+    private final UUID tradeTakerAccountId = UUID.randomUUID();
     private final TransferRecord transfer = new TransferRecord(UUID.randomUUID(), UUID.randomUUID(),
         UUID.randomUUID(), TransferType.MONEY_DEPOSIT, "default", new BigDecimal("5.00"),
         TransferStatus.REVIEW_REQUIRED, null, "review", Instant.EPOCH, Instant.EPOCH, 1);
@@ -252,11 +270,13 @@ class ExchangeViewServiceTest {
     }
 
     @Override
-    public List<Trade> accountTrades(UUID accountId, int limit, int offset) {
+    public List<com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository.AccountTradeRow>
+        accountTrades(UUID accountId, int limit, int offset) {
       tradeAccountId = accountId;
       tradeLimit = limit;
       tradeOffset = offset;
-      return List.of(trade);
+      return List.of(new com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository.AccountTradeRow(
+          trade, tradeTakerAccountId));
     }
 
     @Override
