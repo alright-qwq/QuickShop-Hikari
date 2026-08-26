@@ -49,6 +49,10 @@ public final class AdminCommandRouter {
       transferReview(actor, args);
       return;
     }
+    if ("stock".equalsIgnoreCase(args[0])) {
+      stock(actor, args);
+      return;
+    }
     if (args.length < 4) {
       actor.message("admin-command-invalid");
       return;
@@ -63,6 +67,68 @@ public final class AdminCommandRouter {
       return;
     }
     actor.message("admin-command-invalid");
+  }
+
+  private void stock(CommandActor actor, String[] args) {
+    if (!actor.hasPermission("quickshop.exchange.admin.stock")) {
+      actor.message("permission-denied");
+      return;
+    }
+    if (args.length < 2) {
+      actor.message("admin-command-invalid");
+      return;
+    }
+    try {
+      String action = args[1].toLowerCase(java.util.Locale.ROOT);
+      if (args.length >= 9 && "create".equals(action)) {
+        String symbol = args[2];
+        String name = args[3];
+        String currency = args[4];
+        java.math.BigDecimal basePrice = new java.math.BigDecimal(args[5]);
+        long totalSupply = Long.parseLong(args[6]);
+        long minimumUnit = args.length >= 8 ? Long.parseLong(args[7]) : 1;
+        String description = args.length >= 9
+            ? String.join(" ", java.util.Arrays.copyOfRange(args, 8, args.length)) : name;
+        executeWrite(actor, () -> administration.securityCreate(
+            actor.accountId(), requestIds.get(), symbol.toLowerCase(java.util.Locale.ROOT),
+            symbol, name, description, currency, basePrice, totalSupply, minimumUnit));
+        return;
+      }
+      if (args.length >= 6 && "issue".equals(action)) {
+        String marketId = args[2];
+        UUID target = UUID.fromString(args[3]);
+        long quantity = Long.parseLong(args[4]);
+        String reason = String.join(" ", java.util.Arrays.copyOfRange(args, 5, args.length));
+        executeWrite(actor, () -> administration.securityIssue(
+            actor.accountId(), requestIds.get(), marketId, target, quantity, reason));
+        return;
+      }
+      if (args.length >= 4 && ("pause".equals(action) || "resume".equals(action))) {
+        String marketId = args[2];
+        String reason = String.join(" ", java.util.Arrays.copyOfRange(args, 3, args.length));
+        executeWrite(actor, () -> {
+          if ("pause".equals(action)) {
+            administration.securityPause(actor.accountId(), requestIds.get(), marketId, reason);
+          } else {
+            administration.securityResume(actor.accountId(), requestIds.get(), marketId, reason);
+          }
+        });
+        return;
+      }
+      if (args.length >= 5 && "close".equals(action)) {
+        String marketId = args[2];
+        UUID recovery = UUID.fromString(args[3]);
+        String reason = String.join(" ", java.util.Arrays.copyOfRange(args, 4, args.length));
+        executeWrite(actor, () -> administration.securityClose(
+            actor.accountId(), requestIds.get(), marketId, recovery, reason));
+        return;
+      }
+      actor.message("admin-command-invalid");
+    } catch (IllegalArgumentException invalid) {
+      actor.message("admin-command-invalid");
+    } catch (Exception failure) {
+      actor.message("admin-command-failed");
+    }
   }
 
   private void audit(CommandActor actor, String[] args) {

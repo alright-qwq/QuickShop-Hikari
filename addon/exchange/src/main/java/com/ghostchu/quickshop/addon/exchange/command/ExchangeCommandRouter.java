@@ -90,12 +90,21 @@ public final class ExchangeCommandRouter {
       return;
     }
     if ("orders".equalsIgnoreCase(args[0]) || "assets".equalsIgnoreCase(args[0])
-        || "history".equalsIgnoreCase(args[0])) {
+        || "history".equalsIgnoreCase(args[0]) || "stocks".equalsIgnoreCase(args[0])) {
       if (args.length != 1 || !allowed(actor, "quickshop.exchange.use")) {
         invalid(actor);
         return;
       }
-      actor.openMenu(ExchangeMenuRequest.page(args[0]));
+      actor.openMenu(ExchangeMenuRequest.page("stocks".equalsIgnoreCase(args[0]) ? "stocks" : args[0]));
+      return;
+    }
+    if ("stock".equalsIgnoreCase(args[0])) {
+      if (args.length != 2 || !allowed(actor, "quickshop.exchange.use")) {
+        invalid(actor);
+        return;
+      }
+      actor.message("request-ready", requestIds.get());
+      actor.openMenu(ExchangeMenuRequest.market(args[1]));
       return;
     }
     invalid(actor);
@@ -252,19 +261,19 @@ public final class ExchangeCommandRouter {
     Objects.requireNonNull(actor, "actor");
     if (args == null || args.length == 0) {
       return List.of("open", "market", "order", "cancel", "deposit", "withdraw", "orders",
-          "assets", "history", "admin");
+          "assets", "history", "stocks", "stock", "admin");
     }
     if (args.length == 1) {
       String prefix = args[0].toLowerCase(java.util.Locale.ROOT);
       return List.of("open", "market", "order", "cancel", "deposit", "withdraw", "orders",
-          "assets", "history", "admin").stream()
+          "assets", "history", "stocks", "stock", "admin").stream()
           .filter(value -> value.startsWith(prefix)).toList();
     }
     return switch (args[0].toLowerCase(java.util.Locale.ROOT)) {
       case "order" -> args.length == 2 ? List.of("limit", "market")
           : args.length == 3 ? List.of("buy", "sell") : List.of();
       case "deposit", "withdraw" -> args.length == 2 ? List.of("money", "item") : List.of();
-      case "admin" -> args.length == 2 ? List.of("market", "order", "transfer", "audit")
+      case "admin" -> args.length == 2 ? List.of("market", "order", "transfer", "audit", "stock")
           : args.length == 3 && "transfer".equalsIgnoreCase(args[1]) ? List.of("review")
           : args.length == 4 && "transfer".equalsIgnoreCase(args[1])
               && "review".equalsIgnoreCase(args[2]) ? List.of("list", "show", "resolve")
