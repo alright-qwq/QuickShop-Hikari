@@ -119,7 +119,8 @@ To close a stock, first cancel or let all open orders finish, then:
   icons; 24h change is colored green/red/yellow.
 - The market detail chart switches between 1-minute, 15-minute, 1-hour, and 4-hour candles,
   and shows 24h high/low, 24h notional, 24h volatility, and the issued/total supply ratio
-  for virtual securities.
+  for virtual securities. Every candle icon also shows its change amount and change percentage,
+  and every depth row shows the value (price × quantity) at that level.
 - The assets page (`/qse assets`) shows each security as an emerald icon with the explicit text
   "Virtual security (ledger-only, cannot deposit or withdraw)", plus symbol, available, and frozen
   quantities, an estimated market value, and the total portfolio value. Clicking a security row
@@ -165,6 +166,20 @@ To close a stock, first cancel or let all open orders finish, then:
 - When the market status is not `OPEN`, order-entry buttons remain visible but clicking them
   returns "This market currently accepts queries and cancellations only." The same guard applies
   to paused/closed virtual markets.
+
+## Operational audit status
+
+With `quickshop.exchange.admin.audit`:
+
+```text
+/qse admin audit status
+```
+
+prints a compact operational health view: per-market matching latency percentiles and queue
+length, the most recent suspicious-trading alerts (reciprocal high-frequency trades between the
+same two accounts, or an unusually high cancel/place ratio), and how many transfers are awaiting
+review. Alerts are written to the exchange audit-alert table and never mutate accounts, balances,
+or orders; acknowledgement is a future admin workflow.
 
 ## Reconciliation and recovery
 

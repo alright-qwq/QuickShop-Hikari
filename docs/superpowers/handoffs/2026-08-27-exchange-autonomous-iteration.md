@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `a38a4ad53`
+- Current HEAD: `5ba9d839c`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -112,6 +112,25 @@ Full exchange test suite: 416 tests, 0 failures.
 
 Full exchange test suite: 421 tests, 0 failures.
 
+## Tenth continuation (same day)
+
+- Suspicious-trading detection is now production-wired: a maintenance task scans the last five
+  minutes of trades every five minutes for high-frequency reciprocal trades between the same two
+  accounts and a 10-minute cancel/place ratio, deduplicates repeats for 10 minutes, and persists
+  alerts through the repository into the existing `exchange_audit_alerts` table. Detection is
+  strictly read-only over accounts, balances and orders. (`d0ff4160f`)
+- Operational audit status: `/qse admin audit status` prints per-market matching-latency
+  percentiles and queue length, the latest alerts, and pending transfer-review count.
+  `ExchangeMetrics` is wired into the runtime (trade-event inter-arrival latency as a proxy for
+  matching latency) and the management service composes metrics + recent alerts + pending
+  reviews. (`d0ff4160f`)
+- Repository additions: `insertAuditAlert`, `recentAlerts`, `openAlerts`,
+  `tradesForDetection`, `orderActivities` — all immutable reads/writes with SQLite coverage.
+- UI/chart polish: every candle icon now shows change amount and change percentage; every depth
+  row shows the value (price × quantity) at that level. (`5ba9d839c`)
+
+Full exchange test suite: 430 tests, 0 failures.
+
 ## Ninth continuation (same day)
 
 - Market detail now shows the player's open-order count in the selected market, loaded
@@ -206,7 +225,8 @@ Full exchange test suite: 416 tests, 0 failures.
 4. UI polish: depth/candle icons could include tooltips with more levels; consider a compact
    "recent trades" ticker on the market list header.
 5. Metrics/abnormal-trading detection remain non-MVP gaps from Phase 4 (metrics snapshots,
-   abnormal trading detection, load IT).
+   abnormal trading detection, load IT). Metrics/alerts are now wired; remaining gap is alert
+   acknowledgement and any load/integration test.
 6. Confirm-page quote freshness and race handling (context token vs quote load time) could be
    tightened; the render guard already checks the menu context before drawing.
 
