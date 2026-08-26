@@ -92,7 +92,7 @@ final class AssetsPage {
       java.math.BigDecimal marketValue = marketValue(security);
       if (marketValue != null) {
         securityLore.add(messages.component(player, "ui-assets-market-value",
-            marketValue.toPlainString()));
+            marketValue.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()));
       }
       IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
           .customName(Component.text(security.displayName())).lore(securityLore));
@@ -140,7 +140,7 @@ final class AssetsPage {
     page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("DIAMOND", 1)
         .customName(messages.component(player, "ui-assets-total-value"))
         .lore(List.of(messages.component(player, "ui-assets-total-value-amount",
-            total.toPlainString())))).withSlot(4).build());
+            total.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString())))).withSlot(4).build());
   }
 
   private java.math.BigDecimal marketValue(AssetPageRows.SecurityRow security) {
