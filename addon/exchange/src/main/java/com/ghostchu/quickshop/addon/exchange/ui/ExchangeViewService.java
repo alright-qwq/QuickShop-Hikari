@@ -260,9 +260,12 @@ public final class ExchangeViewService {
     List<MarketListPresenter.Entry> entries = new ArrayList<>();
     for (MarketView market : markets.values()) {
       try {
+        String securityStatus = market.assetType() != null
+            && "VIRTUAL_SECURITY".equals(market.assetType())
+            ? market.securityStatus().get() : null;
         entries.add(new MarketListPresenter.Entry(market.marketId(), market.displayName(),
             market.service().marketQuote(marketData), market.assetType(), market.symbol(),
-            market.totalSupply(), market.securityStatus().get()));
+            market.totalSupply(), securityStatus));
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + market.marketId(), failure);
       }
