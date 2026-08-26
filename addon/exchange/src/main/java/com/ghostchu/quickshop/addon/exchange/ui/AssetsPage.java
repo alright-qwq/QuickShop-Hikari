@@ -11,6 +11,7 @@ import net.kyori.adventure.text.Component;
 import net.tnemc.menu.core.PlayerInstancePage;
 import net.tnemc.menu.core.builder.IconBuilder;
 import net.tnemc.menu.core.callbacks.page.PageOpenCallback;
+import net.tnemc.menu.core.compatibility.MenuPlayer;
 import net.tnemc.menu.core.icon.action.ActionType;
 import net.tnemc.menu.core.icon.action.impl.RunnableAction;
 import net.tnemc.menu.core.manager.MenuManager;
@@ -36,22 +37,25 @@ final class AssetsPage {
     if (!(callback.getPage() instanceof PlayerInstancePage page)) return;
     UUID playerId = callback.getPlayer().identifier();
     ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
+    int pageNumber = AssetTransferPaging.page(opened == null ? 1 : opened.page());
+    int offset = AssetTransferPaging.offset(pageNumber);
     AssetPageSnapshot.combine(views.accountAssets(playerId),
-        views.accountTransfers(playerId, 12, 0)).whenComplete((snapshot, failure) -> {
+        views.accountTransfers(playerId, AssetTransferPaging.fetchLimit(), offset))
+        .whenComplete((snapshot, failure) -> {
       if (opened == null || !contexts.isCurrent(playerId, opened)) return;
       Player player = Bukkit.getPlayer(playerId);
       if (player == null || !player.isOnline()) return;
       QuickShop.folia().getScheduler().runAtEntityLater(player,
           () -> {
             if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
-              render(page, player, snapshot, failure);
+              render(page, player, snapshot, failure, pageNumber);
             }
           }, 1L);
     });
   }
 
   private void render(PlayerInstancePage page, Player player, AssetPageSnapshot snapshot,
-                      Throwable failure) {
+                      Throwable failure, int pageNumber) {
     UUID playerId = player.getUniqueId();
     page.getIcons(playerId).clear();
     page.setLockEmptySlots(true);
@@ -65,7 +69,7 @@ final class AssetsPage {
     AssetPageRows.Merged merged = AssetPageRows.merge(views.transferTargets(), snapshot.assets());
     addTotalValue(page, player, playerId, merged);
     for (AssetPageRows.Row row : merged.rows()) {
-      if (slot >= 45) break;
+      if (slot >= 21) break;
       TransferTarget target = row.target();
       List<Component> lore = List.of(
           messages.component(player, "ui-assets-available", row.available().toPlainString()),
@@ -81,8 +85,14 @@ final class AssetsPage {
           .withSlot(slot++);
       page.addIcon(playerId, icon.build());
     }
+    if (merged.rows().size() > 12) {
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
+          .customName(messages.component(player, "ui-assets-more-currency",
+              merged.rows().size() - 12))).withSlot(20).build());
+    }
+    slot = 21;
     for (AssetPageRows.SecurityRow security : merged.securities()) {
-      if (slot >= 45) break;
+      if (slot >= 33) break;
       java.util.ArrayList<Component> securityLore = new java.util.ArrayList<>(List.of(
           messages.component(player, "ui-assets-virtual-security"),
           messages.component(player, "ui-assets-symbol", security.symbol()),
@@ -105,6 +115,12 @@ final class AssetsPage {
       })).withSlot(slot++);
       page.addIcon(playerId, icon.build());
     }
+    if (merged.securities().size() > 12) {
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("MAP", 1)
+          .customName(messages.component(player, "ui-assets-more-securities",
+              merged.securities().size() - 12))).withSlot(32).build());
+    }
+    slot = 33;
     for (TransferRecord transfer : snapshot.transfers()) {
       if (slot >= 45) break;
       String reason = transfer.failureReason() == null ? "" : " " + transfer.failureReason();
@@ -121,6 +137,38 @@ final class AssetsPage {
           .customName(messages.component(player, "ui-assets-transfer-title", transfer.status()))
           .lore(transferLore)).withSlot(slot++).build());
     }
+    if (snapshot.transfers().isEmpty()) {
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
+          .customName(messages.component(player, "ui-assets-transfers-empty"))).withSlot(slot++).build());
+    }
+    addTransferNavigation(page, player, pageNumber,
+        AssetTransferPaging.hasNext(snapshot.transfers().size()));
+  }
+
+  private void addTransferNavigation(PlayerInstancePage page, Player player, int currentPage,
+                                     boolean hasNext) {
+    UUID playerId = player.getUniqueId();
+    if (currentPage > 1) {
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("ARROW", 1)
+          .customName(messages.component(player, "ui-history-previous")))
+          .withActions(new RunnableAction(click -> openAssetsPage(click.player(), currentPage - 1)))
+          .withSlot(45).build());
+    }
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("CLOCK", 1)
+        .customName(messages.component(player, "ui-assets-transfers-page", currentPage)))
+        .withSlot(49).build());
+    if (hasNext) {
+      page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("ARROW", 1)
+          .customName(messages.component(player, "ui-history-next")))
+          .withActions(new RunnableAction(click -> openAssetsPage(click.player(), currentPage + 1)))
+          .withSlot(53).build());
+    }
+  }
+
+  private void openAssetsPage(MenuPlayer menuPlayer, int pageNumber) {
+    UUID playerId = menuPlayer.identifier();
+    contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.ASSETS.menuName(), pageNumber));
+    MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.ASSETS.page(), menuPlayer);
   }
 
   private void addTotalValue(PlayerInstancePage page, Player player, UUID playerId,

@@ -119,6 +119,10 @@ en-US:
   ui-assets-transfer-kind: '<0> <1>'
   ui-assets-transfer-amount: 'Amount: <0>'
   ui-assets-transfer-status: 'Status: <0>'
+  ui-assets-transfers-empty: No recent transfers
+  ui-assets-transfers-page: 'Transfers page <0>'
+  ui-assets-more-currency: '+<0> more currency assets in the history page'
+  ui-assets-more-securities: '+<0> more virtual securities in the market list'
   ui-transfer-money-prompt: Enter a positive money amount in chat.
   ui-transfer-item-prompt: Enter a positive whole item quantity in chat.
   ui-transfer-money-invalid: Enter a positive money amount.
@@ -310,6 +314,10 @@ zh-CN:
   ui-assets-transfer-kind: '<0> <1>'
   ui-assets-transfer-amount: '数量：<0>'
   ui-assets-transfer-status: '状态：<0>'
+  ui-assets-transfers-empty: 暂无转账记录
+  ui-assets-transfers-page: '转账第 <0> 页'
+  ui-assets-more-currency: '另有 <0> 项货币资产，请在历史页面查看'
+  ui-assets-more-securities: '另有 <0> 项虚拟证券，请在市场列表查看'
   ui-transfer-money-prompt: '请在聊天栏输入正数金额。'
   ui-transfer-item-prompt: '请在聊天栏输入正整数物品数量。'
   ui-transfer-money-invalid: '请输入正数金额。'

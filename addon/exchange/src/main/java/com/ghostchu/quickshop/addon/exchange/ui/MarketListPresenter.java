@@ -26,15 +26,20 @@ public final class MarketListPresenter {
     BigDecimal totalNotional = safeEntries.stream().map(entry -> entry.quote().notional24h())
         .reduce(BigDecimal.ZERO, BigDecimal::add);
     int rising = (int) safeEntries.stream()
-        .filter(entry -> entry.quote().change24h().signum() > 0).count();
+        .filter(entry -> entry.quote().change24h() != null
+            && entry.quote().change24h().signum() > 0).count();
     int falling = (int) safeEntries.stream()
-        .filter(entry -> entry.quote().change24h().signum() < 0).count();
+        .filter(entry -> entry.quote().change24h() != null
+            && entry.quote().change24h().signum() < 0).count();
     return new MarketOverviewSnapshot(safeEntries.size(), rising, falling, totalVolume, totalNotional,
-        row(select(safeEntries, Comparator.comparing((Entry entry) -> entry.quote().notional24h())
+        row(select(safeEntries, Comparator.comparing((Entry entry) -> entry.quote().notional24h(),
+            Comparator.nullsFirst(Comparator.naturalOrder()))
             .reversed().thenComparing(Entry::marketId))),
-        row(select(safeEntries, Comparator.comparing((Entry entry) -> entry.quote().change24h())
+        row(select(safeEntries, Comparator.comparing((Entry entry) -> entry.quote().change24h(),
+            Comparator.nullsFirst(Comparator.naturalOrder()))
             .reversed().thenComparing(Entry::marketId))),
-        row(select(safeEntries, Comparator.comparing((Entry entry) -> entry.quote().change24h())
+        row(select(safeEntries, Comparator.comparing((Entry entry) -> entry.quote().change24h(),
+            Comparator.nullsFirst(Comparator.naturalOrder()))
             .thenComparing(Entry::marketId))));
   }
 
