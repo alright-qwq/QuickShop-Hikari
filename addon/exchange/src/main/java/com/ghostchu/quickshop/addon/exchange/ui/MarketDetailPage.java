@@ -76,7 +76,7 @@ final class MarketDetailPage {
         .thenCombine(views.accountAssets(playerId).handle((assets, ignored) ->
             assets == null ? List.<AccountAssetBalance>of() : assets),
             (dashboard, assets) -> new PageData(dashboard, assets, List.of()))
-        .thenCombine(views.accountOrders(playerId, 36, 0).handle((orders, ignored) ->
+        .thenCombine(views.accountOrders(playerId, 100, 0).handle((orders, ignored) ->
             orders == null ? List.<com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder>of()
                 : orders), (data, orders) -> new PageData(data.dashboard(), data.assets(), orders))
         .whenComplete((data, failure) -> {

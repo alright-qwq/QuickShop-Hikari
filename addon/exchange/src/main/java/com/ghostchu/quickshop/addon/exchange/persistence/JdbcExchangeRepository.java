@@ -163,7 +163,7 @@ public final class JdbcExchangeRepository
   public List<ExchangeTransaction.PersistedOrder> accountOpenOrders(
       UUID accountId, int limit, int offset) throws SQLException {
     Objects.requireNonNull(accountId, "accountId");
-    if (limit < 1 || limit > 36 || offset < 0) {
+    if (limit < 1 || limit > 100 || offset < 0) {
       throw new IllegalArgumentException("invalid account order page");
     }
     try (Connection connection = connections.open();

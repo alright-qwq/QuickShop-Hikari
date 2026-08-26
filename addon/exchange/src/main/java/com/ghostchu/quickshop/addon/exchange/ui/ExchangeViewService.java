@@ -201,7 +201,7 @@ public final class ExchangeViewService {
 
   public CompletableFuture<List<ExchangeTransaction.PersistedOrder>> accountOrders(
       UUID accountId, int limit, int offset) {
-    if (accountId == null || limit < 1 || limit > 36 || offset < 0) {
+    if (accountId == null || limit < 1 || limit > 100 || offset < 0) {
       throw new IllegalArgumentException("invalid account order page");
     }
     if (repository == null) {
