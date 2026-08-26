@@ -163,9 +163,17 @@ public final class ExchangeViewService {
             .marketBookSnapshot(marketData, 5);
         MarketQuote quote = marketData.quote(marketId, book.referencePrice(), book.bestBid(),
             book.bestAsk(), book.status(), book.asOf());
-        MarketRow row = presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
+        MarketListPresenter.Entry entry = new MarketListPresenter.Entry(market.marketId(),
             market.displayName(), quote, market.assetType(), market.symbol(),
-            market.totalSupply(), market.securityStatus().get(), issuedSupply(market)))).getFirst();
+            market.totalSupply(), market.securityStatus().get(), issuedSupply(market));
+        MarketRow row = presenter.rows(List.of(entry)).getFirst();
+        if (row.notional24h() != null) {
+          row = new MarketRow(row.marketId(), row.displayName(), row.lastPrice(),
+              row.bestBid(), row.bestAsk(), row.change24h(), row.volume24h(), row.status(),
+              row.assetType(), row.symbol(), row.totalSupply(), row.securityStatus(),
+              row.volatility24h(), row.high24h(), row.low24h(), row.issuedSupply(),
+              row.notional24h().setScale(2, RoundingMode.HALF_UP));
+        }
         Instant asOf = book.asOf();
         List<com.ghostchu.quickshop.addon.exchange.marketdata.Candle> candles =
             marketData.recentCandles(marketId, asOf.minus(window),
@@ -175,8 +183,10 @@ public final class ExchangeViewService {
             : repository.marketTrades(marketId, 6);
         ExchangeRepository.MarketTradeSummary tradeSummary = repository == null ? null
             : repository.marketTradeSummary(marketId, asOf.minus(Duration.ofHours(24)));
+        BigDecimal notional = quote.notional24h() == null ? null
+            : quote.notional24h().setScale(2, RoundingMode.HALF_UP);
         return new MarketDashboardSnapshot(row, candles, book.bids(), book.asks(), spread,
-            spreadPercent(spread, quote.bestBid(), quote.bestAsk()), quote.notional24h(),
+            spreadPercent(spread, quote.bestBid(), quote.bestAsk()), notional,
             recentTrades, tradeSummary);
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market dashboard: " + marketId, failure);

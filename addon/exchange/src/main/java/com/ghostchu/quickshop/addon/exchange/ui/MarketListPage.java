@@ -177,7 +177,8 @@ final class MarketListPage {
                 overview.fallingCount()),
             messages.component(player, "ui-overview-volume", overview.totalVolume24h()),
             messages.component(player, "ui-overview-notional",
-                overview.totalNotional24h().toPlainString()),
+                overview.totalNotional24h()
+                    .setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()),
             messages.component(player, "ui-overview-active", active),
             messages.component(player, "ui-overview-gainer", gainer),
             messages.component(player, "ui-overview-loser", loser)))).withSlot(4).build());

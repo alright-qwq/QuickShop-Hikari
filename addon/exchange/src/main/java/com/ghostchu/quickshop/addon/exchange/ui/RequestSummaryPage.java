@@ -143,7 +143,9 @@ final class RequestSummaryPage {
       lines.add(messages.component(player, "ui-confirm-request", request.requestId()));
     }
     if (request.marketId() != null) {
-      lines.add(messages.component(player, "ui-confirm-market", request.marketId()));
+      lines.add(messages.component(player, "ui-confirm-market",
+          views == null ? request.marketId()
+              : views.marketDisplayName(request.marketId())));
     }
     if (request.order() != null) {
       var order = request.order();

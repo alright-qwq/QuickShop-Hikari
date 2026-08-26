@@ -14,6 +14,7 @@ import com.ghostchu.quickshop.addon.exchange.repository.AccountLedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder;
 import com.ghostchu.quickshop.addon.exchange.service.ExchangeServiceFixture;
 import com.ghostchu.quickshop.addon.exchange.service.OrderRequest;
+import com.ghostchu.quickshop.addon.exchange.service.PersistentOrderService;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferStatus;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferType;
@@ -57,6 +58,29 @@ class ExchangeViewServiceTest {
     assertThat(orders).extracting(persisted -> persisted.order().orderId())
         .containsExactly(repository.order.orderId());
     assertThat(repository.calls).hasValue(1);
+  }
+
+  @Test
+  void roundsMarketNotionalToTwoDecimalsInDashboardAndOverview() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    MarketDataService marketData = new MarketDataService(new CandleAggregator());
+    PersistentOrderService marketService = fixture.serviceWithMarketData(marketData);
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    UUID seller = fixture.accountWithItems(2);
+    marketService.place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("99.00"), null, 2));
+    marketService.place(new OrderRequest(UUID.randomUUID(), buyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("101.00"), null, 2));
+    ExchangeViewService views = new ExchangeViewService(java.util.Map.of("diamond-usd",
+        new ExchangeViewService.MarketView("diamond-usd", "Diamond", marketService)),
+        marketData, Runnable::run);
+
+    MarketDashboardSnapshot dashboard = views.marketDashboard("diamond-usd").join();
+    MarketOverviewSnapshot overview = views.marketOverview().join();
+
+    assertThat(dashboard.notional24h()).isEqualByComparingTo("198.00");
+    assertThat(overview.totalNotional24h()).isEqualByComparingTo("198.00");
+    assertThat(overview.mostActive().notional24h()).isEqualByComparingTo("198.00");
   }
 
   @Test

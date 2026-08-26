@@ -16,8 +16,16 @@
   <description>Central limit order book for fungible Minecraft items</description>
   <repositories>
     <repository>
+      <id>CodeMC</id>
+      <url>https://repo.codemc.io/repository/maven-public/</url>
+    </repository>
+    <repository>
       <id>tcoded-releases</id>
       <url>https://repo.tcoded.com/releases</url>
+    </repository>
+    <repository>
+      <id>codemc-creatorfromhell</id>
+      <url>https://repo.codemc.io/repository/creatorfromhell/</url>
     </repository>
   </repositories>
   <build>
@@ -52,6 +60,33 @@
       <version>${project.parent.version}</version>
       <scope>provided</scope>
     </dependency>
+    <dependency>
+      <groupId>net.tnemc</groupId>
+      <artifactId>TNML-CORE</artifactId>
+      <version>1.7.0.1-SNAPSHOT-5</version>
+      <exclusions>
+        <exclusion>
+          <groupId>net.tnemc</groupId>
+          <artifactId>TNIL-Core</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>net.kyori</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>net.tnemc</groupId>
+      <artifactId>TNIL-Core</artifactId>
+      <version>0.2.0.0-SNAPSHOT-3</version>
+      <exclusions>
+        <exclusion>
+          <groupId>net.kyori</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
     <dependency>
       <groupId>com.ghostchu</groupId>
       <artifactId>quickshop-bukkit</artifactId>

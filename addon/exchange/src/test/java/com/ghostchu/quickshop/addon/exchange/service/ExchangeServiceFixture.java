@@ -234,7 +234,7 @@ public final class ExchangeServiceFixture {
         com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(), recovery);
   }
 
-  PersistentOrderService serviceWithMarketData(
+  public PersistentOrderService serviceWithMarketData(
       com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService marketData) {
     return new PersistentOrderService(repository, rules,
         com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
