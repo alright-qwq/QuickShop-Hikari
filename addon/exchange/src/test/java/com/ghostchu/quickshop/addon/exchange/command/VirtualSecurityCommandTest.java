@@ -43,6 +43,29 @@ class VirtualSecurityCommandTest {
   }
 
   @Test
+  void transfersStockBetweenAccountsThroughAdminRouter() throws Exception {
+    Fixture fixture = new Fixture();
+    Actor actor = new Actor("quickshop.exchange.admin.stock");
+    fixture.router.execute(actor, new String[] {"stock", "create", "ALPHA", "Alpha",
+        "default", "10.00", "1000", "1", "concept stock"});
+    UUID first = UUID.randomUUID();
+    UUID second = UUID.randomUUID();
+    fixture.router.execute(actor, new String[] {"stock", "issue", "alpha", first.toString(),
+        "100", "initial allocation"});
+
+    fixture.router.execute(actor, new String[] {"stock", "transfer", "alpha",
+        first.toString(), second.toString(), "40", "correct allocation"});
+
+    assertThat(actor.message).isEqualTo("request-accepted");
+    Long firstAvailable = fixture.repository.inTransaction(
+        tx -> tx.securityBalance(first, "alpha").availableQuantity());
+    Long secondAvailable = fixture.repository.inTransaction(
+        tx -> tx.securityBalance(second, "alpha").availableQuantity());
+    assertThat(firstAvailable).isEqualTo(60);
+    assertThat(secondAvailable).isEqualTo(40);
+  }
+
+  @Test
   void pausesResumesAndClosesStock() throws Exception {
     Fixture fixture = new Fixture();
     Actor actor = new Actor("quickshop.exchange.admin.stock");

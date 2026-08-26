@@ -113,6 +113,17 @@ public final class AdminCommandRouter {
             actor.accountId(), requestIds.get(), marketId, target, quantity, reason));
         return;
       }
+      if (args.length >= 7 && "transfer".equals(action)) {
+        String marketId = resolveMarket(args[2]);
+        if (marketId == null) throw new IllegalArgumentException("unknown market or symbol");
+        UUID from = UUID.fromString(args[3]);
+        UUID to = UUID.fromString(args[4]);
+        long quantity = Long.parseLong(args[5]);
+        String reason = String.join(" ", java.util.Arrays.copyOfRange(args, 6, args.length));
+        executeWrite(actor, () -> administration.securityTransfer(
+            actor.accountId(), requestIds.get(), marketId, from, to, quantity, reason));
+        return;
+      }
       if (args.length >= 4 && ("pause".equals(action) || "resume".equals(action))) {
         String marketId = resolveMarket(args[2]);
         if (marketId == null) throw new IllegalArgumentException("unknown market or symbol");

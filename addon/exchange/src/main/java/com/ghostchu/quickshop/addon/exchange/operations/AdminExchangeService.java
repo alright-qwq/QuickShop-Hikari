@@ -112,6 +112,13 @@ public final class AdminExchangeService {
     return requireSecurities().resume(actorId, requestId, marketId, reason);
   }
 
+  public SecurityMutationResult securityTransfer(
+      UUID actorId, UUID requestId, String marketId, UUID fromAccount, UUID toAccount,
+      long quantity, String reason) throws SQLException {
+    return requireSecurities().transfer(
+        actorId, requestId, marketId, fromAccount, toAccount, quantity, reason);
+  }
+
   public SecurityMutationResult securityClose(
       UUID actorId, UUID requestId, String marketId, UUID recoveryAccount, String reason)
       throws SQLException {

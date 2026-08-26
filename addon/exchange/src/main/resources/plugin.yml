@@ -31,3 +31,5 @@ permissions:
     default: op
   quickshop.exchange.admin.audit:
     default: op
+  quickshop.exchange.admin.stock:
+    default: op

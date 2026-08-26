@@ -149,7 +149,7 @@ en-US:
   ui-admin-audit: Audit controls
   ui-admin-audit-usage: '/qse admin audit reconcile|export <from> <to>'
   ui-admin-stock: Stock controls
-  ui-admin-stock-usage: '/qse admin stock create|issue|pause|resume|close'
+  ui-admin-stock-usage: '/qse admin stock create|issue|transfer|pause|resume|close'
 zh-CN:
   command-description: '打开中央物品交易所'
   permission-denied: '你没有执行此交易所操作的权限。'
@@ -301,4 +301,4 @@ zh-CN:
   ui-admin-audit: 审计控制
   ui-admin-audit-usage: '/qse admin audit reconcile|export <起> <止>'
   ui-admin-stock: 证券控制
-  ui-admin-stock-usage: '/qse admin stock create|issue|pause|resume|close'
+  ui-admin-stock-usage: '/qse admin stock create|issue|transfer|pause|resume|close'

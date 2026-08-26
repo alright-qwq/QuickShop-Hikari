@@ -123,6 +123,56 @@ class SecurityServiceTest {
   }
 
   @Test
+  void transferMovesAvailableStockAndIsIdempotentByRequest() throws Exception {
+    UUID actor = UUID.randomUUID();
+    UUID first = UUID.randomUUID();
+    UUID second = UUID.randomUUID();
+    createOpen(actor, 1000, 1);
+    service.issue(actor, UUID.randomUUID(), marketId, first, 100, "first allocation");
+
+    UUID transferredRequest = UUID.randomUUID();
+    SecurityMutationResult transferred = service.transfer(
+        actor, transferredRequest, marketId, first, second, 40, "correct allocation");
+
+    assertThat(transferred.action()).isEqualTo("STOCK_TRANSFER");
+    SecurityBalance firstAfter =
+        repository.inTransaction(tx -> tx.securityBalance(first, marketId));
+    SecurityBalance secondAfter =
+        repository.inTransaction(tx -> tx.securityBalance(second, marketId));
+    assertThat(firstAfter.availableQuantity()).isEqualTo(60);
+    assertThat(secondAfter.availableQuantity()).isEqualTo(40);
+
+    SecurityMutationResult replayAgain = service.transfer(
+        actor, transferredRequest, marketId, first, second, 40, "correct allocation");
+    assertThat(replayAgain.replayed()).isTrue();
+    SecurityBalance afterReplay =
+        repository.inTransaction(tx -> tx.securityBalance(second, marketId));
+    assertThat(afterReplay.availableQuantity()).isEqualTo(40);
+  }
+
+  @Test
+  void transferRejectsInsufficientSourceAndBadUnit() throws Exception {
+    UUID actor = UUID.randomUUID();
+    UUID first = UUID.randomUUID();
+    UUID second = UUID.randomUUID();
+    createOpen(actor, 1000, 10);
+    service.issue(actor, UUID.randomUUID(), marketId, first, 100, "first allocation");
+
+    assertThatThrownBy(() -> service.transfer(
+        actor, UUID.randomUUID(), marketId, first, second, 15, "invalid transfer unit"))
+        .hasMessageContaining("multiple of minimum unit");
+    assertThatThrownBy(() -> service.transfer(
+        actor, UUID.randomUUID(), marketId, first, second, 150, "over transfer"))
+        .hasMessageContaining("insufficient available balance");
+    assertThatThrownBy(() -> service.transfer(
+        actor, UUID.randomUUID(), marketId, first, first, 10, "same account transfer"))
+        .hasMessageContaining("must differ");
+    SecurityBalance firstAfter =
+        repository.inTransaction(tx -> tx.securityBalance(first, marketId));
+    assertThat(firstAfter.availableQuantity()).isEqualTo(100);
+  }
+
+  @Test
   void pauseAndResumeEnforceStateTransitions() throws Exception {
     UUID actor = UUID.randomUUID();
     createOpen(actor, 100, 1);

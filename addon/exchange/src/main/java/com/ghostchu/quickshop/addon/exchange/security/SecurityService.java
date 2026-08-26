@@ -26,6 +26,7 @@ public final class SecurityService {
   private static final String PAUSE_ACTION = "STOCK_PAUSE";
   private static final String RESUME_ACTION = "STOCK_RESUME";
   private static final String CLOSE_ACTION = "STOCK_CLOSE";
+  private static final String TRANSFER_ACTION = "STOCK_TRANSFER";
 
   private final ExchangeRepository repository;
 
@@ -106,6 +107,49 @@ public final class SecurityService {
       return new SecurityMutationResult(
           marketId, definition.symbol(), ISSUE_ACTION, definition.status(),
           issuePayload(marketId, targetAccount, quantity), false);
+    });
+  }
+
+  public SecurityMutationResult transfer(
+      UUID actorId, UUID requestId, String marketId, UUID fromAccount, UUID toAccount,
+      long quantity, String reason) throws SQLException {
+    Objects.requireNonNull(actorId, "actorId");
+    Objects.requireNonNull(requestId, "requestId");
+    Objects.requireNonNull(fromAccount, "fromAccount");
+    Objects.requireNonNull(toAccount, "toAccount");
+    requireText(marketId, "market id");
+    requirePositive(quantity, "quantity");
+    if (fromAccount.equals(toAccount)) {
+      throw new IllegalArgumentException("transfer source and target must differ");
+    }
+    String normalizedReason = normalizeReason(reason);
+    Instant now = Instant.now();
+    String payload = transferPayload(marketId, fromAccount, toAccount, quantity);
+    return repository.inTransaction(tx -> {
+      SecurityDefinitionState definition = tx.securityDefinition(marketId);
+      SecurityAuditRecord duplicate = requireNoDuplicate(tx, requestId, TRANSFER_ACTION, payload);
+      if (duplicate != null) {
+        return replayed(tx, marketId, TRANSFER_ACTION, duplicate);
+      }
+      requireTransferable(definition, quantity);
+      SecurityBalance source = tx.securityBalance(fromAccount, marketId);
+      requireSourceBalance(source, quantity);
+      tx.freezeSecurity(fromAccount, marketId, quantity);
+      tx.consumeFrozenSecurity(fromAccount, marketId, quantity);
+      tx.creditAvailableSecurity(toAccount, marketId, quantity);
+      tx.appendSecurityLedger(new SecurityLedgerEntry(
+          UUID.randomUUID(), requestId.toString(), marketId, fromAccount, "TRANSFER",
+          -quantity, -quantity, 0, "ADMIN", requestId.toString(), actorId,
+          normalizedReason, now));
+      tx.appendSecurityLedger(new SecurityLedgerEntry(
+          UUID.randomUUID(), requestId + ":to", marketId, toAccount, "TRANSFER",
+          quantity, quantity, 0, "ADMIN", requestId.toString(), actorId,
+          normalizedReason, now));
+      appendAudit(tx, actorId, requestId, marketId, TRANSFER_ACTION, payload,
+          "SUCCESS", now);
+      return new SecurityMutationResult(
+          marketId, definition.symbol(), TRANSFER_ACTION, definition.status(),
+          payload, false);
     });
   }
 
@@ -235,6 +279,25 @@ public final class SecurityService {
     }
   }
 
+  private static void requireTransferable(SecurityDefinitionState definition, long quantity) {
+    if (!definition.status().equals(SecurityStatus.OPEN.name())
+        && !definition.status().equals(SecurityStatus.PAUSED.name())) {
+      throw new IllegalStateException(
+          "securities can only be transferred while OPEN or PAUSED: " + definition.status());
+    }
+    if (quantity % definition.minimumUnit() != 0) {
+      throw new IllegalArgumentException(
+          "quantity must be a multiple of minimum unit " + definition.minimumUnit());
+    }
+  }
+
+  private static void requireSourceBalance(SecurityBalance source, long quantity) {
+    if (source.availableQuantity() < quantity) {
+      throw new IllegalArgumentException(
+          "insufficient available balance: " + source.availableQuantity() + " available");
+    }
+  }
+
   private static void requireIssuable(SecurityDefinitionState definition, long quantity) {
     if (!definition.status().equals(SecurityStatus.OPEN.name())
         && !definition.status().equals(SecurityStatus.PAUSED.name())) {
@@ -304,6 +367,12 @@ public final class SecurityService {
 
   private static String issuePayload(String marketId, UUID targetAccount, long quantity) {
     return "market=" + marketId + ";target=" + targetAccount + ";quantity=" + quantity;
+  }
+
+  private static String transferPayload(
+      String marketId, UUID fromAccount, UUID toAccount, long quantity) {
+    return "market=" + marketId + ";from=" + fromAccount + ";to=" + toAccount
+        + ";quantity=" + quantity;
   }
 
   private static String closePayload(String marketId, UUID recoveryAccount) {
