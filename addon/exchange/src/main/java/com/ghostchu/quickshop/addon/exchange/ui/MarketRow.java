@@ -10,6 +10,13 @@ public record MarketRow(String marketId, String displayName, BigDecimal lastPric
                         Long totalSupply, String securityStatus, BigDecimal volatility24h,
                         BigDecimal high24h, BigDecimal low24h, Long issuedSupply,
                         BigDecimal notional24h) {
+  public MarketRow {
+    if (marketId == null || marketId.isBlank() || displayName == null || displayName.isBlank()
+        || status == null) {
+      throw new IllegalArgumentException("market row identity and status are required");
+    }
+  }
+
   public MarketRow(String marketId, String displayName, BigDecimal lastPrice,
                    BigDecimal bestBid, BigDecimal bestAsk, BigDecimal change24h,
                    long volume24h, MarketStatus status) {
