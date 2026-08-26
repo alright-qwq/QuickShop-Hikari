@@ -57,7 +57,7 @@ final class RequestSummaryPage {
       return;
     }
     render(page, player, request, null);
-    if (request.order() != null && request.order().slippageBoundary() != null && views != null) {
+    if (request.order() != null && views != null) {
       views.marketQuoteAsync(request.marketId())
           .whenComplete((quote, failure) -> {
             if (failure != null || !contexts.isCurrent(playerId, request)) return;
@@ -122,6 +122,14 @@ final class RequestSummaryPage {
         lines.add(messages.component(player, "ui-confirm-price", order.price().toPlainString()));
         lines.add(messages.component(player, "ui-confirm-estimated-notional",
             OrderConfirmation.estimatedNotional(order.price(), order.quantity()).toPlainString()));
+        if (quote != null) {
+          java.math.BigDecimal executable = order.side() == OrderSide.BUY
+              ? quote.bestAsk() : quote.bestBid();
+          if (executable != null) {
+            lines.add(messages.component(player, "ui-confirm-current-quote",
+                executable.toPlainString()));
+          }
+        }
       }
       if (order.slippageBoundary() != null) {
         lines.add(messages.component(player, "ui-confirm-protection",
