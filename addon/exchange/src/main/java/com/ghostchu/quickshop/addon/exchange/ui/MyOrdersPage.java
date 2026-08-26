@@ -6,6 +6,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.tnemc.menu.core.PlayerInstancePage;
 import net.tnemc.menu.core.builder.IconBuilder;
@@ -38,18 +39,31 @@ final class MyOrdersPage {
     views.accountOrders(playerId, PAGE_SIZE, offset).whenComplete((orders, failure) -> {
       if (opened == null) return;
       if (!contexts.isCurrent(playerId, opened)) return;
-      Player player = Bukkit.getPlayer(playerId);
-      if (player == null || !player.isOnline()) return;
-      QuickShop.folia().getScheduler().runAtEntityLater(player,
-          () -> {
-            if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
-              render(page, player, orders, failure);
-            }
-          }, 1L);
+      java.util.Map<String, MarketRow> quotes = new java.util.HashMap<>();
+      List<CompletableFuture<Void>> loads = new java.util.ArrayList<>();
+      for (Order order : orders) {
+        if (quotes.containsKey(order.marketId())) continue;
+        loads.add(views.marketRow(order.marketId()).handle((row, ignored) -> {
+          if (row != null) quotes.put(order.marketId(), row);
+          return null;
+        }));
+      }
+      CompletableFuture.allOf(loads.toArray(new CompletableFuture[0])).whenComplete((ignored, ignoredFailure) -> {
+        if (!contexts.isCurrent(playerId, opened)) return;
+        Player player = Bukkit.getPlayer(playerId);
+        if (player == null || !player.isOnline()) return;
+        QuickShop.folia().getScheduler().runAtEntityLater(player,
+            () -> {
+              if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
+                render(page, player, orders, quotes, failure);
+              }
+            }, 1L);
+      });
     });
   }
 
-  private void render(PlayerInstancePage page, Player player, List<Order> orders, Throwable failure) {
+  private void render(PlayerInstancePage page, Player player, List<Order> orders,
+                      java.util.Map<String, MarketRow> quotes, Throwable failure) {
     UUID playerId = player.getUniqueId();
     page.getIcons(playerId).clear();
     page.setLockEmptySlots(true);
@@ -70,6 +84,12 @@ final class MyOrdersPage {
               ? order.slippageBoundary() : order.limitPrice()),
           messages.component(player, "ui-order-time",
               messages.relativeTime(order.createdAt())));
+      MarketRow quote = quotes.get(order.marketId());
+      if (quote != null && quote.lastPrice() != null) {
+        lore = new java.util.ArrayList<>(lore);
+        lore.add(messages.component(player, "ui-order-current-price",
+            quote.lastPrice().toPlainString()));
+      }
       IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
           .customName(messages.component(player, "ui-order-title", order.side(),
               views.marketDisplayName(order.marketId())))
