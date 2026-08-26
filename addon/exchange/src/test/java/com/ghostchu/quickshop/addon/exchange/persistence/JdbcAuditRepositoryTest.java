@@ -2,8 +2,14 @@ package com.ghostchu.quickshop.addon.exchange.persistence;
 
 import com.ghostchu.quickshop.addon.exchange.operations.AuditRecord;
 import com.ghostchu.quickshop.addon.exchange.operations.AuditAlert;
+import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector;
 import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector.OrderActivity;
 import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector.TradeActivity;
+import com.ghostchu.quickshop.addon.exchange.core.model.Order;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
+import com.ghostchu.quickshop.addon.exchange.core.model.TimeInForce;
+import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.addon.exchange.service.ExchangeServiceFixture;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
@@ -71,9 +77,9 @@ class JdbcAuditRepositoryTest {
     ExchangeRepository repository = new JdbcExchangeRepository(connections, SqlDialect.SQLITE, tables);
     Instant at = Instant.ofEpochMilli(Instant.now().toEpochMilli());
     AuditAlert open = new AuditAlert(UUID.randomUUID(), "concept-stock", null,
-        "HIGH_CANCEL_PLACE_RATIO", "MEDIUM", "ratio=1.0", at, null);
+        "HIGH_CANCEL_PLACE_RATIO", "MEDIUM", "ratio=1.0", at.plusSeconds(1), null);
     AuditAlert acknowledged = new AuditAlert(UUID.randomUUID(), "concept-stock", null,
-        "HIGH_FREQUENCY_RECIPROCAL_TRADING", "MEDIUM", "trades=3", at, at);
+        "HIGH_FREQUENCY_RECIPROCAL_TRADING", "MEDIUM", "trades=3", at, at.plusSeconds(2));
     repository.insertAuditAlert(open);
     repository.insertAuditAlert(acknowledged);
 
@@ -82,7 +88,7 @@ class JdbcAuditRepositoryTest {
 
     assertThat(repository.openAlerts(20)).isEmpty();
     assertThat(repository.recentAlerts(20)).extracting(AuditAlert::acknowledgedAt)
-        .containsExactly(at.plusSeconds(10), at);
+        .containsExactly(at.plusSeconds(10), at.plusSeconds(2));
   }
 
   @Test
@@ -101,5 +107,37 @@ class JdbcAuditRepositoryTest {
     assertThat(activities).hasSize(2).extracting(OrderActivity::kind)
         .containsExactly(OrderActivity.Kind.PLACE, OrderActivity.Kind.CANCEL);
     assertThat(trades).isEmpty();
+  }
+
+  @Test
+  void tradesForDetectionFeedTheReciprocalDetectorEndToEnd() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID buyer = fixture.accountWithCurrency("500.00");
+    UUID seller = fixture.accountWithItems(10);
+    Instant now = Instant.ofEpochMilli(Instant.now().toEpochMilli());
+    Order buy = new Order(UUID.randomUUID(), UUID.randomUUID(), fixture.rules().marketId(), buyer,
+        OrderSide.BUY, OrderType.LIMIT, TimeInForce.GTC, new BigDecimal("100.00"), null,
+        2, 2, OrderStatus.OPEN, 1, 1, 1, now.minusSeconds(60), now.minusSeconds(60));
+    Order sell = new Order(UUID.randomUUID(), UUID.randomUUID(), fixture.rules().marketId(), seller,
+        OrderSide.SELL, OrderType.LIMIT, TimeInForce.GTC, new BigDecimal("100.00"), null,
+        2, 2, OrderStatus.OPEN, 2, 1, 1, now.minusSeconds(60), now.minusSeconds(60));
+    fixture.repository().inTransaction(tx -> {
+      tx.insertOrder(buy, new BigDecimal("200.00"), 0);
+      tx.insertOrder(sell, new BigDecimal("0.00"), 2);
+      tx.insertTrade(new Trade(UUID.randomUUID(), fixture.rules().marketId(), buy.orderId(),
+          sell.orderId(), buyer, seller, new BigDecimal("100.00"), 1,
+          new BigDecimal("0.10"), new BigDecimal("0.20"), 1, now.minusSeconds(90)));
+      tx.insertTrade(new Trade(UUID.randomUUID(), fixture.rules().marketId(), sell.orderId(),
+          buy.orderId(), seller, buyer, new BigDecimal("100.00"), 1,
+          new BigDecimal("0.10"), new BigDecimal("0.20"), 2, now.minusSeconds(30)));
+      return null;
+    });
+
+    var trades = fixture.repository().tradesForDetection(now.minusSeconds(300));
+    var result = new SuspiciousTradingDetector(
+        java.time.Clock.fixed(now, java.time.ZoneOffset.UTC)).scan(trades, List.of());
+
+    assertThat(result.alerts()).singleElement().satisfies(alert ->
+        assertThat(alert.type()).isEqualTo("HIGH_FREQUENCY_RECIPROCAL_TRADING"));
   }
 }
