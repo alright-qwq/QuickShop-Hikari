@@ -228,7 +228,7 @@ public final class AdminCommandRouter {
         : status.recentAlerts().stream()
             .map(alert -> "[" + alert.alertId() + "] " + alert.severity() + " "
                 + alert.type() + "@" + alert.marketId()
-                + " " + alert.createdAt())
+                + " " + alert.createdAt() + " evidence={" + alert.payload() + "}")
             .collect(java.util.stream.Collectors.joining(" | "));
     return "markets=" + metrics + "\nalerts=" + alerts + "\npending-reviews="
         + status.pendingTransferReviews().size();
