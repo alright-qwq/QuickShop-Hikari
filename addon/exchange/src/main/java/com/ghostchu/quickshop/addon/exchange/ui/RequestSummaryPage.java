@@ -155,6 +155,11 @@ final class RequestSummaryPage {
         lines.add(messages.component(player, "ui-confirm-price", order.price().toPlainString()));
         lines.add(messages.component(player, "ui-confirm-estimated-notional",
             OrderConfirmation.estimatedNotional(order.price(), order.quantity()).toPlainString()));
+        if (order.side() == OrderSide.BUY) {
+          lines.add(messages.component(player, "ui-confirm-frozen-estimate",
+              OrderConfirmation.estimatedNotional(order.price(), order.quantity())
+                  .toPlainString()));
+        }
         if (quote != null) {
           java.math.BigDecimal executable = order.side() == OrderSide.BUY
               ? quote.bestAsk() : quote.bestBid();
@@ -175,6 +180,11 @@ final class RequestSummaryPage {
         lines.add(messages.component(player, "ui-confirm-estimated-notional",
             OrderConfirmation.estimatedNotional(order.slippageBoundary(), order.quantity())
                 .toPlainString()));
+        if (order.side() == OrderSide.BUY) {
+          lines.add(messages.component(player, "ui-confirm-frozen-estimate",
+              OrderConfirmation.estimatedNotional(order.slippageBoundary(), order.quantity())
+                  .toPlainString()));
+        }
         if (quote != null) {
           java.math.BigDecimal executable = order.side() == OrderSide.BUY
               ? quote.bestAsk() : quote.bestBid();

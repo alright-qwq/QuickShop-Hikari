@@ -124,8 +124,11 @@ To close a stock, first cancel or let all open orders finish, then:
   "Virtual security (ledger-only, cannot deposit or withdraw)", plus symbol, available, and frozen
   quantities, an estimated market value, and the total portfolio value. Clicking a security row
   opens its market detail page. Security rows have no left/right deposit/withdraw actions.
-- The order confirmation page shows the current best quote and tells you whether a limit order
-  will match immediately or rest on the book.
+- The order confirmation page shows the current best quote, tells you whether a limit order
+  will match immediately or rest on the book, and shows how much currency a buy order will
+  freeze on submit (before fees).
+- Virtual security market rows and detail pages show the float market cap
+  (issued supply x last price), so you can compare concept stocks by size.
 - The account history page shows "My fee" — the exact maker or taker fee charged to you for each
   trade — in addition to the combined both-party trade fees.
 - Market list/detail rows display `Asset: VIRTUAL_SECURITY`, `Symbol`, `Total supply`, and

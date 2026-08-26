@@ -129,6 +129,12 @@ final class MarketDetailPage {
     if (row.issuedSupply() != null) {
       lore.add(messages.component(player, "ui-market-issued-supply", row.issuedSupply(),
           row.totalSupply()));
+      if ("VIRTUAL_SECURITY".equals(row.assetType()) && row.lastPrice() != null) {
+        java.math.BigDecimal floatCap = row.lastPrice().multiply(
+            java.math.BigDecimal.valueOf(row.issuedSupply()));
+        lore.add(messages.component(player, "ui-market-float-cap",
+            floatCap.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()));
+      }
     }
     if (row.securityStatus() != null) {
       lore.add(messages.component(player, "ui-market-security-status", row.securityStatus()));

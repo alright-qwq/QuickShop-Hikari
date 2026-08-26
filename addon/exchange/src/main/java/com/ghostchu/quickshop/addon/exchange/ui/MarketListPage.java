@@ -120,6 +120,11 @@ final class MarketListPage {
       if (row.issuedSupply() != null) {
         lore.add(messages.component(player, "ui-market-issued-supply",
             row.issuedSupply(), row.totalSupply()));
+        if ("VIRTUAL_SECURITY".equals(row.assetType()) && row.lastPrice() != null) {
+          lore.add(messages.component(player, "ui-market-float-cap",
+              row.lastPrice().multiply(java.math.BigDecimal.valueOf(row.issuedSupply()))
+                  .setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()));
+        }
       }
       Component changeLine = messages.component(player, "ui-market-change-percent",
           percent(row.change24h()));
