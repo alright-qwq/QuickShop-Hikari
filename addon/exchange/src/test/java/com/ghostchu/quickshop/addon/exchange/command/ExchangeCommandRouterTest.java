@@ -12,6 +12,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ExchangeCommandRouterTest {
   @Test
+  void showsHelpWithUsePermissionAndRejectsWithoutIt() {
+    Actor allowed = new Actor("quickshop.exchange.use");
+    new ExchangeCommandRouter(UUID::randomUUID).execute(allowed, new String[] {"help"});
+    assertThat(allowed.message).isEqualTo("command-help");
+
+    Actor denied = new Actor("");
+    new ExchangeCommandRouter(UUID::randomUUID).execute(denied, new String[] {"help"});
+    assertThat(denied.message).isEqualTo("permission-denied");
+  }
+
+  @Test
   void deniesMarketOrderWithoutDedicatedPermission() {
     Actor actor = new Actor("quickshop.exchange.use");
     new ExchangeCommandRouter(UUID::randomUUID).execute(actor,

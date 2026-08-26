@@ -81,6 +81,17 @@ public final class ExchangeCommandRouter {
       actor.openMenu(ExchangeMenuRequest.page("markets"));
       return;
     }
+    if ("help".equalsIgnoreCase(args[0])) {
+      if (args.length != 1) {
+        invalid(actor);
+        return;
+      }
+      if (!allowed(actor, "quickshop.exchange.use")) {
+        return;
+      }
+      actor.message("command-help");
+      return;
+    }
     if ("market".equalsIgnoreCase(args[0])) {
       if (args.length != 2 || !allowed(actor, "quickshop.exchange.use")) {
         invalid(actor);
@@ -283,12 +294,12 @@ public final class ExchangeCommandRouter {
     Objects.requireNonNull(actor, "actor");
     if (args == null || args.length == 0) {
       return List.of("open", "market", "order", "cancel", "deposit", "withdraw", "orders",
-          "assets", "history", "stocks", "stock", "admin");
+          "assets", "history", "stocks", "stock", "admin", "help");
     }
     if (args.length == 1) {
       String prefix = args[0].toLowerCase(java.util.Locale.ROOT);
       return List.of("open", "market", "order", "cancel", "deposit", "withdraw", "orders",
-          "assets", "history", "stocks", "stock", "admin").stream()
+          "assets", "history", "stocks", "stock", "admin", "help").stream()
           .filter(value -> value.startsWith(prefix)).toList();
     }
     return switch (args[0].toLowerCase(java.util.Locale.ROOT)) {
