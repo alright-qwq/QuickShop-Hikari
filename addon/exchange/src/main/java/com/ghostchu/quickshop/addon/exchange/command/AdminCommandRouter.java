@@ -230,8 +230,10 @@ public final class AdminCommandRouter {
                 + alert.type() + "@" + alert.marketId()
                 + " " + alert.createdAt() + " evidence={" + alert.payload() + "}")
             .collect(java.util.stream.Collectors.joining(" | "));
+    long openAlerts = status.recentAlerts().stream()
+        .filter(alert -> alert.acknowledgedAt() == null).count();
     return "markets=" + metrics + "\nalerts=" + alerts + "\npending-reviews="
-        + status.pendingTransferReviews().size();
+        + status.pendingTransferReviews().size() + "\nopen-alerts=" + openAlerts;
   }
 
   private void executeReconciliation(CommandActor actor) {
