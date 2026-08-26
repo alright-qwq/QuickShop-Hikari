@@ -214,6 +214,60 @@ class VirtualSecuritySettlementTest {
     assertThat(detected.balanced()).isFalse();
   }
 
+  @Test
+  void issueTradeThenCloseRecoversBuyerHoldingIntoRecoveryAccount() throws Exception {
+    ConnectionProvider connections = SqliteTestDatabase.at(temp.resolve("virtual-e2e.db"));
+    TableNames tables = new TableNames("qs_");
+    new MigrationRunner(connections, SqlDialect.SQLITE, tables).migrate();
+    MarketRules rules = new MarketRules("concept_alpha", "USD", new BigDecimal("10.00"),
+        new BigDecimal("1.00"), new BigDecimal("100.00"), new BigDecimal("0.01"),
+        1, 10000, 2, new BigDecimal("0.001"), new BigDecimal("0.002"));
+    JdbcExchangeRepository repository =
+        new JdbcExchangeRepository(connections, SqlDialect.SQLITE, tables);
+    seedMarket(connections, tables, rules);
+    seedSecurity(connections, tables, rules.marketId());
+    com.ghostchu.quickshop.addon.exchange.security.SecurityService security =
+        new com.ghostchu.quickshop.addon.exchange.security.SecurityService(repository);
+    PersistentOrderService service = new PersistentOrderService(
+        repository, rules, com.ghostchu.quickshop.addon.exchange.core.risk.RiskLimits.defaults(),
+        RecoveryHandler.NO_OP, SettlementObserver.NONE,
+        new com.ghostchu.quickshop.addon.exchange.core.model.TimeOrderedIdGenerator(
+            System::currentTimeMillis, new java.util.Random()), java.time.Instant::now,
+        com.ghostchu.quickshop.addon.exchange.core.risk.AccountOrderLimits.defaults(),
+        null, new SecurityAssetCustody(1));
+    UUID actor = UUID.randomUUID();
+    UUID seller = UUID.randomUUID();
+    UUID buyer = UUID.randomUUID();
+    UUID recovery = UUID.randomUUID();
+    security.issue(actor, UUID.randomUUID(), rules.marketId(), seller, 100, "initial grant");
+    repository.inTransaction(tx -> {
+      tx.creditAvailableCurrency(buyer, rules.currencyId(), new BigDecimal("1000.00"));
+      return null;
+    });
+
+    service.place(new OrderRequest(UUID.randomUUID(), seller,
+        "concept_alpha", OrderSide.SELL, "LIMIT", new BigDecimal("10.00"), null, 10));
+    OrderReceipt filled = service.place(new OrderRequest(UUID.randomUUID(), buyer,
+        "concept_alpha", OrderSide.BUY, "LIMIT", new BigDecimal("10.00"), null, 10));
+    assertThat(filled.trades()).hasSize(1);
+
+    security.close(actor, UUID.randomUUID(), rules.marketId(), recovery, "end of concept");
+    SecurityBalance buyerAfter =
+        repository.inTransaction(tx -> tx.securityBalance(buyer, rules.marketId()));
+    SecurityBalance recoveryAfter =
+        repository.inTransaction(tx -> tx.securityBalance(recovery, rules.marketId()));
+    assertThat(buyerAfter.availableQuantity()).isZero();
+    assertThat(buyerAfter.frozenQuantity()).isZero();
+    assertThat(recoveryAfter.availableQuantity()).isEqualTo(100);
+    SecurityBalance sellerAfter =
+        repository.inTransaction(tx -> tx.securityBalance(seller, rules.marketId()));
+    assertThat(sellerAfter.availableQuantity()).isZero();
+    assertThat(sellerAfter.frozenQuantity()).isZero();
+    com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState definition =
+        repository.inTransaction(tx -> tx.securityDefinition(rules.marketId()));
+    assertThat(definition.status()).isEqualTo("CLOSED");
+  }
+
   private static void seedMarket(ConnectionProvider connections, TableNames tables,
                                  MarketRules rules) throws Exception {
     try (Connection connection = connections.open()) {
