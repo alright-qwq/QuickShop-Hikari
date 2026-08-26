@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `c5846d171`
+- Current HEAD: `0c8f0a277`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -32,8 +32,13 @@ Virtual concept stocks (`asset-type: VIRTUAL_SECURITY`) are fully playable:
   bid for sells) as a reference next to the absolute protection boundary.
 - History: buy/sell direction (green/red), trade total fees.
 - My orders / history: page indicators and empty states.
+- Market trade history: a dedicated paginated page (27 rows/page) with live market
+  header (last price + best bid/ask), buy/sell direction panes, and previous/next
+  navigation preserving the market id.
+- 24h trade summary counts only directional trades, keeping the trade count
+  consistent with the aggressive buy/sell breakdown.
 
-Full exchange test suite: 402 tests, 0 failures.
+Full exchange test suite: 403 tests, 0 failures.
 
 ## Architecture notes
 
