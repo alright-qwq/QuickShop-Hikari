@@ -13,7 +13,7 @@ final class OrderEntryPrompt {
   static final String LIMIT_ERROR =
       "Enter quantity and a positive limit price, for example: 2 100.00";
   static final String MARKET_ERROR =
-      "Enter quantity and a positive absolute protection boundary, for example: 2 105.00";
+      "Enter quantity and a positive protection price (worst acceptable), for example: 2 105.00";
 
   private final ExchangeMenuContextStore contexts;
   private final Supplier<UUID> requestIds;
