@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `5ba9d839c`
+- Current HEAD: `7c22644cc`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -131,6 +131,22 @@ Full exchange test suite: 421 tests, 0 failures.
 
 Full exchange test suite: 430 tests, 0 failures.
 
+## Eleventh continuation (same day)
+
+- Alert acknowledgement: `/qse admin audit ack <alertId>` marks one alert acknowledged
+  (repository `acknowledgeAlert`, admin service + router through the writer fence); audit
+  status now prints each alert's id so operators can ack directly. (`bb64b21bd`)
+- Trade match sequence is now visible in market detail recent trades, the paginated market
+  trade history, and the player history page, so trades can be referenced across views. (`8fa5356a3`)
+- Fixed a real detector bug: `orderActivities` compared non-existent status strings
+  (`PLACED`/`EXPIRED`/`FILLED_CANCELLED_REMAINDER`), which silently dropped cancel events.
+  It now emits a PLACE for every order created in the window and a CANCEL for every order
+  cancelled in the window, with a real-SQL regression test. (`bb391036b`)
+- End-to-end coverage: `tradesForDetection` feeds the reciprocal-trade detector over real
+  SQLite rows; alert acknowledgement ordering is deterministic in the test. (`7c22644cc`)
+
+Full exchange test suite: 435 tests, 0 failures.
+
 ## Ninth continuation (same day)
 
 - Market detail now shows the player's open-order count in the selected market, loaded
@@ -226,7 +242,7 @@ Full exchange test suite: 416 tests, 0 failures.
    "recent trades" ticker on the market list header.
 5. Metrics/abnormal-trading detection remain non-MVP gaps from Phase 4 (metrics snapshots,
    abnormal trading detection, load IT). Metrics/alerts are now wired; remaining gap is alert
-   acknowledgement and any load/integration test.
+   acknowledgement is now implemented; remaining gap is any load/integration test.
 6. Confirm-page quote freshness and race handling (context token vs quote load time) could be
    tightened; the render guard already checks the menu context before drawing.
 

@@ -179,7 +179,13 @@ prints a compact operational health view: per-market matching latency percentile
 length, the most recent suspicious-trading alerts (reciprocal high-frequency trades between the
 same two accounts, or an unusually high cancel/place ratio), and how many transfers are awaiting
 review. Alerts are written to the exchange audit-alert table and never mutate accounts, balances,
-or orders; acknowledgement is a future admin workflow.
+or orders. To mark a reviewed alert as acknowledged:
+
+```text
+/qse admin audit ack <alertId>
+```
+
+The status output includes each alert's id so operators can acknowledge findings directly.
 
 ## Reconciliation and recovery
 
