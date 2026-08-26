@@ -149,6 +149,8 @@ To close a stock, first cancel or let all open orders finish, then:
 - The market detail page also shows your own available and frozen balances for that market:
   currency for physical item markets, security holdings for virtual stocks (and your item
   holding for item markets), so you know what you can afford before placing an order.
+- The market detail page also shows how many open orders you currently have in that
+  market, so you can avoid accidentally stacking orders beyond your limit.
 - Virtual security market rows and detail pages show the float market cap
   (issued supply x last price), so you can compare concept stocks by size.
 - Order-entry buttons on a virtual security market show a reminder that the

@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `674f522fe`
+- Current HEAD: `a38a4ad53`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -109,6 +109,15 @@ Full exchange test suite: 416 tests, 0 failures.
   cancel; a loading line is shown while the async read is in flight. (8fb9cc582)
 - Market detail adds an "executable depth" summary (slot 7): the total bid and ask
   quantity currently executable (inside the price cage) across the whole book. (cfe231c0e)
+
+Full exchange test suite: 421 tests, 0 failures.
+
+## Ninth continuation (same day)
+
+- Market detail now shows the player's open-order count in the selected market, loaded
+  alongside balances and dashboard so players can avoid stacking orders. (a38a4ad53)
+- Market list colors flat (0%) changes yellow, and My Orders shows the last price
+  distance from the order price. (674f522fe)
 
 Full exchange test suite: 421 tests, 0 failures.
 
