@@ -102,7 +102,9 @@ public final class SchemaV1 {
         new IndexDefinition(t.prefix() + "exchange_orders_book_idx", t.orders(),
             "market_id,status,side,limit_price,priority_sequence"),
         new IndexDefinition(t.prefix() + "exchange_trades_time_idx", t.trades(),
-            "market_id,executed_at"));
+            "market_id,executed_at"),
+        new IndexDefinition(t.prefix() + "exchange_audit_alerts_time_idx", t.auditAlerts(),
+            "created_at,acknowledged_at"));
   }
 
   public static List<TriggerDefinition> triggers(SqlDialect dialect, TableNames tables) {
