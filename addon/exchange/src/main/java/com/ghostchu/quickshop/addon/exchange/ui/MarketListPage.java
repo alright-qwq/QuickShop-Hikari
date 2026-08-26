@@ -181,7 +181,8 @@ final class MarketListPage {
         filter == AssetFilter.SECURITY ? "PAPER"
             : filter == AssetFilter.ITEM ? "CHEST" : "HOPPER", 1)
         .customName(messages.component(player, "ui-filter-title", filter.name()))
-        .lore(List.of(messages.component(player, "ui-filter-hint"))))
+        .lore(List.of(messages.component(player, "ui-filter-hint"),
+            messages.component(player, "ui-filter-current", filter.name()))))
         .withActions(new RunnableAction(click -> {
           contexts.get(playerId).ifPresent(opened -> {
             assetFilters.put(playerId, filter.next());
@@ -206,9 +207,10 @@ final class MarketListPage {
     UUID playerId = player.getUniqueId();
     MarketListSnapshot.SortMode mode =
         sortModes.getOrDefault(playerId, MarketListSnapshot.SortMode.NOTIONAL);
-    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("HOPPER", 1)
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("COMPARATOR", 1)
         .customName(messages.component(player, "ui-sort-title", mode.name()))
-        .lore(List.of(messages.component(player, "ui-sort-hint"))))
+        .lore(List.of(messages.component(player, "ui-sort-hint"),
+            messages.component(player, "ui-sort-current", mode.name()))))
         .withActions(new RunnableAction(click -> {
           contexts.get(playerId).ifPresent(opened -> {
             sortModes.put(playerId, mode.next());
