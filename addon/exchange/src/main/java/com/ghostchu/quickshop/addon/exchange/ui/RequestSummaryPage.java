@@ -3,10 +3,12 @@ package com.ghostchu.quickshop.addon.exchange.ui;
 import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.command.RolloutPolicy;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.tnemc.menu.core.PlayerInstancePage;
 import net.tnemc.menu.core.builder.IconBuilder;
@@ -45,17 +47,39 @@ final class RequestSummaryPage {
     UUID playerId = callback.getPlayer().identifier();
     Player player = Bukkit.getPlayer(playerId);
     if (player == null || !player.isOnline()) return;
-    page.getIcons(playerId).clear();
-    page.setLockEmptySlots(true);
     ExchangeMenuRequest request = contexts.get(playerId).orElse(null);
     if (request == null || !expected.menuName().equals(request.menuName())) {
+      page.getIcons(playerId).clear();
+      page.setLockEmptySlots(true);
       IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("BARRIER", 1)
           .customName(messages.component(player, "ui-confirm-not-selected")))
           .withSlot(22);
       page.addIcon(playerId, icon.build());
       return;
     }
-    List<Component> lore = summary(player, request);
+    render(page, player, request, null);
+    if (request.order() != null && request.order().slippageBoundary() != null && views != null) {
+      CompletableFuture.supplyAsync(() -> views.marketQuote(request.marketId()))
+          .whenComplete((quote, failure) -> {
+            if (failure != null || !contexts.isCurrent(playerId, request)) return;
+            Player online = Bukkit.getPlayer(playerId);
+            if (online == null || !online.isOnline()) return;
+            QuickShop.folia().getScheduler().runAtEntityLater(online,
+                () -> {
+                  if (ExchangePageRenderGuard.permits(contexts, playerId, request, online::isOnline)) {
+                    render(page, online, request, quote);
+                  }
+                }, 1L);
+          });
+    }
+  }
+
+  private void render(PlayerInstancePage page, Player player, ExchangeMenuRequest request,
+                      com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote) {
+    UUID playerId = player.getUniqueId();
+    page.getIcons(playerId).clear();
+    page.setLockEmptySlots(true);
+    List<Component> lore = summary(player, request, quote);
     IconBuilder icon = new IconBuilder(QuickShop.getInstance().stack().of("PAPER", 1)
         .customName(messages.component(player, titleKey(request), titleArgument(request)))
         .lore(lore)).withSlot(22);
@@ -82,7 +106,8 @@ final class RequestSummaryPage {
     return "";
   }
 
-  private List<Component> summary(Player player, ExchangeMenuRequest request) {
+  private List<Component> summary(Player player, ExchangeMenuRequest request,
+                                  com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote) {
     List<Component> lines = new ArrayList<>();
     if (request.requestId() != null) {
       lines.add(messages.component(player, "ui-confirm-request", request.requestId()));
@@ -105,6 +130,14 @@ final class RequestSummaryPage {
         lines.add(messages.component(player, "ui-confirm-estimated-notional",
             OrderConfirmation.estimatedNotional(order.slippageBoundary(), order.quantity())
                 .toPlainString()));
+        if (quote != null) {
+          java.math.BigDecimal executable = order.side() == OrderSide.BUY
+              ? quote.bestAsk() : quote.bestBid();
+          if (executable != null) {
+            lines.add(messages.component(player, "ui-confirm-current-quote",
+                executable.toPlainString()));
+          }
+        }
       }
     }
     if (request.transfer() != null) {
