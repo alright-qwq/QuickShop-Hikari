@@ -6,6 +6,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountAssetBalance;
 import com.ghostchu.quickshop.addon.exchange.repository.AccountLedgerEntry;
 import com.ghostchu.quickshop.addon.exchange.service.PersistentOrderService;
@@ -183,7 +184,8 @@ public final class ExchangeViewService {
     }, executor);
   }
 
-  public CompletableFuture<List<Order>> accountOrders(UUID accountId, int limit, int offset) {
+  public CompletableFuture<List<ExchangeTransaction.PersistedOrder>> accountOrders(
+      UUID accountId, int limit, int offset) {
     if (accountId == null || limit < 1 || limit > 36 || offset < 0) {
       throw new IllegalArgumentException("invalid account order page");
     }
@@ -193,9 +195,7 @@ public final class ExchangeViewService {
     }
     return CompletableFuture.supplyAsync(() -> {
       try {
-        return repository.accountOpenOrders(accountId, limit, offset).stream()
-            .map(com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.PersistedOrder::order)
-            .toList();
+        return repository.accountOpenOrders(accountId, limit, offset);
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load account orders", failure);
       }

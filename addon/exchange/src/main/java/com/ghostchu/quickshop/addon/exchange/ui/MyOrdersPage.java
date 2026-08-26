@@ -5,6 +5,7 @@ import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -42,10 +43,11 @@ final class MyOrdersPage {
       if (!contexts.isCurrent(playerId, opened)) return;
       java.util.Map<String, MarketRow> quotes = new java.util.HashMap<>();
       List<CompletableFuture<Void>> loads = new java.util.ArrayList<>();
-      for (Order order : orders) {
-        if (quotes.containsKey(order.marketId())) continue;
-        loads.add(views.marketRow(order.marketId()).handle((row, ignored) -> {
-          if (row != null) quotes.put(order.marketId(), row);
+      for (ExchangeTransaction.PersistedOrder persisted : orders) {
+        String marketId = persisted.order().marketId();
+        if (quotes.containsKey(marketId)) continue;
+        loads.add(views.marketRow(marketId).handle((row, ignored) -> {
+          if (row != null) quotes.put(marketId, row);
           return null;
         }));
       }
@@ -63,7 +65,8 @@ final class MyOrdersPage {
     });
   }
 
-  private void render(PlayerInstancePage page, Player player, List<Order> orders,
+  private void render(PlayerInstancePage page, Player player,
+                      List<ExchangeTransaction.PersistedOrder> orders,
                       java.util.Map<String, MarketRow> quotes, Throwable failure) {
     UUID playerId = player.getUniqueId();
     page.getIcons(playerId).clear();
@@ -75,14 +78,20 @@ final class MyOrdersPage {
     }
     addMarketsNavigation(page, player);
     int slot = 9;
-    for (Order order : orders) {
+    for (ExchangeTransaction.PersistedOrder persisted : orders) {
       if (slot >= 45) break;
+      Order order = persisted.order();
       List<Component> lore = List.of(
           messages.component(player, "ui-order-status", order.status()),
           messages.component(player, "ui-order-remaining", order.remainingQuantity(),
               order.originalQuantity()),
           messages.component(player, "ui-order-price", order.limitPrice() == null
               ? order.slippageBoundary() : order.limitPrice()),
+          messages.component(player, order.side() == OrderSide.BUY
+              ? "ui-order-frozen-currency" : "ui-order-frozen-quantity",
+              order.side() == OrderSide.BUY
+                  ? persisted.reservedCurrency()
+                  : persisted.reservedQuantity()),
           messages.component(player, "ui-order-time",
               messages.relativeTime(order.createdAt())));
       MarketRow quote = quotes.get(order.marketId());

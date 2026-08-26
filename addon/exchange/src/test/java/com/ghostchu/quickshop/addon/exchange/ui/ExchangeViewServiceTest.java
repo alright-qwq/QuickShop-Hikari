@@ -49,12 +49,13 @@ class ExchangeViewServiceTest {
     ExchangeViewService views = new ExchangeViewService(
         java.util.Map.of(), new MarketDataService(new CandleAggregator()), Runnable::run, repository);
 
-    List<Order> orders = views.accountOrders(accountId, 36, 72).join();
+    List<PersistedOrder> orders = views.accountOrders(accountId, 36, 72).join();
 
     assertThat(repository.accountId).isEqualTo(accountId);
     assertThat(repository.limit).isEqualTo(36);
     assertThat(repository.offset).isEqualTo(72);
-    assertThat(orders).extracting(Order::orderId).containsExactly(repository.order.orderId());
+    assertThat(orders).extracting(persisted -> persisted.order().orderId())
+        .containsExactly(repository.order.orderId());
     assertThat(repository.calls).hasValue(1);
   }
 

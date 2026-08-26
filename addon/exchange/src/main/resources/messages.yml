@@ -124,6 +124,8 @@ en-US:
   ui-order-status: 'Status: <0>'
   ui-order-remaining: 'Remaining: <0>/<1>'
   ui-order-price: 'Price / protection: <0>'
+  ui-order-frozen-currency: 'Frozen funds: <0>'
+  ui-order-frozen-quantity: 'Frozen quantity: <0>'
   ui-order-current-price: 'Last: <0>'
   ui-order-time: 'Placed: <0>'
   ui-market-not-selected: No market is selected.
@@ -302,6 +304,8 @@ zh-CN:
   ui-order-status: '状态：<0>'
   ui-order-remaining: '剩余：<0>/<1>'
   ui-order-price: '价格 / 保护边界：<0>'
+  ui-order-frozen-currency: '冻结资金：<0>'
+  ui-order-frozen-quantity: '冻结数量：<0>'
   ui-order-current-price: '最新价：<0>'
   ui-order-time: '下单时间：<0>'
   ui-market-not-selected: '尚未选择市场。'
