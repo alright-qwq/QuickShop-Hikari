@@ -109,6 +109,8 @@ To close a stock, first cancel or let all open orders finish, then:
 
 ## Player experience
 
+- `/qse help` prints a command overview covering market list/detail, order placement,
+  cancellation, my orders, assets, history, concept-stock lookup, and deposit/withdrawal.
 - `/qse stocks` opens the market list (all virtual and physical markets). The list is
   paginated (36 markets per page) with previous/next controls when there are more markets.
 - `/qse stock <symbol>` or clicking the market in the list opens the market detail page.

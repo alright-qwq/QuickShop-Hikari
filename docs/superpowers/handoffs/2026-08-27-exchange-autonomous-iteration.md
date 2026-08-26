@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `566e2a86b`
+- Current HEAD: `24e0c7d5e`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -146,6 +146,13 @@ Full exchange test suite: 430 tests, 0 failures.
   SQLite rows; alert acknowledgement ordering is deterministic in the test. (`7c22644cc`)
 
 Full exchange test suite: 435 tests, 0 failures.
+
+## Thirteenth continuation (same day)
+
+- `/qse help` prints a bilingual command overview for players; tab completion includes
+  `help`. (`24e0c7d5e`)
+
+Full exchange test suite: 436 tests, 0 failures.
 
 ## Twelfth continuation (same day)
 
