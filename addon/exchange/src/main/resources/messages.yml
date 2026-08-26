@@ -20,6 +20,7 @@ en-US:
   ui-history-trade-buy: 'Buy'
   ui-history-trade-sell: 'Sell'
   ui-history-trade-quantity: 'Quantity: <0>'
+  ui-history-trade-notional: 'Value: <0>'
   ui-history-maker-fee: 'Maker fee: <0>'
   ui-history-taker-fee: 'Taker fee: <0>'
   ui-history-trade-total-fee: 'Trade fees: <0>'
@@ -196,6 +197,7 @@ zh-CN:
   ui-history-trade-buy: 买入
   ui-history-trade-sell: 卖出
   ui-history-trade-quantity: '数量：<0>'
+  ui-history-trade-notional: '金额：<0>'
   ui-history-maker-fee: 'Maker 手续费：<0>'
   ui-history-taker-fee: 'Taker 手续费：<0>'
   ui-history-trade-total-fee: '该笔交易手续费：<0>'

@@ -77,6 +77,9 @@ final class HistoryPage {
       java.math.BigDecimal totalFee = trade.makerFee().add(trade.takerFee());
       List<Component> lore = List.of(
           text(player, "ui-history-trade-quantity", trade.quantity()),
+          text(player, "ui-history-trade-notional",
+              trade.price().multiply(java.math.BigDecimal.valueOf(trade.quantity()))
+                  .stripTrailingZeros().toPlainString()),
           text(player, "ui-history-maker-fee", trade.makerFee().toPlainString()),
           text(player, "ui-history-taker-fee", trade.takerFee().toPlainString()),
           text(player, "ui-history-trade-total-fee", totalFee.toPlainString()),
