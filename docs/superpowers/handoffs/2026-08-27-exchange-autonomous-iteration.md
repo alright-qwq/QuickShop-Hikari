@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `5a077dbf1`
+- Current HEAD: `ca3d75125`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -324,6 +324,14 @@ Full exchange test suite: 441 tests, 0 failures.
   admins can now open the menu; a plain player still gets permission-denied. (`5a077dbf1`)
 
 Full exchange test suite: 443 tests, 0 failures.
+
+## Twenty-third continuation (same day)
+
+- `/qse admin stock` now tab-completes its actions (`create|issue|transfer|pause|resume|close`)
+  and then completes registered concept-stock symbols for the market argument of every
+  action except `create`, so operators no longer need to remember raw market ids. (`ca3d75125`)
+
+Full exchange test suite: 444 tests, 0 failures.
 
 ## Next iteration candidates (user-granted autonomy)
 
