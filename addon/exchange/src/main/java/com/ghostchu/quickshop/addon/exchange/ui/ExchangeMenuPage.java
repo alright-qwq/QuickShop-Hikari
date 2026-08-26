@@ -12,7 +12,8 @@ public enum ExchangeMenuPage {
   ORDERS("orders", 6),
   ASSETS("assets", 7),
   HISTORY("history", 8),
-  ADMIN("admin", 9);
+  ADMIN("admin", 9),
+  MARKET_TRADES("market-trades", 10);
 
   private final String menuName;
   private final int page;

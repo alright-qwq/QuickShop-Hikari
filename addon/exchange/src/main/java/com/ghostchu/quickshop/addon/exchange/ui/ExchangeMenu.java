@@ -33,6 +33,8 @@ public final class ExchangeMenu extends Menu {
     addPage(page(ExchangeMenuPage.ASSETS, new AssetsPage(views, contexts, messages)::open));
     addPage(page(ExchangeMenuPage.HISTORY, new HistoryPage(views, contexts, messages)::open));
     addPage(page(ExchangeMenuPage.ADMIN, new AdminPage(messages)::open));
+    addPage(page(ExchangeMenuPage.MARKET_TRADES,
+        new MarketTradesPage(views, contexts, messages)::open));
   }
 
   private static PlayerInstancePage page(ExchangeMenuPage target,

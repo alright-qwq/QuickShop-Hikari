@@ -37,6 +37,15 @@ public record ExchangeMenuRequest(
     return new ExchangeMenuRequest("market-detail", 1, null, null, marketId, null, null, null);
   }
 
+  /** Opens a paginated market trade-history page. */
+  public static ExchangeMenuRequest marketTrades(String marketId, int page) {
+    if (marketId == null || marketId.isBlank()) {
+      throw new IllegalArgumentException("marketId is required");
+    }
+    return new ExchangeMenuRequest("market-trades", Math.max(1, page), null, null,
+        marketId, null, null, null);
+  }
+
   public static ExchangeMenuRequest order(OrderDraft order) {
     Objects.requireNonNull(order, "order");
     return new ExchangeMenuRequest("order-confirm", 1, order.requestId(), order.accountId(),

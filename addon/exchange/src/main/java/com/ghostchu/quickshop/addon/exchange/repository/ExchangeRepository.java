@@ -71,6 +71,15 @@ public interface ExchangeRepository {
     throw new UnsupportedOperationException("market trade reads are not supported by this repository");
   }
 
+  /** Reads a bounded page of recent market trades, newest first. */
+  default List<MarketTradeRow> marketTradesPage(String marketId, int limit, int offset)
+      throws SQLException {
+    if (offset == 0) {
+      return marketTrades(marketId, limit);
+    }
+    throw new UnsupportedOperationException("market trade paging is not supported by this repository");
+  }
+
   /** 24h market trade summary used by the market detail page. */
   default MarketTradeSummary marketTradeSummary(String marketId, Instant sinceInclusive)
       throws SQLException {

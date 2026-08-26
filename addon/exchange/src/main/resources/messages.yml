@@ -55,6 +55,9 @@ en-US:
   ui-market-recent-empty: No recent trades.
   ui-market-recent-active-buy: Active buy
   ui-market-recent-active-sell: Active sell
+  ui-market-recent-more: View full trade history
+  ui-market-trades-page-title: '<0> trade history'
+  ui-market-back-detail: Back to market
   ui-nav-markets: Markets
   ui-nav-assets: Assets
   ui-nav-orders: My orders
@@ -223,6 +226,9 @@ zh-CN:
   ui-market-recent-empty: 暂无最近成交。
   ui-market-recent-active-buy: 主动买入
   ui-market-recent-active-sell: 主动卖出
+  ui-market-recent-more: 查看完整成交历史
+  ui-market-trades-page-title: '<0> 成交历史'
+  ui-market-back-detail: 返回市场
   ui-nav-markets: 市场列表
   ui-nav-assets: 我的资产
   ui-nav-orders: 我的订单

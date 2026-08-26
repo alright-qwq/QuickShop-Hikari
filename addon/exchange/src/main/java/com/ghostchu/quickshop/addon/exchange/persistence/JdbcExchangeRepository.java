@@ -285,15 +285,23 @@ public final class JdbcExchangeRepository
 
   @Override
   public List<MarketTradeRow> marketTrades(String marketId, int limit) throws SQLException {
+    return marketTradesPage(marketId, limit, 0);
+  }
+
+  @Override
+  public List<MarketTradeRow> marketTradesPage(String marketId, int limit, int offset)
+      throws SQLException {
     Objects.requireNonNull(marketId, "marketId");
-    if (limit < 1 || limit > 100) throw new IllegalArgumentException("invalid market trade page");
+    if (limit < 1 || limit > 100 || offset < 0)
+      throw new IllegalArgumentException("invalid market trade page");
     try (Connection connection = connections.open(); PreparedStatement select = connection.prepareStatement(
         "SELECT t.price,t.quantity,t.executed_at,o.side AS taker_side FROM " + tables.trades()
             + " t LEFT JOIN " + tables.orders()
             + " o ON o.order_id=t.taker_order_id WHERE t.market_id=?"
-            + " ORDER BY t.executed_at DESC,t.match_sequence DESC LIMIT ?")) {
+            + " ORDER BY t.executed_at DESC,t.match_sequence DESC LIMIT ? OFFSET ?")) {
       select.setString(1, marketId);
       select.setInt(2, limit);
+      select.setInt(3, offset);
       try (ResultSet result = select.executeQuery()) {
         List<MarketTradeRow> trades = new ArrayList<>();
         while (result.next()) {

@@ -383,6 +383,15 @@ class JdbcBalanceRepositoryTest {
     assertThat(rows.get(1).takerSide()).isEqualTo(OrderSide.SELL);
     assertThat(rows.get(1).quantity()).isEqualTo(4);
 
+    List<ExchangeRepository.MarketTradeRow> firstPage =
+        repository.marketTradesPage("DIAMOND", 1, 0);
+    List<ExchangeRepository.MarketTradeRow> secondPage =
+        repository.marketTradesPage("DIAMOND", 1, 1);
+    assertThat(firstPage).singleElement().extracting(
+        ExchangeRepository.MarketTradeRow::quantity).isEqualTo(6L);
+    assertThat(secondPage).singleElement().extracting(
+        ExchangeRepository.MarketTradeRow::quantity).isEqualTo(4L);
+
     ExchangeRepository.MarketTradeSummary summary =
         repository.marketTradeSummary("DIAMOND", now.minus(Duration.ofHours(24)));
     assertThat(summary.tradeCount()).isEqualTo(2);

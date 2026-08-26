@@ -283,6 +283,8 @@ final class MarketDetailPage {
                   trade.price().toPlainString()))
               .lore(lore)).withSlot(slot).build());
     }
+    addNavigation(page, player, 53, "ARROW", "ui-market-recent-more",
+        ExchangeMenuPage.MARKET_TRADES);
   }
 
   private void addNavigation(PlayerInstancePage page, Player player, int slot, String material,
@@ -291,8 +293,19 @@ final class MarketDetailPage {
     page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of(material, 1)
         .customName(messages.component(player, title)))
         .withActions(new RunnableAction(click -> {
-          contexts.put(playerId, ExchangeMenuRequest.page(target.menuName()));
-          MenuManager.instance().open(ExchangeMenu.NAME, target.page(), click.player());
+          if (target == ExchangeMenuPage.MARKET_TRADES) {
+            contexts.get(playerId).map(ExchangeMenuRequest::marketId)
+                .ifPresent(marketId -> {
+                  ExchangeMenuRequest request =
+                      ExchangeMenuRequest.marketTrades(marketId, 1);
+                  contexts.put(playerId, request);
+                  MenuManager.instance().open(ExchangeMenu.NAME, target.page(),
+                      click.player());
+                });
+          } else {
+            contexts.put(playerId, ExchangeMenuRequest.page(target.menuName()));
+            MenuManager.instance().open(ExchangeMenu.NAME, target.page(), click.player());
+          }
         })).withSlot(slot).build());
   }
 

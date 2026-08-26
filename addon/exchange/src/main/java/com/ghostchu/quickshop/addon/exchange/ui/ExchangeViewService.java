@@ -202,6 +202,25 @@ public final class ExchangeViewService {
     }, executor);
   }
 
+  /** Loads a bounded page of a market's recent trades on the background executor. */
+  public CompletableFuture<List<ExchangeRepository.MarketTradeRow>> marketTradePage(
+      String marketId, int limit, int offset) {
+    if (marketId == null || marketId.isBlank() || limit < 1 || limit > 36 || offset < 0) {
+      throw new IllegalArgumentException("invalid market trade page");
+    }
+    if (repository == null) {
+      return CompletableFuture.failedFuture(
+          new IllegalStateException("market trade views are not configured"));
+    }
+    return CompletableFuture.supplyAsync(() -> {
+      try {
+        return repository.marketTradesPage(marketId, limit, offset);
+      } catch (SQLException failure) {
+        throw new IllegalStateException("failed to load market trades: " + marketId, failure);
+      }
+    }, executor);
+  }
+
   public CompletableFuture<List<AccountAssetBalance>> accountAssets(UUID accountId) {
     Objects.requireNonNull(accountId, "accountId");
     if (repository == null) {
