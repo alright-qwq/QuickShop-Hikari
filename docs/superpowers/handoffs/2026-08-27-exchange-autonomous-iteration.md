@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `f591a58a6`
+- Current HEAD: `ce67ccc00`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -95,7 +95,18 @@ Full exchange test suite: 407 tests, 0 failures.
   NPE; overview sort comparators are null-safe for change/notional. (f591a58a6)
 - Player guide `docs/virtual-concept-stocks.md` synced with all of the above.
 
-Full exchange test suite: 415 tests, 0 failures.
+Full exchange test suite: 416 tests, 0 failures.
+
+## Second continuation (same day)
+
+- Order confirm shows the applicable maker/taker fee rate, an estimated fee, and
+  (for sells) the estimated net proceeds, using the market's fee schedule.
+  Added `ExchangeViewService.market(id)` accessor with test coverage. (4f162cf3c)
+- Fixed a real market-detail layout bug: the timeframe control (slot 16) and 24h
+  trade summary (slot 15) overlapped the ask depth levels (slots 14-18), hiding
+  depth rows. Moved to slots 5/6; verified no other page has slot collisions. (ce67ccc00)
+
+Full exchange test suite: 416 tests, 0 failures.
 
 ## Architecture notes
 
