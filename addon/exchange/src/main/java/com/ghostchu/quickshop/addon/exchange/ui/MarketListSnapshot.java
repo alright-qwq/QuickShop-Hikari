@@ -27,7 +27,8 @@ public record MarketListSnapshot(List<MarketRow> markets, MarketOverviewSnapshot
     Objects.requireNonNull(rows, "rows");
     Objects.requireNonNull(mode, "mode");
     Comparator<MarketRow> comparator = switch (mode) {
-      case NOTIONAL -> Comparator.comparing(MarketRow::volume24h).reversed();
+      case NOTIONAL -> Comparator.comparing((MarketRow row) ->
+          row.notional24h() == null ? java.math.BigDecimal.ZERO : row.notional24h()).reversed();
       case CHANGE -> Comparator.comparing(MarketRow::change24h).reversed();
       case LAST -> Comparator.comparing(MarketRow::lastPrice).reversed();
     };
