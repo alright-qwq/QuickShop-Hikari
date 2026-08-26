@@ -7,6 +7,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
 import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
+import com.ghostchu.quickshop.addon.exchange.repository.AccountAssetBalance;
 import com.ghostchu.quickshop.menu.shared.GuiChatInputManager;
 import java.util.List;
 import java.math.BigDecimal;
@@ -71,21 +72,26 @@ final class MarketDetailPage {
   private void refresh(PlayerInstancePage page, Player player, ExchangeMenuRequest request) {
     UUID playerId = player.getUniqueId();
     Duration window = timeframes.getOrDefault(playerId, TIMEFRAMES.getFirst());
-    views.marketDashboard(request.marketId(), window).whenComplete((dashboard, failure) -> {
-      if (!ExchangePageRenderGuard.permits(contexts, playerId, request, player::isOnline)) return;
-      QuickShop.folia().getScheduler().runAtEntityLater(player,
-          () -> {
-            if (ExchangePageRenderGuard.permits(contexts, playerId, request, player::isOnline)) {
-              render(page, player, dashboard, failure);
-            }
-          }, 1L);
-    });
+    views.marketDashboard(request.marketId(), window)
+        .thenCombine(views.accountAssets(playerId), PageData::new)
+        .whenComplete((data, failure) -> {
+          if (!ExchangePageRenderGuard.permits(contexts, playerId, request, player::isOnline)) return;
+          QuickShop.folia().getScheduler().runAtEntityLater(player,
+              () -> {
+                if (ExchangePageRenderGuard.permits(contexts, playerId, request, player::isOnline)) {
+                  render(page, player, data == null ? null : data.dashboard(),
+                      data == null ? List.of() : data.assets(), failure);
+                }
+              }, 1L);
+        });
   }
 
+  private record PageData(MarketDashboardSnapshot dashboard, List<AccountAssetBalance> assets) {}
+
   private void render(PlayerInstancePage page, Player player, MarketDashboardSnapshot dashboard,
-                      Throwable failure) {
+                      List<AccountAssetBalance> assets, Throwable failure) {
     UUID playerId = player.getUniqueId();
-    if (failure != null) {
+    if (failure != null || dashboard == null) {
       renderFailure(page, player, playerId, "ui-data-unavailable");
       return;
     }
@@ -140,6 +146,7 @@ final class MarketDetailPage {
     if (row.securityStatus() != null) {
       lore.add(messages.component(player, "ui-market-security-status", row.securityStatus()));
     }
+    addPlayerBalances(lore, player, row, assets);
     page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("BOOK", 1)
         .customName(Component.text(row.displayName())).lore(lore)).withSlot(4).build());
     addNavigation(page, player, 0, "COMPASS", "ui-nav-markets", ExchangeMenuPage.MARKETS);
@@ -179,6 +186,46 @@ final class MarketDetailPage {
           timeframes.put(playerId, TIMEFRAMES.get(next));
           refresh(page, player, request);
         })).withSlot(5).build());
+  }
+
+  private void addPlayerBalances(List<Component> lore, Player player, MarketRow row,
+                                 List<AccountAssetBalance> assets) {
+    if (assets == null || assets.isEmpty()) {
+      return;
+    }
+    String marketId = row.marketId();
+    if ("VIRTUAL_SECURITY".equals(row.assetType())) {
+      AccountAssetBalance security = assets.stream()
+          .filter(balance -> balance.kind() == AccountAssetBalance.Kind.SECURITY
+              && marketId.equals(balance.assetId()))
+          .findFirst().orElse(null);
+      if (security != null) {
+        lore.add(messages.component(player, "ui-market-my-security",
+            security.available().toPlainString(), security.frozen().toPlainString()));
+      }
+      return;
+    }
+    ExchangeViewService.MarketView market = views.market(marketId);
+    if (market == null) {
+      return;
+    }
+    String currencyId = market.service().marketRules().currencyId();
+    AccountAssetBalance currency = assets.stream()
+        .filter(balance -> balance.kind() == AccountAssetBalance.Kind.CURRENCY
+            && currencyId.equals(balance.assetId()))
+        .findFirst().orElse(null);
+    if (currency != null) {
+      lore.add(messages.component(player, "ui-market-my-currency",
+          currency.available().toPlainString(), currency.frozen().toPlainString()));
+    }
+    AccountAssetBalance holding = assets.stream()
+        .filter(balance -> balance.kind() == AccountAssetBalance.Kind.ITEM
+            && marketId.equals(balance.assetId()))
+        .findFirst().orElse(null);
+    if (holding != null) {
+      lore.add(messages.component(player, "ui-market-my-items",
+          holding.available().toPlainString(), holding.frozen().toPlainString()));
+    }
   }
 
   private void renderDepth(PlayerInstancePage page, Player player,
