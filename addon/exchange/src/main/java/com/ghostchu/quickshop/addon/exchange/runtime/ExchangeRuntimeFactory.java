@@ -183,7 +183,7 @@ public final class ExchangeRuntimeFactory {
         addon.getConfig().getString("operations.audit-export-directory", "audit"));
     AdminExchangeService administration = new AdminExchangeService(
         markets, repository, new com.ghostchu.quickshop.addon.exchange.operations.AuditExporter(),
-        auditDirectory, new SecurityService(repository));
+        auditDirectory, new SecurityService(repository), inventory);
     Runnable resumeHalted = () -> resumeExpiredHalts(repository, registry.marketIds(), database.writer());
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(() -> flushWhileOwned(

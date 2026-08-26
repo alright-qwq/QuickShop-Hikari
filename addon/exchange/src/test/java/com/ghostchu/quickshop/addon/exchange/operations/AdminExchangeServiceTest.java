@@ -317,6 +317,62 @@ class AdminExchangeServiceTest {
   }
 
   @Test
+  void rejectsReviewedItemWithdrawalFailureWhileMarkedItemsMayStillBeDelivered() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID account = fixture.accountWithItems(3);
+    TransferRecord reviewed = reviewedWithdrawal(fixture, account, TransferType.ITEM_WITHDRAWAL,
+        fixture.rules().marketId(), "2");
+    AdminExchangeService admin = new AdminExchangeService(
+        Map.of(fixture.rules().marketId(), fixture.service()), fixture.repository(),
+        null, null, null, new com.ghostchu.quickshop.addon.exchange.transfer.InventoryGateway() {
+          @Override
+          public java.util.concurrent.CompletableFuture<com.ghostchu.quickshop.addon.exchange.transfer.InventoryResult> markForDeposit(
+              UUID playerId, org.bukkit.inventory.ItemStack template, long quantity, UUID transferId) {
+            return java.util.concurrent.CompletableFuture.completedFuture(
+                com.ghostchu.quickshop.addon.exchange.transfer.InventoryResult.UNKNOWN);
+          }
+
+          @Override
+          public java.util.concurrent.CompletableFuture<com.ghostchu.quickshop.addon.exchange.transfer.InventoryResult> removeMarked(
+              UUID playerId, UUID transferId, long quantity) {
+            return java.util.concurrent.CompletableFuture.completedFuture(
+                com.ghostchu.quickshop.addon.exchange.transfer.InventoryResult.UNKNOWN);
+          }
+
+          @Override
+          public java.util.concurrent.CompletableFuture<com.ghostchu.quickshop.addon.exchange.transfer.InventoryResult> deliverMarked(
+              UUID playerId, org.bukkit.inventory.ItemStack template, long quantity, UUID transferId) {
+            return java.util.concurrent.CompletableFuture.completedFuture(
+                com.ghostchu.quickshop.addon.exchange.transfer.InventoryResult.UNKNOWN);
+          }
+
+          @Override
+          public java.util.concurrent.CompletableFuture<Long> markedQuantity(UUID playerId, UUID transferId) {
+            return java.util.concurrent.CompletableFuture.completedFuture(2L);
+          }
+
+          @Override
+          public java.util.concurrent.CompletableFuture<com.ghostchu.quickshop.addon.exchange.transfer.InventoryResult> clearMarker(
+              UUID playerId, UUID transferId) {
+            return java.util.concurrent.CompletableFuture.completedFuture(
+                com.ghostchu.quickshop.addon.exchange.transfer.InventoryResult.SUCCESS);
+          }
+        });
+
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> admin.resolveReview(
+        UUID.randomUUID(), UUID.randomUUID(), reviewed.transferId(),
+        ReviewDecision.CONFIRM_EXTERNAL_FAILURE,
+        "inventory snapshot is unreliable, marked delivery may have occurred"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("marker-free evidence");
+
+    assertThat(fixture.repository().find(reviewed.transferId()).orElseThrow().status())
+        .isEqualTo(TransferStatus.REVIEW_REQUIRED);
+    assertThat(fixture.availableItems(account)).isEqualTo(1);
+    assertThat(fixture.frozenItems(account)).isEqualTo(2);
+  }
+
+  @Test
   void rejectsUnsafeSuccessForReviewedItemDepositThatNeverReachedProcessing() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     TransferRecord prepared = fixture.repository().create(TransferRecord.prepared(

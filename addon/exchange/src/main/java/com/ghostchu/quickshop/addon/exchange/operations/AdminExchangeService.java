@@ -8,6 +8,7 @@ import com.ghostchu.quickshop.addon.exchange.repository.ExchangeTransaction.Mark
 import com.ghostchu.quickshop.addon.exchange.repository.StoredRequestResult;
 import com.ghostchu.quickshop.addon.exchange.security.SecurityMutationResult;
 import com.ghostchu.quickshop.addon.exchange.security.SecurityService;
+import com.ghostchu.quickshop.addon.exchange.transfer.InventoryGateway;
 import com.ghostchu.quickshop.addon.exchange.service.OrderReceipt;
 import com.ghostchu.quickshop.addon.exchange.service.PersistentOrderService;
 import com.ghostchu.quickshop.addon.exchange.transfer.TransferJournals;
@@ -38,30 +39,39 @@ public final class AdminExchangeService {
   private final AuditExporter auditExporter;
   private final Path auditDirectory;
   private final SecurityService securities;
+  private final InventoryGateway inventory;
 
   public AdminExchangeService(Map<String, PersistentOrderService> markets) {
-    this(markets, null, null, null, null);
+    this(markets, null, null, null, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository) {
-    this(markets, repository, null, null, null);
+    this(markets, repository, null, null, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository,
       AuditExporter auditExporter, Path auditDirectory) {
-    this(markets, repository, auditExporter, auditDirectory, null);
+    this(markets, repository, auditExporter, auditDirectory, null, null);
   }
 
   public AdminExchangeService(
       Map<String, PersistentOrderService> markets, ExchangeRepository repository,
       AuditExporter auditExporter, Path auditDirectory, SecurityService securities) {
+    this(markets, repository, auditExporter, auditDirectory, securities, null);
+  }
+
+  public AdminExchangeService(
+      Map<String, PersistentOrderService> markets, ExchangeRepository repository,
+      AuditExporter auditExporter, Path auditDirectory, SecurityService securities,
+      InventoryGateway inventory) {
     this.markets = Map.copyOf(Objects.requireNonNull(markets, "markets"));
     this.repository = repository;
     this.auditExporter = auditExporter;
     this.auditDirectory = auditDirectory;
     this.securities = securities;
+    this.inventory = inventory;
   }
 
   public OrderReceipt forceCancel(UUID actorId, UUID requestId, String marketId, UUID orderId,
@@ -342,7 +352,19 @@ public final class AdminExchangeService {
     }
   }
 
-  private static void requireReviewDecision(TransferRecord transfer, ReviewDecision decision) {
+  private long markedItemQuantity(TransferRecord transfer) {
+    if (inventory == null) {
+      return 0;
+    }
+    try {
+      return inventory.markedQuantity(transfer.accountId(), transfer.transferId()).join();
+    } catch (RuntimeException failure) {
+      throw new IllegalStateException(
+          "unable to verify item withdrawal markers: " + failure.getMessage(), failure);
+    }
+  }
+
+  private void requireReviewDecision(TransferRecord transfer, ReviewDecision decision) {
     if (transfer.status() != TransferStatus.REVIEW_REQUIRED) {
       throw new IllegalStateException("transfer is not awaiting review: " + transfer.status());
     }
@@ -361,6 +383,15 @@ public final class AdminExchangeService {
         && decision == ReviewDecision.CONFIRM_EXTERNAL_SUCCESS) {
       throw new IllegalStateException(
           "item withdrawal success requires marker cleanup before terminal resolution");
+    }
+    if (transfer.type() == TransferType.ITEM_WITHDRAWAL
+        && decision == ReviewDecision.CONFIRM_EXTERNAL_FAILURE) {
+      long marked = markedItemQuantity(transfer);
+      if (marked > 0) {
+        throw new IllegalStateException(
+            "item withdrawal failure requires marker-free evidence; marked quantity="
+                + marked + " may still be delivered");
+      }
     }
   }
 
