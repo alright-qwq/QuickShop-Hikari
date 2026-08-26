@@ -169,6 +169,7 @@ final class RequestSummaryPage {
       var order = request.order();
       lines.add(messages.component(player, "ui-confirm-side", order.side()));
       lines.add(messages.component(player, "ui-confirm-quantity", order.quantity()));
+      addQuantityLimitLine(lines, player, order);
       if (order.price() != null) {
         lines.add(messages.component(player, "ui-confirm-price", order.price().toPlainString()));
         lines.add(messages.component(player, "ui-confirm-estimated-notional",
@@ -241,6 +242,20 @@ final class RequestSummaryPage {
       }
     }
     return List.copyOf(lines);
+  }
+
+  private void addQuantityLimitLine(List<Component> lines, Player player,
+                                    ExchangeMenuRequest.OrderDraft order) {
+    if (views == null) {
+      return;
+    }
+    ExchangeViewService.MarketView market = views.market(order.marketId());
+    if (market == null) {
+      return;
+    }
+    var rules = market.service().marketRules();
+    lines.add(messages.component(player, "ui-confirm-quantity-limit",
+        rules.minQuantity(), rules.maxQuantity()));
   }
 
   private void addFeeLines(List<Component> lines, Player player, ExchangeMenuRequest.OrderDraft order,
