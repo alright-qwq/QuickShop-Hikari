@@ -355,11 +355,14 @@ final class MarketDetailPage {
   private void addOrderIcon(PlayerInstancePage page, Player player, MarketRow row,
                             OrderSide side, OrderType type, String material, int slot,
                             String title, ActionType actionType) {
-    List<Component> lore = type == OrderType.LIMIT
+    java.util.ArrayList<Component> lore = new java.util.ArrayList<>(type == OrderType.LIMIT
         ? List.of(messages.component(player, "ui-order-limit-format"),
             messages.component(player, "ui-order-limit-example"))
         : List.of(messages.component(player, "ui-order-market-format"),
-            messages.component(player, "ui-order-market-fixed-boundary"));
+            messages.component(player, "ui-order-market-fixed-boundary")));
+    if ("VIRTUAL_SECURITY".equals(row.assetType())) {
+      lore.add(messages.component(player, "ui-order-virtual-hint"));
+    }
     page.addIcon(player.getUniqueId(), new IconBuilder(QuickShop.getInstance().stack().of(material, 1)
         .customName(messages.component(player, title)).lore(lore))
         .withActions(new RunnableAction(click -> requestOrder(player, row, side, type), actionType))

@@ -141,6 +141,7 @@ en-US:
   ui-order-market-sell: Market sell
   ui-order-limit-format: 'Chat format: quantity price'
   ui-order-limit-example: 'Example: 2 100.00'
+  ui-order-virtual-hint: 'Virtual security: settles as ledger balance, not an item'
   ui-order-market-format: 'Chat format: quantity protection price (worst acceptable)'
   ui-order-market-fixed-boundary: 'Buy: max you pay. Sell: min you receive. Fixed after confirmation.'
   ui-order-limit-prompt: 'Enter quantity and limit price in chat, for example: 2 100.00'
@@ -328,6 +329,7 @@ zh-CN:
   ui-order-market-sell: '市价卖出'
   ui-order-limit-format: '聊天格式：数量 价格'
   ui-order-limit-example: '示例：2 100.00'
+  ui-order-virtual-hint: '虚拟证券：成交后为账本余额，不产生物品'
   ui-order-market-format: '聊天格式：数量 保护价（最差可接受价）'
   ui-order-market-fixed-boundary: '买入：最高支付价；卖出：最低接收价。确认后固定不变。'
   ui-order-limit-prompt: '请在聊天栏输入数量和限价，例如：2 100.00'

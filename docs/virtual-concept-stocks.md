@@ -129,6 +129,8 @@ To close a stock, first cancel or let all open orders finish, then:
   freeze on submit (before fees).
 - Virtual security market rows and detail pages show the float market cap
   (issued supply x last price), so you can compare concept stocks by size.
+- Order-entry buttons on a virtual security market show a reminder that the
+  security settles as a ledger balance, not as a Minecraft item.
 - The account history page shows "My fee" — the exact maker or taker fee charged to you for each
   trade — in addition to the combined both-party trade fees.
 - Market list/detail rows display `Asset: VIRTUAL_SECURITY`, `Symbol`, `Total supply`, and
