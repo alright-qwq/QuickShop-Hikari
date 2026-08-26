@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `7c22644cc`
+- Current HEAD: `566e2a86b`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -144,6 +144,18 @@ Full exchange test suite: 430 tests, 0 failures.
   cancelled in the window, with a real-SQL regression test. (`bb391036b`)
 - End-to-end coverage: `tradesForDetection` feeds the reciprocal-trade detector over real
   SQLite rows; alert acknowledgement ordering is deterministic in the test. (`7c22644cc`)
+
+Full exchange test suite: 435 tests, 0 failures.
+
+## Twelfth continuation (same day)
+
+- Market detail now shows the player's open-order count against the per-market limit
+  (`N / limit`) instead of hiding it at zero; `PersistentOrderService` exposes
+  `accountOrderLimits()`. (`56712f24c`)
+- Market detail now estimates affordable buy quantity at the last price (available currency
+  divided by worst-case price including max fee, rounded down to min quantity) and sellable
+  quantity (available holding), so players can size orders without leaving the page.
+  (`566e2a86b`)
 
 Full exchange test suite: 435 tests, 0 failures.
 
