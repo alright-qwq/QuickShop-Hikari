@@ -319,8 +319,31 @@ final class RequestSummaryPage {
         } else {
           onlinePlayer.sendMessage(messages.component(onlinePlayer, "ui-confirm-submit-result",
               result.outcome(), result.reference()));
+          navigateAfterSubmit(onlinePlayer, request, result);
         }
       }, 1L);
     });
+  }
+
+  private void navigateAfterSubmit(Player player, ExchangeMenuRequest request,
+                                   ExchangeRequestSubmitter.SubmissionResult result) {
+    if (result.outcome() != ExchangeRequestSubmitter.Outcome.ACCEPTED
+        && result.outcome() != ExchangeRequestSubmitter.Outcome.REVIEW_REQUIRED) {
+      return;
+    }
+    UUID playerId = player.getUniqueId();
+    if (request.order() != null && request.marketId() != null) {
+      contexts.put(playerId, ExchangeMenuRequest.market(request.marketId()));
+      MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKET_DETAIL.page(),
+          QuickShop.getInstance().createMenuPlayer(player));
+    } else if (request.orderId() != null) {
+      contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.ORDERS.menuName()));
+      MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.ORDERS.page(),
+          QuickShop.getInstance().createMenuPlayer(player));
+    } else if (request.transfer() != null) {
+      contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.ASSETS.menuName()));
+      MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.ASSETS.page(),
+          QuickShop.getInstance().createMenuPlayer(player));
+    }
   }
 }
