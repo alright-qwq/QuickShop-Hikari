@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `0bbefd278`
+- Current HEAD: `c8102580f`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -109,6 +109,14 @@ Full exchange test suite: 416 tests, 0 failures.
   cancel; a loading line is shown while the async read is in flight. (8fb9cc582)
 - Market detail adds an "executable depth" summary (slot 7): the total bid and ask
   quantity currently executable (inside the price cage) across the whole book. (cfe231c0e)
+
+Full exchange test suite: 421 tests, 0 failures.
+
+## Seventh continuation (same day)
+
+- Market detail now shows the player's own balances (currency + holding/security) and the
+  balance query failure is isolated so the dashboard still renders. MarketRow gained
+  null guards on identity and status. (0e214566c, 0bbefd278, 64cb1a8f1, c8102580f)
 
 Full exchange test suite: 421 tests, 0 failures.
 
