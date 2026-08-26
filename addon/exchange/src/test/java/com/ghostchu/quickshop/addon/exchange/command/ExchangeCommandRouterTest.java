@@ -198,6 +198,21 @@ class ExchangeCommandRouterTest {
         new String[] {"admin", "audit", "ack", ""})).containsExactly("<alertId>");
   }
 
+  @Test
+  void tabCompletesStockActionsAndSymbolsUnderAdmin() {
+    ExchangeCommandRouter router = new ExchangeCommandRouter(
+        UUID::randomUUID, null, RolloutPolicy.DISABLED, Function.identity(),
+        () -> java.util.List.of("ALPHA", "BETA"));
+    Actor actor = new Actor("quickshop.exchange.admin.stock");
+
+    assertThat(router.tabComplete(actor, new String[] {"admin", "stock", ""}))
+        .containsExactlyInAnyOrder("create", "issue", "transfer", "pause", "resume", "close");
+    assertThat(router.tabComplete(actor, new String[] {"admin", "stock", "issue", "al"}))
+        .containsExactly("ALPHA");
+    assertThat(router.tabComplete(actor, new String[] {"admin", "stock", "pause", ""}))
+        .containsExactlyInAnyOrder("ALPHA", "BETA");
+  }
+
   private static final class Actor implements CommandActor {
     private final Set<String> permissions = new HashSet<>();
     private final UUID accountId = UUID.randomUUID();
