@@ -283,6 +283,9 @@ final class MarketDetailPage {
         messages.component(player, "ui-depth-price", row.price().toPlainString()),
         messages.component(player, "ui-depth-quantity", row.quantity()),
         messages.component(player, "ui-depth-cumulative", row.cumulativeQuantity()),
+        messages.component(player, "ui-depth-notional",
+            row.price().multiply(java.math.BigDecimal.valueOf(row.quantity()))
+                .stripTrailingZeros().toPlainString()),
         messages.component(player, row.executable() ? "ui-depth-executable" : "ui-depth-protected")));
     java.math.BigDecimal distance = distancePercent(row.price(), market.lastPrice());
     if (distance != null) {
@@ -312,13 +315,20 @@ final class MarketDetailPage {
         case FLAT -> "YELLOW_STAINED_GLASS_PANE";
       };
       var candle = row.candle();
-      List<Component> lore = List.of(
+      java.math.BigDecimal change = candle.close().subtract(candle.open());
+      java.math.BigDecimal changePercent = candle.open().signum() == 0
+          ? java.math.BigDecimal.ZERO
+          : change.multiply(java.math.BigDecimal.valueOf(100))
+              .divide(candle.open(), 2, java.math.RoundingMode.HALF_UP).stripTrailingZeros();
+      List<Component> lore = new java.util.ArrayList<>(List.of(
           messages.component(player, "ui-trend-time", candle.bucketStart().toString()),
           messages.component(player, "ui-trend-open", candle.open().toPlainString()),
           messages.component(player, "ui-trend-high", candle.high().toPlainString()),
           messages.component(player, "ui-trend-low", candle.low().toPlainString()),
           messages.component(player, "ui-trend-close", candle.close().toPlainString()),
-          messages.component(player, "ui-trend-volume", candle.volume()));
+          messages.component(player, "ui-trend-change", change.stripTrailingZeros().toPlainString(),
+              changePercent.toPlainString()),
+          messages.component(player, "ui-trend-volume", candle.volume())));
       page.addIcon(player.getUniqueId(), new IconBuilder(QuickShop.getInstance().stack().of(material,
           Math.max(1, row.strength())).customName(messages.component(player,
               "ui-trend-title", messages.text(player, directionKey(row.direction())))).lore(lore))

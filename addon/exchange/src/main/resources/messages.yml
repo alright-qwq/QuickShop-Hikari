@@ -94,6 +94,7 @@ en-US:
   ui-depth-price: 'Price: <0>'
   ui-depth-quantity: 'Quantity: <0>'
   ui-depth-cumulative: 'Cumulative: <0>'
+  ui-depth-notional: 'Value: <0>'
   ui-depth-distance: 'Distance from last: <0>'
   ui-depth-executable: Executable now
   ui-depth-protected: Outside price cage
@@ -112,6 +113,7 @@ en-US:
   ui-trend-high: 'High: <0>'
   ui-trend-low: 'Low: <0>'
   ui-trend-close: 'Close: <0>'
+  ui-trend-change: 'Change: <0> (<1>%)'
   ui-trend-volume: 'Volume: <0>'
   ui-assets-available: 'Available: <0>'
   ui-assets-frozen: 'Frozen: <0>'
@@ -306,6 +308,7 @@ zh-CN:
   ui-depth-price: '价格：<0>'
   ui-depth-quantity: '数量：<0>'
   ui-depth-cumulative: '累计：<0>'
+  ui-depth-notional: '金额：<0>'
   ui-depth-distance: '距最新价：<0>'
   ui-depth-executable: 当前可成交
   ui-depth-protected: 当前超出价格笼子
@@ -324,6 +327,7 @@ zh-CN:
   ui-trend-high: '最高：<0>'
   ui-trend-low: '最低：<0>'
   ui-trend-close: '收盘：<0>'
+  ui-trend-change: '涨跌：<0>（<1>%）'
   ui-trend-volume: '成交量：<0>'
   ui-assets-available: '可用：<0>'
   ui-assets-frozen: '冻结：<0>'
