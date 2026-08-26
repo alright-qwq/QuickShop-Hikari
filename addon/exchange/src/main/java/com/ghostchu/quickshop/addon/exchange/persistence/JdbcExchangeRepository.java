@@ -266,14 +266,68 @@ public final class JdbcExchangeRepository
       select.setInt(4, offset);
       try (ResultSet result = select.executeQuery()) {
         List<Trade> trades = new ArrayList<>();
-        while (result.next()) trades.add(new Trade(UUID.fromString(result.getString("trade_id")),
-            result.getString("market_id"), UUID.fromString(result.getString("maker_order_id")),
-            UUID.fromString(result.getString("taker_order_id")), UUID.fromString(result.getString("buyer_account_id")),
-            UUID.fromString(result.getString("seller_account_id")), new BigDecimal(result.getString("price")),
-            result.getLong("quantity"), new BigDecimal(result.getString("maker_fee")),
-            new BigDecimal(result.getString("taker_fee")), result.getLong("match_sequence"),
-            Instant.ofEpochMilli(result.getLong("executed_at"))));
+        while (result.next()) trades.add(readTrade(result));
         return List.copyOf(trades);
+      }
+    }
+  }
+
+  private Trade readTrade(ResultSet result) throws SQLException {
+    return new Trade(UUID.fromString(result.getString("trade_id")), result.getString("market_id"),
+        UUID.fromString(result.getString("maker_order_id")),
+        UUID.fromString(result.getString("taker_order_id")),
+        UUID.fromString(result.getString("buyer_account_id")),
+        UUID.fromString(result.getString("seller_account_id")),
+        new BigDecimal(result.getString("price")), result.getLong("quantity"),
+        new BigDecimal(result.getString("maker_fee")), new BigDecimal(result.getString("taker_fee")),
+        result.getLong("match_sequence"), Instant.ofEpochMilli(result.getLong("executed_at")));
+  }
+
+  @Override
+  public List<MarketTradeRow> marketTrades(String marketId, int limit) throws SQLException {
+    Objects.requireNonNull(marketId, "marketId");
+    if (limit < 1 || limit > 100) throw new IllegalArgumentException("invalid market trade page");
+    try (Connection connection = connections.open(); PreparedStatement select = connection.prepareStatement(
+        "SELECT t.price,t.quantity,t.executed_at,o.side AS taker_side FROM " + tables.trades()
+            + " t LEFT JOIN " + tables.orders()
+            + " o ON o.order_id=t.taker_order_id WHERE t.market_id=?"
+            + " ORDER BY t.executed_at DESC,t.match_sequence DESC LIMIT ?")) {
+      select.setString(1, marketId);
+      select.setInt(2, limit);
+      try (ResultSet result = select.executeQuery()) {
+        List<MarketTradeRow> trades = new ArrayList<>();
+        while (result.next()) {
+          String side = result.getString("taker_side");
+          if (side == null) {
+            continue;
+          }
+          trades.add(new MarketTradeRow(new BigDecimal(result.getString("price")),
+              result.getLong("quantity"),
+              OrderSide.valueOf(side), Instant.ofEpochMilli(result.getLong("executed_at"))));
+        }
+        return List.copyOf(trades);
+      }
+    }
+  }
+
+  @Override
+  public MarketTradeSummary marketTradeSummary(String marketId, Instant sinceInclusive)
+      throws SQLException {
+    Objects.requireNonNull(marketId, "marketId");
+    Objects.requireNonNull(sinceInclusive, "sinceInclusive");
+    try (Connection connection = connections.open(); PreparedStatement select = connection.prepareStatement(
+        "SELECT COUNT(*) AS trade_count, "
+            + "COALESCE(SUM(CASE WHEN o.side='BUY' THEN 1 ELSE 0 END),0) AS buy_count, "
+            + "COALESCE(SUM(CASE WHEN o.side='SELL' THEN 1 ELSE 0 END),0) AS sell_count, "
+            + "COALESCE(SUM(t.quantity),0) AS volume FROM " + tables.trades()
+            + " t LEFT JOIN " + tables.orders()
+            + " o ON o.order_id=t.taker_order_id WHERE t.market_id=? AND t.executed_at>=?")) {
+      select.setString(1, marketId);
+      select.setLong(2, sinceInclusive.toEpochMilli());
+      try (ResultSet result = select.executeQuery()) {
+        result.next();
+        return new MarketTradeSummary(result.getInt("trade_count"), result.getInt("buy_count"),
+            result.getInt("sell_count"), result.getLong("volume"));
       }
     }
   }

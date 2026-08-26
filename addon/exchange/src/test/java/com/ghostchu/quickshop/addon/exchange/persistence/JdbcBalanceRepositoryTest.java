@@ -24,6 +24,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Optional;
@@ -346,6 +347,54 @@ class JdbcBalanceRepositoryTest {
     })).isInstanceOf(ConcurrentModificationException.class)
         .hasMessage("order version changed");
     assertThat(orderVersion(order.orderId())).isEqualTo(1);
+  }
+
+  @Test
+  void marketTradesJoinOrdersForTakerDirectionAndSummarize24hWindow() throws Exception {
+    Instant now = Instant.ofEpochMilli(5_000_000);
+    UUID buyer = UUID.randomUUID();
+    UUID seller = UUID.randomUUID();
+    Order buyOrder = new Order(UUID.randomUUID(), UUID.randomUUID(), "DIAMOND", buyer,
+        OrderSide.BUY, OrderType.LIMIT, TimeInForce.GTC, new BigDecimal("10.00"), null,
+        10, 10, OrderStatus.OPEN, 1, 1, 1, now.minusSeconds(60), now.minusSeconds(60));
+    Order sellOrder = new Order(UUID.randomUUID(), UUID.randomUUID(), "DIAMOND", seller,
+        OrderSide.SELL, OrderType.LIMIT, TimeInForce.GTC, new BigDecimal("10.00"), null,
+        10, 10, OrderStatus.OPEN, 2, 1, 1, now.minusSeconds(30), now.minusSeconds(30));
+    Trade buyTrade = new Trade(UUID.randomUUID(), "DIAMOND", buyOrder.orderId(), sellOrder.orderId(),
+        buyer, seller, new BigDecimal("10.00"), 4,
+        new BigDecimal("0.10"), new BigDecimal("0.20"), 1, now.minusSeconds(30));
+    Trade sellTrade = new Trade(UUID.randomUUID(), "DIAMOND", sellOrder.orderId(), buyOrder.orderId(),
+        buyer, seller, new BigDecimal("10.00"), 6,
+        new BigDecimal("0.10"), new BigDecimal("0.20"), 2, now);
+
+    repository.inTransaction(tx -> {
+      tx.insertOrder(buyOrder, new BigDecimal("40.00"), 0);
+      tx.insertOrder(sellOrder, new BigDecimal("0.00"), 4);
+      tx.insertTrade(buyTrade);
+      tx.insertTrade(sellTrade);
+      return null;
+    });
+
+    List<ExchangeRepository.MarketTradeRow> rows =
+        repository.marketTrades("DIAMOND", 10);
+    assertThat(rows).hasSize(2);
+    assertThat(rows.get(0).takerSide()).isEqualTo(OrderSide.BUY);
+    assertThat(rows.get(0).quantity()).isEqualTo(6);
+    assertThat(rows.get(1).takerSide()).isEqualTo(OrderSide.SELL);
+    assertThat(rows.get(1).quantity()).isEqualTo(4);
+
+    ExchangeRepository.MarketTradeSummary summary =
+        repository.marketTradeSummary("DIAMOND", now.minus(Duration.ofHours(24)));
+    assertThat(summary.tradeCount()).isEqualTo(2);
+    assertThat(summary.buyCount()).isEqualTo(1);
+    assertThat(summary.sellCount()).isEqualTo(1);
+    assertThat(summary.volume()).isEqualTo(10);
+
+    ExchangeRepository.MarketTradeSummary windowed =
+        repository.marketTradeSummary("DIAMOND", now.minusSeconds(20));
+    assertThat(windowed.tradeCount()).isEqualTo(1);
+    assertThat(windowed.buyCount()).isEqualTo(1);
+    assertThat(windowed.volume()).isEqualTo(6);
   }
 
   private void assertInvalidCurrency(UUID account, BigDecimal amount, CurrencyMutation mutation) {

@@ -165,8 +165,13 @@ public final class ExchangeViewService {
             marketData.recentCandles(marketId, asOf.minus(window),
                 asOf.plusSeconds(60));
         BigDecimal spread = spread(quote.bestBid(), quote.bestAsk());
+        List<ExchangeRepository.MarketTradeRow> recentTrades = repository == null ? List.of()
+            : repository.marketTrades(marketId, 6);
+        ExchangeRepository.MarketTradeSummary tradeSummary = repository == null ? null
+            : repository.marketTradeSummary(marketId, asOf.minus(Duration.ofHours(24)));
         return new MarketDashboardSnapshot(row, candles, book.bids(), book.asks(), spread,
-            spreadPercent(spread, quote.bestBid(), quote.bestAsk()), quote.notional24h());
+            spreadPercent(spread, quote.bestBid(), quote.bestAsk()), quote.notional24h(),
+            recentTrades, tradeSummary);
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market dashboard: " + marketId, failure);
       }

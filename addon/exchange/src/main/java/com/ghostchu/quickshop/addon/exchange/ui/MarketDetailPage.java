@@ -6,6 +6,7 @@ import com.ghostchu.quickshop.addon.exchange.command.RolloutPolicy;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import com.ghostchu.quickshop.menu.shared.GuiChatInputManager;
 import java.util.List;
 import java.time.Duration;
@@ -137,10 +138,12 @@ final class MarketDetailPage {
     addNavigation(page, player, 2, "WRITABLE_BOOK", "ui-nav-orders", ExchangeMenuPage.ORDERS);
     addTimeframeControl(page, player,
         contexts.get(playerId).orElse(null));
+    addTradeSummary(page, player, dashboard);
     Duration window = timeframes.getOrDefault(playerId, TIMEFRAMES.getFirst());
     MarketDashboardPresenter.DashboardRows rows = presenter.present(dashboard, window);
     renderDepth(page, player, rows, row);
     renderCandles(page, player, rows);
+    renderRecentTrades(page, player, dashboard);
     addOrderIcon(page, player, row, OrderSide.BUY, OrderType.LIMIT, "LIME_CONCRETE", 29,
         "ui-order-limit-buy", ActionType.LEFT_CLICK);
     addOrderIcon(page, player, row, OrderSide.SELL, OrderType.LIMIT, "RED_CONCRETE", 33,
@@ -231,6 +234,54 @@ final class MarketDetailPage {
           Math.max(1, row.strength())).customName(messages.component(player,
               "ui-trend-title", messages.text(player, directionKey(row.direction())))).lore(lore))
           .withSlot(slot).build());
+    }
+  }
+
+  private void addTradeSummary(PlayerInstancePage page, Player player,
+                               MarketDashboardSnapshot dashboard) {
+    ExchangeRepository.MarketTradeSummary summary = dashboard.tradeSummary24h();
+    if (summary == null) {
+      return;
+    }
+    List<Component> lore = List.of(
+        messages.component(player, "ui-market-trades-24h", summary.tradeCount()),
+        messages.component(player, "ui-market-trades-buy-sell", summary.buyCount(),
+            summary.sellCount()));
+    page.addIcon(player.getUniqueId(), new IconBuilder(
+        QuickShop.getInstance().stack().of("BARREL", 1)
+            .customName(messages.component(player, "ui-market-trades-title")).lore(lore))
+        .withSlot(15).build());
+  }
+
+  private void renderRecentTrades(PlayerInstancePage page, Player player,
+                                  MarketDashboardSnapshot dashboard) {
+    List<ExchangeRepository.MarketTradeRow> trades = dashboard.recentTrades();
+    if (trades.isEmpty()) {
+      page.addIcon(player.getUniqueId(), new IconBuilder(
+          QuickShop.getInstance().stack().of("GRAY_STAINED_GLASS_PANE", 1)
+              .customName(messages.component(player, "ui-market-recent-empty")))
+          .withSlot(45).build());
+      return;
+    }
+    page.addIcon(player.getUniqueId(), new IconBuilder(
+        QuickShop.getInstance().stack().of("PAPER", 1)
+            .customName(messages.component(player, "ui-market-recent-trades")))
+        .withSlot(45).build());
+    for (int index = 0; index < Math.min(6, trades.size()); index++) {
+      ExchangeRepository.MarketTradeRow trade = trades.get(index);
+      int slot = 46 + index;
+      boolean buy = trade.takerSide() == OrderSide.BUY;
+      List<Component> lore = List.of(
+          messages.component(player, "ui-market-recent-trade-quantity", trade.quantity()),
+          messages.component(player, "ui-market-recent-trade-time",
+              messages.relativeTime(trade.executedAt())));
+      page.addIcon(player.getUniqueId(), new IconBuilder(
+          QuickShop.getInstance().stack().of(buy ? "LIME_STAINED_GLASS_PANE" : "RED_STAINED_GLASS_PANE", 1)
+              .customName(messages.component(player, "ui-market-recent-trade-title",
+                  buy ? messages.text(player, "ui-market-recent-active-buy")
+                      : messages.text(player, "ui-market-recent-active-sell"),
+                  trade.price().toPlainString()))
+              .lore(lore)).withSlot(slot).build());
     }
   }
 

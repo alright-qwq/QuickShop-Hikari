@@ -9,7 +9,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import com.ghostchu.quickshop.addon.exchange.core.model.Trade;
+import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
+import java.math.BigDecimal;
 
 public interface ExchangeRepository {
   <T> T inTransaction(TransactionWork<T> work) throws SQLException;
@@ -59,6 +61,39 @@ public interface ExchangeRepository {
 
   default List<Trade> accountTrades(UUID accountId, int limit, int offset) throws SQLException {
     throw new UnsupportedOperationException("account trade reads are not supported by this repository");
+  }
+
+  /**
+   * Reads the most recent trades for a market, newest first, including the taker side so
+   * market detail pages can show the aggressive direction.
+   */
+  default List<MarketTradeRow> marketTrades(String marketId, int limit) throws SQLException {
+    throw new UnsupportedOperationException("market trade reads are not supported by this repository");
+  }
+
+  /** 24h market trade summary used by the market detail page. */
+  default MarketTradeSummary marketTradeSummary(String marketId, Instant sinceInclusive)
+      throws SQLException {
+    throw new UnsupportedOperationException("market trade reads are not supported by this repository");
+  }
+
+  record MarketTradeSummary(int tradeCount, int buyCount, int sellCount, long volume) {
+    public MarketTradeSummary {
+      if (tradeCount < 0 || buyCount < 0 || sellCount < 0 || volume < 0) {
+        throw new IllegalArgumentException("trade summary must be non-negative");
+      }
+    }
+  }
+
+  /** Lightweight market-detail read model for one recent trade. */
+  record MarketTradeRow(BigDecimal price, long quantity, OrderSide takerSide,
+                        Instant executedAt) {
+    public MarketTradeRow {
+      if (price == null || price.signum() <= 0 || quantity <= 0 || takerSide == null
+          || executedAt == null) {
+        throw new IllegalArgumentException("invalid market trade row");
+      }
+    }
   }
 
   default List<TransferRecord> accountTransfers(UUID accountId, int limit, int offset)

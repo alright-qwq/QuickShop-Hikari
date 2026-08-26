@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.ui;
 
 import com.ghostchu.quickshop.addon.exchange.marketdata.Candle;
 import com.ghostchu.quickshop.addon.exchange.marketdata.MarketDataService;
+import com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
@@ -14,7 +15,9 @@ public record MarketDashboardSnapshot(
     List<MarketDataService.DepthLevel> asks,
     BigDecimal spread,
     BigDecimal spreadPercent,
-    BigDecimal notional24h) {
+    BigDecimal notional24h,
+    List<ExchangeRepository.MarketTradeRow> recentTrades,
+    ExchangeRepository.MarketTradeSummary tradeSummary24h) {
   public MarketDashboardSnapshot(
       MarketRow market,
       List<Candle> recentCandles,
@@ -22,7 +25,7 @@ public record MarketDashboardSnapshot(
       List<MarketDataService.DepthLevel> asks,
       BigDecimal spread,
       BigDecimal spreadPercent) {
-    this(market, recentCandles, bids, asks, spread, spreadPercent, null);
+    this(market, recentCandles, bids, asks, spread, spreadPercent, null, List.of(), null);
   }
 
   public MarketDashboardSnapshot {
@@ -33,6 +36,7 @@ public record MarketDashboardSnapshot(
     requireNonNegative(spread, "spread");
     requireNonNegative(spreadPercent, "spreadPercent");
     requireNonNegative(notional24h, "notional24h");
+    recentTrades = List.copyOf(Objects.requireNonNull(recentTrades, "recentTrades"));
   }
 
   private static void requireNonNegative(BigDecimal value, String name) {
