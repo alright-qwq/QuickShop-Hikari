@@ -44,7 +44,7 @@ final class MarketTradesPage {
     int offset = Math.max(0, opened.page() - 1) * PAGE_SIZE;
     java.util.concurrent.CompletableFuture<MarketRow> header =
         views.marketRow(opened.marketId());
-    views.marketTradePage(opened.marketId(), PAGE_SIZE, offset)
+    views.marketTradePage(opened.marketId(), PAGE_SIZE + 1, offset)
         .thenCombine(header.handle((row, rowFailure) -> row), (trades, row) -> new PageData(trades, row))
         .whenComplete((data, failure) -> {
       if (!contexts.isCurrent(playerId, opened)) return;
@@ -92,7 +92,7 @@ final class MarketTradesPage {
           .customName(messages.component(player, "ui-market-recent-empty"))).withSlot(22).build());
     }
     int slot = 9;
-    for (ExchangeRepository.MarketTradeRow trade : trades) {
+    for (ExchangeRepository.MarketTradeRow trade : trades.subList(0, Math.min(trades.size(), PAGE_SIZE))) {
       if (slot >= 45) break;
       boolean buy = trade.takerSide() == OrderSide.BUY;
       List<Component> lore = List.of(
@@ -116,7 +116,7 @@ final class MarketTradesPage {
     }
     page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("CLOCK", 1)
         .customName(messages.component(player, "ui-history-page", opened.page()))).withSlot(49).build());
-    if (trades.size() == PAGE_SIZE) {
+    if (trades.size() > PAGE_SIZE) {
       addPageNavigation(page, player, 53, "ARROW", "ui-history-next",
           opened.marketId(), opened.page() + 1);
     }

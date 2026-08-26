@@ -109,17 +109,25 @@ To close a stock, first cancel or let all open orders finish, then:
 
 ## Player experience
 
-- `/qse stocks` opens the market list (all virtual and physical markets).
+- `/qse stocks` opens the market list (all virtual and physical markets). The list is
+  paginated (36 markets per page) with previous/next controls when there are more markets.
 - `/qse stock <symbol>` or clicking the market in the list opens the market detail page.
-- The market list supports sorting (by 24h volume, 24h change, or last price) and filtering
-  (all / virtual securities / physical items) through the control icons.
+- The market list supports sorting (by 24h turnover/notional, 24h change, or last price;
+  markets with no trades sort last instead of erroring) and filtering
+  (all / virtual securities / physical items) through the control icons. Virtual securities
+  use emerald icons, physical item markets use chest icons, and non-open markets use barrier
+  icons; 24h change is colored green/red/yellow.
 - The market detail chart switches between 1-minute, 15-minute, 1-hour, and 4-hour candles,
   and shows 24h high/low, 24h notional, 24h volatility, and the issued/total supply ratio
   for virtual securities.
-- The assets page (`/qse assets`) shows each security as a paper icon with the explicit text
+- The assets page (`/qse assets`) shows each security as an emerald icon with the explicit text
   "Virtual security (ledger-only, cannot deposit or withdraw)", plus symbol, available, and frozen
   quantities, an estimated market value, and the total portfolio value. Clicking a security row
   opens its market detail page. Security rows have no left/right deposit/withdraw actions.
+- The order confirmation page shows the current best quote and tells you whether a limit order
+  will match immediately or rest on the book.
+- The account history page shows "My fee" — the exact maker or taker fee charged to you for each
+  trade — in addition to the combined both-party trade fees.
 - Market list/detail rows display `Asset: VIRTUAL_SECURITY`, `Symbol`, `Total supply`, and
   `Security status` (read live from the security definition) in addition to the normal
   price/volume/status lore.

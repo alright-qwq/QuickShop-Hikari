@@ -38,7 +38,7 @@ final class MyOrdersPage {
     UUID playerId = callback.getPlayer().identifier();
     ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
     int offset = Math.max(0, (opened == null ? 1 : opened.page()) - 1) * PAGE_SIZE;
-    views.accountOrders(playerId, PAGE_SIZE, offset).whenComplete((orders, failure) -> {
+    views.accountOrders(playerId, PAGE_SIZE + 1, offset).whenComplete((orders, failure) -> {
       if (opened == null) return;
       if (!contexts.isCurrent(playerId, opened)) return;
       java.util.Map<String, MarketRow> quotes = new java.util.HashMap<>();
@@ -82,7 +82,8 @@ final class MyOrdersPage {
           .customName(messages.component(player, "ui-orders-empty"))).withSlot(22).build());
     }
     int slot = 9;
-    for (ExchangeTransaction.PersistedOrder persisted : orders) {
+    for (ExchangeTransaction.PersistedOrder persisted
+        : orders.subList(0, Math.min(orders.size(), PAGE_SIZE))) {
       if (slot >= 45) break;
       Order order = persisted.order();
       List<Component> lore = List.of(
@@ -130,7 +131,7 @@ final class MyOrdersPage {
     }
     page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("CLOCK", 1)
         .customName(messages.component(player, "ui-history-page", currentPage))).withSlot(49).build());
-    if (orders.size() == PAGE_SIZE) {
+    if (orders.size() > PAGE_SIZE) {
       addNavigation(page, player, 53, "ARROW", "ui-history-next", currentPage + 1);
     }
   }
