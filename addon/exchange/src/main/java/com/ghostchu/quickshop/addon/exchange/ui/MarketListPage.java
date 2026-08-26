@@ -89,7 +89,8 @@ final class MarketListPage {
           messages.component(player, "ui-market-bid-ask", bid, ask),
           messages.component(player, "ui-market-volume", row.volume24h()),
           messages.component(player, "ui-market-list-notional",
-              row.notional24h() == null ? "-" : row.notional24h().toPlainString()),
+              row.notional24h() == null ? "-"
+                  : row.notional24h().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()),
           messages.component(player, "ui-market-status", row.status().name())));
       if (row.volatility24h() != null) {
         lore.add(messages.component(player, "ui-market-volatility",

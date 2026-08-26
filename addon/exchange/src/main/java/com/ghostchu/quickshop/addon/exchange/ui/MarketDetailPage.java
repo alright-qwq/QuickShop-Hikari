@@ -314,7 +314,8 @@ final class MarketDetailPage {
   }
 
   private static String notional(MarketDashboardSnapshot dashboard) {
-    return dashboard.notional24h() == null ? "-" : dashboard.notional24h().toPlainString();
+    return dashboard.notional24h() == null ? "-"
+        : dashboard.notional24h().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
   }
 
   private static java.math.BigDecimal distancePercent(java.math.BigDecimal price,
