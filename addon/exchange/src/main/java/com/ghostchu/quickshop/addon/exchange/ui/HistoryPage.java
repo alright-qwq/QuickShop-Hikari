@@ -94,10 +94,11 @@ final class HistoryPage {
     slot = 21;
     for (TransferRecord transfer : snapshot.transfers()) {
       if (slot >= 33) break;
+      String reason = transfer.failureReason() == null ? "" : " " + transfer.failureReason();
       List<Component> lore = List.of(
           text(player, "ui-history-transfer-asset", transfer.assetId()),
           text(player, "ui-history-transfer-amount", transfer.amount().toPlainString()),
-          text(player, "ui-history-transfer-status", transfer.status()),
+          text(player, "ui-history-transfer-status", transfer.status() + reason),
           text(player, "ui-history-created-at", relativeTime(transfer.updatedAt())));
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("HOPPER", 1)
           .customName(text(player, "ui-history-transfer-title", transfer.type())).lore(lore))
@@ -109,6 +110,7 @@ final class HistoryPage {
       List<Component> lore = List.of(
           text(player, "ui-history-ledger-asset", entry.assetId()),
           text(player, "ui-history-ledger-amount", entry.amount().toPlainString()),
+          text(player, "ui-history-ledger-reference", entry.referenceId()),
           text(player, "ui-history-created-at", relativeTime(entry.createdAt())));
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("WRITABLE_BOOK", 1)
           .customName(text(player, "ui-history-ledger-title", entry.journalType())).lore(lore))
