@@ -113,6 +113,16 @@ public final class ExchangeViewService {
     return null;
   }
 
+  /** All configured security symbols, sorted, for tab completion. */
+  public List<String> securitySymbols() {
+    return markets.values().stream()
+        .map(MarketView::symbol)
+        .filter(Objects::nonNull)
+        .distinct()
+        .sorted()
+        .toList();
+  }
+
   /** Returns the latest market quote for a market id, or null when the market is unknown. */
   public MarketQuote marketQuote(String marketId) {
     MarketView market = markets.get(marketId);

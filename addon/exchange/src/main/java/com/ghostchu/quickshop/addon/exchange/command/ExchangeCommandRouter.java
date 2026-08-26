@@ -17,26 +17,34 @@ public final class ExchangeCommandRouter {
   private final AdminCommandRouter administration;
   private final RolloutPolicy rollout;
   private final Function<String, String> symbolToMarketId;
+  private final java.util.function.Supplier<java.util.List<String>> symbolCandidates;
 
   public ExchangeCommandRouter(Supplier<UUID> requestIds) {
-    this(requestIds, null, RolloutPolicy.DISABLED, Function.identity());
+    this(requestIds, null, RolloutPolicy.DISABLED, Function.identity(), List::of);
   }
 
   public ExchangeCommandRouter(Supplier<UUID> requestIds, AdminCommandRouter administration) {
-    this(requestIds, administration, RolloutPolicy.DISABLED, Function.identity());
+    this(requestIds, administration, RolloutPolicy.DISABLED, Function.identity(), List::of);
   }
 
   public ExchangeCommandRouter(Supplier<UUID> requestIds, AdminCommandRouter administration,
                                RolloutPolicy rollout) {
-    this(requestIds, administration, rollout, Function.identity());
+    this(requestIds, administration, rollout, Function.identity(), List::of);
   }
 
   public ExchangeCommandRouter(Supplier<UUID> requestIds, AdminCommandRouter administration,
                                RolloutPolicy rollout, Function<String, String> symbolToMarketId) {
+    this(requestIds, administration, rollout, symbolToMarketId, List::of);
+  }
+
+  public ExchangeCommandRouter(Supplier<UUID> requestIds, AdminCommandRouter administration,
+                               RolloutPolicy rollout, Function<String, String> symbolToMarketId,
+                               java.util.function.Supplier<java.util.List<String>> symbolCandidates) {
     this.requestIds = Objects.requireNonNull(requestIds, "requestIds");
     this.administration = administration;
     this.rollout = Objects.requireNonNull(rollout, "rollout");
     this.symbolToMarketId = Objects.requireNonNull(symbolToMarketId, "symbolToMarketId");
+    this.symbolCandidates = Objects.requireNonNull(symbolCandidates, "symbolCandidates");
   }
 
   public void execute(CommandActor actor, String[] args) {
@@ -286,6 +294,7 @@ public final class ExchangeCommandRouter {
     return switch (args[0].toLowerCase(java.util.Locale.ROOT)) {
       case "order" -> args.length == 2 ? List.of("limit", "market")
           : args.length == 3 ? List.of("buy", "sell") : List.of();
+      case "stock" -> args.length == 2 ? prefixMatches(symbolCandidates.get(), args[1]) : List.of();
       case "deposit", "withdraw" -> args.length == 2 ? List.of("money", "item") : List.of();
       case "admin" -> args.length == 2 ? List.of("market", "order", "transfer", "audit", "stock")
           : args.length == 3 && "transfer".equalsIgnoreCase(args[1]) ? List.of("review")
@@ -294,5 +303,12 @@ public final class ExchangeCommandRouter {
           : List.of();
       default -> List.of();
     };
+  }
+
+  private static List<String> prefixMatches(List<String> values, String prefix) {
+    String normalized = prefix == null ? "" : prefix.toLowerCase(java.util.Locale.ROOT);
+    return values.stream()
+        .filter(value -> value.toLowerCase(java.util.Locale.ROOT).startsWith(normalized))
+        .toList();
   }
 }

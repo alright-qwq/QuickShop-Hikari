@@ -76,6 +76,18 @@ class ExchangeCommandRouterTest {
   }
 
   @Test
+  void tabCompletesStockSymbolsFromTheRegistry() {
+    ExchangeCommandRouter router = new ExchangeCommandRouter(
+        UUID::randomUUID, null, RolloutPolicy.DISABLED, Function.identity(),
+        () -> java.util.List.of("ALPHA", "BETA"));
+
+    assertThat(router.tabComplete(new Actor("quickshop.exchange.use"),
+        new String[] {"stock", "al"})).containsExactly("ALPHA");
+    assertThat(router.tabComplete(new Actor("quickshop.exchange.use"),
+        new String[] {"stock", ""})).containsExactlyInAnyOrder("ALPHA", "BETA");
+  }
+
+  @Test
   void rejectsUnknownCommandWithoutOpeningAUserControlledMenu() {
     Actor actor = new Actor("quickshop.exchange.use");
     new ExchangeCommandRouter(UUID::randomUUID).execute(actor,

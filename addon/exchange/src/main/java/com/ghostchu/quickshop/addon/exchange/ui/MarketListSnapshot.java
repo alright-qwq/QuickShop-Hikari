@@ -1,5 +1,6 @@
 package com.ghostchu.quickshop.addon.exchange.ui;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -8,5 +9,28 @@ public record MarketListSnapshot(List<MarketRow> markets, MarketOverviewSnapshot
   public MarketListSnapshot {
     markets = List.copyOf(Objects.requireNonNull(markets, "markets"));
     overview = Objects.requireNonNull(overview, "overview");
+  }
+
+  public enum SortMode {
+    NOTIONAL, CHANGE, LAST;
+
+    public SortMode next() {
+      return switch (this) {
+        case NOTIONAL -> CHANGE;
+        case CHANGE -> LAST;
+        case LAST -> NOTIONAL;
+      };
+    }
+  }
+
+  public static List<MarketRow> sorted(List<MarketRow> rows, SortMode mode) {
+    Objects.requireNonNull(rows, "rows");
+    Objects.requireNonNull(mode, "mode");
+    Comparator<MarketRow> comparator = switch (mode) {
+      case NOTIONAL -> Comparator.comparing(MarketRow::volume24h).reversed();
+      case CHANGE -> Comparator.comparing(MarketRow::change24h).reversed();
+      case LAST -> Comparator.comparing(MarketRow::lastPrice).reversed();
+    };
+    return rows.stream().sorted(comparator).toList();
   }
 }

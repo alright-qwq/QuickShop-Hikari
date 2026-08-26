@@ -21,6 +21,8 @@ final class MarketListPage {
   private final ExchangeViewService views;
   private final ExchangeMenuContextStore contexts;
   private final ExchangeUiMessages messages;
+  private final java.util.Map<UUID, MarketListSnapshot.SortMode> sortModes =
+      new java.util.concurrent.ConcurrentHashMap<>();
 
   MarketListPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
                  AddonMessageService messages) {
@@ -68,10 +70,12 @@ final class MarketListPage {
       return;
     }
     addOverview(page, player, snapshot.overview());
+    addSortControl(page, player);
     addNavigation(page, player, 0, "CHEST", "ui-nav-assets", ExchangeMenuPage.ASSETS);
     addNavigation(page, player, 8, "WRITABLE_BOOK", "ui-nav-orders", ExchangeMenuPage.ORDERS);
     int slot = 9;
-    for (MarketRow row : snapshot.markets()) {
+    for (MarketRow row : MarketListSnapshot.sorted(snapshot.markets(),
+        sortModes.getOrDefault(playerId, MarketListSnapshot.SortMode.NOTIONAL))) {
       if (slot >= 45) break;
       String bid = row.bestBid() == null ? "-" : row.bestBid().toPlainString();
       String ask = row.bestAsk() == null ? "-" : row.bestAsk().toPlainString();
@@ -102,6 +106,21 @@ final class MarketListPage {
                 click.player());
           })).withSlot(slot++).build());
     }
+  }
+
+  private void addSortControl(PlayerInstancePage page, Player player) {
+    UUID playerId = player.getUniqueId();
+    MarketListSnapshot.SortMode mode =
+        sortModes.getOrDefault(playerId, MarketListSnapshot.SortMode.NOTIONAL);
+    page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of("HOPPER", 1)
+        .customName(messages.component(player, "ui-sort-title", mode.name()))
+        .lore(List.of(messages.component(player, "ui-sort-hint"))))
+        .withActions(new RunnableAction(click -> {
+          contexts.get(playerId).ifPresent(opened -> {
+            sortModes.put(playerId, mode.next());
+            refresh(page, player, opened);
+          });
+        })).withSlot(7).build());
   }
 
   private void addOverview(PlayerInstancePage page, Player player, MarketOverviewSnapshot overview) {
