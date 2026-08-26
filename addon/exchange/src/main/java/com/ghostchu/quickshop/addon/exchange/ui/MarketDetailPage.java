@@ -216,6 +216,20 @@ final class MarketDetailPage {
     if (currency != null) {
       lore.add(messages.component(player, "ui-market-my-currency",
           currency.available().toPlainString(), currency.frozen().toPlainString()));
+      if (row.lastPrice() != null && row.lastPrice().signum() > 0
+          && currency.available().signum() > 0) {
+        var rules = market.service().marketRules();
+        java.math.BigDecimal worstCasePrice = row.lastPrice().multiply(
+            java.math.BigDecimal.ONE.add(rules.makerFeeRate().max(rules.takerFeeRate())));
+        java.math.BigDecimal maxQuantity = currency.available()
+            .divide(worstCasePrice, 0, java.math.RoundingMode.FLOOR);
+        long stepped = Math.max(0L, maxQuantity.longValue()
+            / rules.minQuantity() * rules.minQuantity());
+        if (stepped > 0) {
+          lore.add(messages.component(player, "ui-market-afford-buy",
+              row.lastPrice().toPlainString(), stepped));
+        }
+      }
     }
     if ("VIRTUAL_SECURITY".equals(row.assetType())) {
       AccountAssetBalance security = assets.stream()
@@ -225,6 +239,11 @@ final class MarketDetailPage {
       if (security != null) {
         lore.add(messages.component(player, "ui-market-my-security",
             security.available().toPlainString(), security.frozen().toPlainString()));
+        long minimumUnit = market.service().marketRules().minQuantity();
+        long sellable = security.available().longValue() / minimumUnit * minimumUnit;
+        if (sellable > 0) {
+          lore.add(messages.component(player, "ui-market-afford-sell", sellable));
+        }
       }
       return;
     }
@@ -235,6 +254,10 @@ final class MarketDetailPage {
     if (holding != null) {
       lore.add(messages.component(player, "ui-market-my-items",
           holding.available().toPlainString(), holding.frozen().toPlainString()));
+      long sellable = holding.available().longValue();
+      if (sellable > 0) {
+        lore.add(messages.component(player, "ui-market-afford-sell", sellable));
+      }
     }
   }
 
