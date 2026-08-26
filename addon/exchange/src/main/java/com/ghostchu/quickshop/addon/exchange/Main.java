@@ -84,7 +84,8 @@ public final class Main extends JavaPlugin {
     ExchangeCommandRouter router = new ExchangeCommandRouter(UUID::randomUUID,
         new AdminCommandRouter(runtime.administration(), UUID::randomUUID,
             work -> runtime.runWhileWriting(work::run),
-            adminReads), rollout, runtime.views()::resolveMarketIdBySymbol,
+            adminReads, runtime.views()::resolveMarketIdBySymbol),
+        rollout, runtime.views()::resolveMarketIdBySymbol,
         runtime.views()::securitySymbols);
     var actors = (java.util.function.Function<org.bukkit.entity.Player,
         com.ghostchu.quickshop.addon.exchange.command.CommandActor>) player ->

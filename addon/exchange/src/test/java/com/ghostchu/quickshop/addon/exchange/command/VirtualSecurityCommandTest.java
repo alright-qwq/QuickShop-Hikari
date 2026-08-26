@@ -91,6 +91,21 @@ class VirtualSecurityCommandTest {
     assertThat(actor.page).isEqualTo("market-detail");
   }
 
+  @Test
+  void resolvesStockSymbolInAdminCommands() throws Exception {
+    Fixture fixture = new Fixture(symbol -> "alpha".equalsIgnoreCase(symbol) ? "alpha" : null);
+    Actor actor = new Actor("quickshop.exchange.admin.stock");
+    fixture.router.execute(actor, new String[] {"stock", "create", "ALPHA", "Alpha",
+        "default", "10.00", "1000", "1", "concept stock"});
+
+    fixture.router.execute(actor, new String[] {"stock", "pause", "ALPHA", "temporary halt"});
+
+    assertThat(actor.message).isEqualTo("request-accepted");
+    String paused = fixture.repository.inTransaction(
+        tx -> tx.securityDefinition("alpha").status());
+    assertThat(paused).isEqualTo("PAUSED");
+  }
+
   private static final class Fixture {
     private final com.ghostchu.quickshop.addon.exchange.persistence.ConnectionProvider connections;
     private final com.ghostchu.quickshop.addon.exchange.persistence.TableNames tables;
@@ -98,6 +113,10 @@ class VirtualSecurityCommandTest {
     private final AdminCommandRouter router;
 
     private Fixture() throws Exception {
+      this(java.util.function.Function.identity());
+    }
+
+    private Fixture(java.util.function.Function<String, String> symbolToMarketId) throws Exception {
       java.nio.file.Path path = java.nio.file.Files.createTempFile("qs-command-stock-", ".db");
       path.toFile().deleteOnExit();
       connections = com.ghostchu.quickshop.addon.exchange.persistence.SqliteTestDatabase.at(path);
@@ -120,7 +139,11 @@ class VirtualSecurityCommandTest {
       }
       router = new AdminCommandRouter(
           new AdminExchangeService(Map.of(), repository, null, null, new SecurityService(repository)),
-          UUID::randomUUID);
+          UUID::randomUUID,
+          work -> {
+            work.run();
+            return true;
+          }, Runnable::run, symbolToMarketId);
     }
   }
 

@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.concurrent.Executor;
+import java.util.function.Function;
 
 /** Parses privileged exchange commands and delegates all mutations to audited services. */
 public final class AdminCommandRouter {
@@ -14,6 +15,7 @@ public final class AdminCommandRouter {
   private final Supplier<UUID> requestIds;
   private final WriteExecutor writes;
   private final Executor reads;
+  private final Function<String, String> symbolToMarketId;
 
   public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds) {
     this(administration, requestIds, work -> {
@@ -24,15 +26,22 @@ public final class AdminCommandRouter {
 
   public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds,
                             WriteExecutor writes) {
-    this(administration, requestIds, writes, Runnable::run);
+    this(administration, requestIds, writes, Runnable::run, Function.identity());
   }
 
   public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds,
                             WriteExecutor writes, Executor reads) {
+    this(administration, requestIds, writes, reads, Function.identity());
+  }
+
+  public AdminCommandRouter(AdminExchangeService administration, Supplier<UUID> requestIds,
+                            WriteExecutor writes, Executor reads,
+                            Function<String, String> symbolToMarketId) {
     this.administration = Objects.requireNonNull(administration, "administration");
     this.requestIds = Objects.requireNonNull(requestIds, "requestIds");
     this.writes = Objects.requireNonNull(writes, "writes");
     this.reads = Objects.requireNonNull(reads, "reads");
+    this.symbolToMarketId = Objects.requireNonNull(symbolToMarketId, "symbolToMarketId");
   }
 
   public void execute(CommandActor actor, String[] args) {
@@ -95,7 +104,8 @@ public final class AdminCommandRouter {
         return;
       }
       if (args.length >= 6 && "issue".equals(action)) {
-        String marketId = args[2];
+        String marketId = resolveMarket(args[2]);
+        if (marketId == null) throw new IllegalArgumentException("unknown market or symbol");
         UUID target = UUID.fromString(args[3]);
         long quantity = Long.parseLong(args[4]);
         String reason = String.join(" ", java.util.Arrays.copyOfRange(args, 5, args.length));
@@ -104,7 +114,8 @@ public final class AdminCommandRouter {
         return;
       }
       if (args.length >= 4 && ("pause".equals(action) || "resume".equals(action))) {
-        String marketId = args[2];
+        String marketId = resolveMarket(args[2]);
+        if (marketId == null) throw new IllegalArgumentException("unknown market or symbol");
         String reason = String.join(" ", java.util.Arrays.copyOfRange(args, 3, args.length));
         executeWrite(actor, () -> {
           if ("pause".equals(action)) {
@@ -116,7 +127,8 @@ public final class AdminCommandRouter {
         return;
       }
       if (args.length >= 5 && "close".equals(action)) {
-        String marketId = args[2];
+        String marketId = resolveMarket(args[2]);
+        if (marketId == null) throw new IllegalArgumentException("unknown market or symbol");
         UUID recovery = UUID.fromString(args[3]);
         String reason = String.join(" ", java.util.Arrays.copyOfRange(args, 4, args.length));
         executeWrite(actor, () -> administration.securityClose(
@@ -129,6 +141,14 @@ public final class AdminCommandRouter {
     } catch (Exception failure) {
       actor.message("admin-command-failed");
     }
+  }
+
+  private String resolveMarket(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    String resolved = symbolToMarketId.apply(raw);
+    return resolved == null || resolved.isBlank() ? raw : resolved;
   }
 
   private void audit(CommandActor actor, String[] args) {
