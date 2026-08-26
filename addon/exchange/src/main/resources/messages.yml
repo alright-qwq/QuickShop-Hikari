@@ -52,6 +52,7 @@ en-US:
   ui-market-recent-trades: Recent trades
   ui-market-recent-trade-title: '<0> trade @ <1>'
   ui-market-recent-trade-quantity: 'Quantity: <0>'
+  ui-market-recent-trade-notional: 'Value: <0>'
   ui-market-recent-trade-time: 'Time: <0>'
   ui-market-recent-empty: No recent trades.
   ui-market-recent-active-buy: Active buy
@@ -227,6 +228,7 @@ zh-CN:
   ui-market-recent-trades: 最近成交
   ui-market-recent-trade-title: '<0> 成交 @ <1>'
   ui-market-recent-trade-quantity: '数量：<0>'
+  ui-market-recent-trade-notional: '金额：<0>'
   ui-market-recent-trade-time: '时间：<0>'
   ui-market-recent-empty: 暂无最近成交。
   ui-market-recent-active-buy: 主动买入

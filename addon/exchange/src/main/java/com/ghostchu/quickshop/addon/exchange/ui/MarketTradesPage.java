@@ -94,6 +94,9 @@ final class MarketTradesPage {
       boolean buy = trade.takerSide() == OrderSide.BUY;
       List<Component> lore = List.of(
           messages.component(player, "ui-market-recent-trade-quantity", trade.quantity()),
+          messages.component(player, "ui-market-recent-trade-notional",
+              trade.price().multiply(java.math.BigDecimal.valueOf(trade.quantity()))
+                  .stripTrailingZeros().toPlainString()),
           messages.component(player, "ui-market-recent-trade-time",
               messages.relativeTime(trade.executedAt())));
       page.addIcon(playerId, new IconBuilder(QuickShop.getInstance().stack().of(
