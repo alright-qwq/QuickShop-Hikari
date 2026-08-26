@@ -95,7 +95,8 @@ public final class ExchangeCommandRouter {
         invalid(actor);
         return;
       }
-      actor.openMenu(ExchangeMenuRequest.page("stocks".equalsIgnoreCase(args[0]) ? "stocks" : args[0]));
+      actor.openMenu(ExchangeMenuRequest.page(
+          "stocks".equalsIgnoreCase(args[0]) ? "markets" : args[0]));
       return;
     }
     if ("stock".equalsIgnoreCase(args[0])) {

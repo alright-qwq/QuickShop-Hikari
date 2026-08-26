@@ -75,7 +75,7 @@ class VirtualSecurityCommandTest {
     Actor actor = new Actor("quickshop.exchange.use");
 
     router.execute(actor, new String[] {"stocks"});
-    assertThat(actor.page).isEqualTo("stocks");
+    assertThat(actor.page).isEqualTo("markets");
 
     router.execute(actor, new String[] {"stock", "alpha"});
     assertThat(actor.page).isEqualTo("market-detail");

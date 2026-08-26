@@ -113,3 +113,20 @@ Before broad rollout, run `/qse admin audit reconcile`, verify that an injected 
 pauses the expected market and creates a HIGH alert, export the audit range, and confirm that no
 negative balances, duplicate external operations, unresolved custody differences, or
 `REVIEW_REQUIRED` transfers remain.
+
+## Virtual Concept Stocks
+
+See [docs/virtual-concept-stocks.md](virtual-concept-stocks.md) for configuration, lifecycle, and
+player workflows.
+
+Operational differences to remember:
+
+- Virtual securities are ledger-only. They never construct item templates and never use the item
+  deposit/withdraw path. If a log line ever mentions a virtual market in an item-transfer context,
+  treat it as a bug.
+- Reconciliation covers issued supply as custody and player security balances as liabilities.
+  A custody difference on a virtual market pauses that market like any other asset difference.
+- Startup verifies that configured asset types match the database and that virtual markets have
+  their security definition. Fix configuration or database state, then restart; do not hand-edit
+  the securities, security balances, or security ledger tables.
+- `/qse stocks` opens the market list; `/qse stock <symbol>` opens that market's detail page.
