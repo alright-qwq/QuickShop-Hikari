@@ -148,6 +148,9 @@ public final class ExchangeCommandRouter {
       invalid(actor);
       return;
     }
+    if (!allowed(actor, "quickshop.exchange.use")) {
+      return;
+    }
     OrderType type;
     OrderSide side;
     try {
@@ -187,6 +190,9 @@ public final class ExchangeCommandRouter {
       invalid(actor);
       return;
     }
+    if (!allowed(actor, "quickshop.exchange.use")) {
+      return;
+    }
     if (!allowed(actor, "quickshop.exchange.order.cancel")) {
       return;
     }
@@ -203,6 +209,9 @@ public final class ExchangeCommandRouter {
   private void routeTransfer(CommandActor actor, String[] args) {
     if (args.length != 4) {
       invalid(actor);
+      return;
+    }
+    if (!allowed(actor, "quickshop.exchange.use")) {
       return;
     }
     String verb = args[0].toLowerCase(java.util.Locale.ROOT);

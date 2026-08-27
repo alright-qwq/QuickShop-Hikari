@@ -32,7 +32,7 @@ class ExchangeCommandRouterTest {
 
   @Test
   void requiresAnExplicitSlippageBoundaryForMarketOrders() {
-    Actor actor = new Actor("quickshop.exchange.order.market");
+    Actor actor = new Actor("quickshop.exchange.use", "quickshop.exchange.order.market");
 
     new ExchangeCommandRouter(UUID::randomUUID).execute(actor,
         new String[] {"order", "market", "buy", "diamond-usd", "5"});
@@ -43,7 +43,7 @@ class ExchangeCommandRouterTest {
 
   @Test
   void generatesOneRequestIdPerConfirmedAction() {
-    Actor actor = new Actor("quickshop.exchange.order.limit");
+    Actor actor = new Actor("quickshop.exchange.use", "quickshop.exchange.order.limit");
     UUID request = UUID.randomUUID();
     new ExchangeCommandRouter(() -> request).execute(actor,
         new String[] {"order", "limit", "buy", "diamond-usd", "100.00", "5"});
@@ -110,7 +110,7 @@ class ExchangeCommandRouterTest {
   @Test
   void parsesLimitOrderIntoAContextWithTheGeneratedRequestId() {
     UUID request = UUID.randomUUID();
-    Actor actor = new Actor("quickshop.exchange.order.limit");
+    Actor actor = new Actor("quickshop.exchange.use", "quickshop.exchange.order.limit");
     new ExchangeCommandRouter(() -> request).execute(actor,
         new String[] {"order", "limit", "sell", "diamond-usd", "100.00", "5"});
     assertThat(actor.opened.order().requestId()).isEqualTo(request);
@@ -121,13 +121,35 @@ class ExchangeCommandRouterTest {
   @Test
   void parsesMoneyDepositIntoAContext() {
     UUID request = UUID.randomUUID();
-    Actor actor = new Actor("quickshop.exchange.deposit");
+    Actor actor = new Actor("quickshop.exchange.use", "quickshop.exchange.deposit");
     new ExchangeCommandRouter(() -> request).execute(actor,
         new String[] {"deposit", "money", "default", "12.50"});
     assertThat(actor.opened.transfer().requestId()).isEqualTo(request);
     assertThat(actor.opened.transfer().kind())
         .isEqualTo(ExchangeMenuRequest.TransferKind.MONEY_DEPOSIT);
     assertThat(actor.opened.transfer().amount()).isEqualByComparingTo("12.50");
+  }
+
+  @Test
+  void deniesOrderWithDedicatedPermissionButWithoutUsePermission() {
+    Actor actor = new Actor("quickshop.exchange.order.limit");
+
+    new ExchangeCommandRouter(UUID::randomUUID).execute(actor,
+        new String[] {"order", "limit", "buy", "diamond-usd", "100.00", "5"});
+
+    assertThat(actor.message).isEqualTo("permission-denied");
+    assertThat(actor.opened).isNull();
+  }
+
+  @Test
+  void deniesTransferWithDedicatedPermissionButWithoutUsePermission() {
+    Actor actor = new Actor("quickshop.exchange.deposit");
+
+    new ExchangeCommandRouter(UUID::randomUUID).execute(actor,
+        new String[] {"deposit", "money", "default", "12.50"});
+
+    assertThat(actor.message).isEqualTo("permission-denied");
+    assertThat(actor.opened).isNull();
   }
 
   @Test
@@ -218,7 +240,7 @@ class ExchangeCommandRouterTest {
     private final UUID accountId = UUID.randomUUID();
     private String message;
     private ExchangeMenuRequest opened;
-    private Actor(String permission) { permissions.add(permission); }
+    private Actor(String... permission) { permissions.addAll(java.util.Arrays.asList(permission)); }
     public UUID accountId() { return accountId; }
     public boolean hasPermission(String permission) { return permissions.contains(permission); }
     public void message(String key, Object... arguments) {
