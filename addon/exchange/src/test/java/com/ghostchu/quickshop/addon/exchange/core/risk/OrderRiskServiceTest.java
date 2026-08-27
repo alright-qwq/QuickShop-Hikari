@@ -45,6 +45,25 @@ class OrderRiskServiceTest {
   }
 
   @Test
+  void holdingOverflowCannotBypassTheLimit() {
+    AccountRiskSnapshot snapshot = new AccountRiskSnapshot(
+        Long.MAX_VALUE, BigDecimal.ZERO, 0);
+
+    assertThat(snapshot.canAddHolding(1, Long.MAX_VALUE)).isFalse();
+  }
+
+  @Test
+  void negativeOrOverflowingLimitsAreRejected() {
+    AccountRiskSnapshot snapshot = new AccountRiskSnapshot(0, BigDecimal.ZERO, 0);
+
+    assertThat(snapshot.canAddHolding(1, -1)).isFalse();
+    assertThat(snapshot.canAddHolding(-1, 1)).isFalse();
+    assertThat(snapshot.canAddHolding(1, Long.MAX_VALUE)).isTrue();
+    assertThat(snapshot.canFreeze(new BigDecimal("0.01"), new BigDecimal("-1"))).isFalse();
+    assertThat(snapshot.canFreeze(new BigDecimal("-0.01"), new BigDecimal("1"))).isFalse();
+  }
+
+  @Test
   void rejectsMarketOrderWhoseProtectionExceedsMaximumSlippage() {
     OrderRiskService service = new OrderRiskService(new OrderRateLimiter(5, 60));
 

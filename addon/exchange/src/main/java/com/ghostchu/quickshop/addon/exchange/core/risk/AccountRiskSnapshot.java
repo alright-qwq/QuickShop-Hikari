@@ -15,12 +15,24 @@ public record AccountRiskSnapshot(long holding, BigDecimal frozenCurrency, int o
   }
 
   public boolean canAddHolding(long added, long maximum) {
-    return added >= 0 && maximum >= 0 && holding <= maximum - added;
+    if (added < 0 || maximum < 0) {
+      return false;
+    }
+    long remaining;
+    try {
+      remaining = Math.subtractExact(maximum, added);
+    } catch (ArithmeticException overflow) {
+      // A maximum too large for the limit arithmetic cannot be enforced safely.
+      return false;
+    }
+    return holding >= 0 && holding <= remaining;
   }
 
   public boolean canFreeze(BigDecimal added, BigDecimal maximum) {
-    return added != null && maximum != null && added.signum() >= 0
-        && frozenCurrency.add(added).compareTo(maximum) <= 0;
+    if (added == null || maximum == null || added.signum() < 0 || maximum.signum() < 0) {
+      return false;
+    }
+    return frozenCurrency.add(added).compareTo(maximum) <= 0;
   }
 
   public boolean canOpenOrder(int maximum) {

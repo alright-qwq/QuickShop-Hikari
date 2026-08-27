@@ -30,7 +30,8 @@ public final class SecurityAssetCustody implements AssetCustody {
   @Override
   public long holding(ExchangeTransaction tx, UUID accountId, String marketId) throws SQLException {
     return tx.existingSecurityBalance(accountId, marketId)
-        .map(balance -> balance.availableQuantity() + balance.frozenQuantity()).orElse(0L);
+        .map(balance -> Math.addExact(balance.availableQuantity(), balance.frozenQuantity()))
+        .orElse(0L);
   }
 
   @Override

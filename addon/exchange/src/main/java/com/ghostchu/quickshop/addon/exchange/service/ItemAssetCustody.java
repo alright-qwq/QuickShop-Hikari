@@ -12,7 +12,8 @@ public final class ItemAssetCustody implements AssetCustody {
   @Override
   public long holding(ExchangeTransaction tx, UUID accountId, String marketId) throws SQLException {
     return tx.existingInventory(accountId, marketId)
-        .map(balance -> balance.availableQuantity() + balance.frozenQuantity()).orElse(0L);
+        .map(balance -> Math.addExact(balance.availableQuantity(), balance.frozenQuantity()))
+        .orElse(0L);
   }
 
   @Override
