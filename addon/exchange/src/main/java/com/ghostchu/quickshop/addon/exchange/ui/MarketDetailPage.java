@@ -501,12 +501,26 @@ final class MarketDetailPage {
             ignored -> player.sendMessage(messages.component(player, "ui-order-limit-invalid")))
         : prompts.market(player.getUniqueId(), row.marketId(), side,
             ignored -> player.sendMessage(messages.component(player, "ui-order-market-invalid")));
-    String prompt = type == OrderType.LIMIT
-        ? messages.text(player, "ui-order-limit-prompt")
-        : messages.text(player, "ui-order-market-prompt");
+    String prompt = orderPrompt(player, row, side, type);
     GuiChatInputManager.getInstance().requestInput(player, handler, prompt, ExchangeMenu.NAME,
         ExchangeMenuPage.ORDER_CONFIRM.page());
     player.closeInventory();
+  }
+
+  private String orderPrompt(Player player, MarketRow row, OrderSide side, OrderType type) {
+    String best = side == OrderSide.BUY
+        ? row.bestAsk() == null ? null : row.bestAsk().toPlainString()
+        : row.bestBid() == null ? null : row.bestBid().toPlainString();
+    String key = promptKey(type, best != null);
+    if (best == null) {
+      return messages.text(player, key);
+    }
+    return messages.text(player, key, best, side == OrderSide.BUY ? "buy" : "sell");
+  }
+
+  static String promptKey(OrderType type, boolean hasBest) {
+    String base = type == OrderType.LIMIT ? "ui-order-limit-prompt" : "ui-order-market-prompt";
+    return hasBest ? base + "-hint" : base;
   }
 
   private void renderFailure(PlayerInstancePage page, Player player, UUID playerId, String key) {
