@@ -47,6 +47,11 @@ public interface ExchangeRepository {
     throw new UnsupportedOperationException("candle persistence is not supported by this repository");
   }
 
+  /** Deletes persisted candles older than the cutoff for the given market. */
+  default void deleteCandlesBefore(String marketId, Instant cutoff) throws SQLException {
+    throw new UnsupportedOperationException("candle persistence is not supported by this repository");
+  }
+
   default List<AuditRecord> auditRecords(Instant fromInclusive, Instant toExclusive)
       throws SQLException {
     throw new UnsupportedOperationException("audit records are not supported by this repository");

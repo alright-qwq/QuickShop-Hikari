@@ -221,6 +221,13 @@ public final class ExchangeRuntimeFactory {
     maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(() -> flushWhileOwned(
         database.writer(), marketData, Instant.now()), 1L, 1L, TimeUnit.MINUTES);
+    int candleRetentionDays = Math.max(1, addon.getConfig().getInt(
+        "market-data.candle-retention-days", 365));
+    java.util.List<String> marketIds = java.util.List.copyOf(registry.marketIds());
+    maintenance.scheduleWithFixedDelay(() -> runWhileOwned(
+        database.writer(), () -> marketData.purgeOldCandles(
+            java.time.Duration.ofDays(candleRetentionDays), marketIds)),
+        30L, 24L * 60L, TimeUnit.MINUTES);
     maintenance.scheduleWithFixedDelay(marketData::publishPlayerUpdates,
         1L, 1L, TimeUnit.SECONDS);
 

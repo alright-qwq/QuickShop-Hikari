@@ -13,7 +13,10 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -46,6 +49,31 @@ class MarketDataServiceTest {
     assertThat(playerUpdates).hasValue(1);
     data.publishPlayerUpdates();
     assertThat(playerUpdates).hasValue(1);
+  }
+
+  @Test
+  void purgesCandlesOlderThanRetentionThroughTheRepository() throws Exception {
+    AtomicReference<Instant> deletedCutoff = new AtomicReference<>();
+    ExchangeRepository repository = new ExchangeRepository() {
+      @Override
+      public <T> T inTransaction(
+          com.ghostchu.quickshop.addon.exchange.repository.ExchangeRepository.TransactionWork<T> work)
+          throws SQLException {
+        return null;
+      }
+
+      @Override
+      public void deleteCandlesBefore(String marketId, Instant cutoff) {
+        deletedCutoff.set(cutoff);
+      }
+    };
+    MarketDataService data = new MarketDataService(new CandleAggregator(), repository);
+
+    data.purgeOldCandles(java.time.Duration.ofDays(30), List.of("diamond-usd"));
+
+    assertThat(deletedCutoff.get()).isNotNull()
+        .isBeforeOrEqualTo(Instant.now().minus(java.time.Duration.ofDays(30)));
+    assertThat(deletedCutoff.get()).isAfter(Instant.now().minus(java.time.Duration.ofDays(31)));
   }
 
   @Test

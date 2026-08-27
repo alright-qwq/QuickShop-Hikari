@@ -738,6 +738,17 @@ public final class JdbcExchangeRepository
     }
   }
 
+  @Override
+  public void deleteCandlesBefore(String marketId, Instant cutoff) throws SQLException {
+    if (marketId == null || marketId.isBlank() || cutoff == null) {
+      throw new IllegalArgumentException("market and cutoff are required");
+    }
+    try (Connection connection = connections.open()) {
+      new JdbcTransaction(connection, dialect, tables)
+          .deleteCandlesBefore(marketId, cutoff);
+    }
+  }
+
   private static void requireCandle(Candle candle) {
     if (candle == null || candle.marketId() == null || candle.marketId().isBlank()
         || candle.bucketStart() == null || candle.open() == null || candle.high() == null
@@ -1976,6 +1987,16 @@ public final class JdbcExchangeRepository
         writeDecimal(statement, 6, candle.close());
         statement.setLong(7, candle.volume());
         writeDecimal(statement, 8, candle.notional());
+        statement.executeUpdate();
+      }
+    }
+
+    private void deleteCandlesBefore(String marketId, Instant cutoff) throws SQLException {
+      try (PreparedStatement statement = connection.prepareStatement(
+          "DELETE FROM " + tables.candles1m()
+              + " WHERE market_id=? AND bucket_start<?")) {
+        statement.setString(1, marketId);
+        statement.setLong(2, cutoff.toEpochMilli());
         statement.executeUpdate();
       }
     }

@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.sql.SQLException;
 import java.util.Comparator;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -120,6 +121,25 @@ public final class MarketDataService {
       if (entry.getValue().isBefore(currentBucket)) {
         persistClosedCandle(entry.getKey(), entry.getValue());
         iterator.remove();
+      }
+    }
+  }
+
+  /**
+   * Deletes persisted candles older than the retention window for every configured market.
+   * Runs inside the writer fence; failures are swallowed so the next maintenance tick retries.
+   */
+  public void purgeOldCandles(Duration retention, Collection<String> marketIds) {
+    if (repository == null || retention == null || retention.isZero() || retention.isNegative()
+        || marketIds == null || marketIds.isEmpty()) {
+      return;
+    }
+    Instant cutoff = Instant.now().minus(retention);
+    for (String marketId : marketIds) {
+      try {
+        repository.deleteCandlesBefore(marketId, cutoff);
+      } catch (SQLException failure) {
+        // Best-effort maintenance; the next tick retries.
       }
     }
   }
