@@ -380,7 +380,22 @@ verification.
 ## Latest packaged build (2026-08-27)
 
 - Shaded plugin jar: `addon/exchange/target/Addon-Exchange-6.3.0.0-SNAPSHOT-11.jar`
-  (939 KB, includes `plugin.yml`, `messages.yml`, and all runtime classes/dependencies).
+  (970 KB, includes `plugin.yml`, `messages.yml`, and all runtime classes/dependencies).
 - Sources jar: `addon/exchange/target/Addon-Exchange-6.3.0.0-SNAPSHOT-11-sources.jar`.
 - Built with `mvn -pl addon/exchange -am package -q -DskipTests` after the full test suite
-  (447 tests, 0 failures) and `git diff --check` passed; branch is pushed to origin.
+  (447 tests, 0 failures) and `git diff --check` passed.
+
+### 2026-08-27 evening hotfixes (deploy this jar)
+
+- **TNE shading collision fixed**: the addon previously shaded `net.tnemc:*` into
+  `com.ghostchu.quickshop.shade.tne`, colliding with the main QuickShop jar and causing
+  `LinkageError: loader constraint violation ... MenuPlayer` when opening `/qse`. The addon
+  now shades it under the unique package `com.ghostchu.quickshop.addon.exchange.shade.tne`
+  (`addon/exchange/pom.xml`, execution-level `relocations` override).
+- **Config constraint**: `markets.yml` `min-quantity` must be a multiple of
+  `security.minimum-unit`, otherwise startup fails with "market minimum quantity must align
+  with security unit" and the plugin disables itself. The bundled example
+  (`docs/concept-stocks.example.yml`) now sets `iota`/`moon` `min-quantity` to 10/100 and
+  ships all 15 markets `enabled: true` so a fresh deployment needs no per-market resume.
+- Push status: `28c4b80cd` and this doc update are committed locally; origin push was blocked
+  by a transient GitHub 443 outage at commit time and must be retried.
