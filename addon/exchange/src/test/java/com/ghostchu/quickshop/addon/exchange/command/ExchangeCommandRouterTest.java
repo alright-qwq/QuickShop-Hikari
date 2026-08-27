@@ -179,6 +179,18 @@ class ExchangeCommandRouterTest {
   }
 
   @Test
+  void requiresAdminReloadPermissionForReloadCommand() {
+    Actor denied = new Actor("quickshop.exchange.use");
+    new ExchangeCommandRouter(UUID::randomUUID).execute(denied, new String[] {"reload"});
+    assertThat(denied.message).isEqualTo("permission-denied");
+    assertThat(denied.reloaded).isFalse();
+
+    Actor allowed = new Actor("quickshop.exchange.admin.reload");
+    new ExchangeCommandRouter(UUID::randomUUID).execute(allowed, new String[] {"reload"});
+    assertThat(allowed.reloaded).isTrue();
+  }
+
+  @Test
   void opensAdminPageForAnActorWithAnyAdminPermission() {
     Actor actor = new Actor("quickshop.exchange.admin.audit");
 
@@ -240,6 +252,7 @@ class ExchangeCommandRouterTest {
     private final UUID accountId = UUID.randomUUID();
     private String message;
     private ExchangeMenuRequest opened;
+    private boolean reloaded;
     private Actor(String... permission) { permissions.addAll(java.util.Arrays.asList(permission)); }
     public UUID accountId() { return accountId; }
     public boolean hasPermission(String permission) { return permissions.contains(permission); }
@@ -248,5 +261,6 @@ class ExchangeCommandRouterTest {
     }
     public void openMenu(String menuName, int page) { }
     public void openMenu(ExchangeMenuRequest request) { opened = request; }
+    public void reloadRequested() { reloaded = true; }
   }
 }

@@ -84,6 +84,13 @@ public final class MarketRegistry {
     return Set.copyOf(markets.keySet());
   }
 
+  /** Returns an immutable snapshot of the currently active definitions. */
+  public synchronized Map<String, MarketDefinition> definitions() {
+    Map<String, MarketDefinition> copy = new LinkedHashMap<>();
+    markets.forEach((marketId, entry) -> copy.put(marketId, entry.definition));
+    return Map.copyOf(copy);
+  }
+
   /** Returns whether a configured exchange-only vanilla item may not create a new container shop. */
   public synchronized boolean blocksContainerShop(Material material) {
     if (material == null) {

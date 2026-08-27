@@ -69,6 +69,14 @@ public final class ExchangeCommandRouter {
       }
       return;
     }
+    if (args.length == 1 && "reload".equalsIgnoreCase(args[0])) {
+      if (!actor.hasPermission("quickshop.exchange.admin.reload")) {
+        actor.message("permission-denied");
+        return;
+      }
+      actor.reloadRequested();
+      return;
+    }
     if (!rollout.allows(actor.accountId())) {
       actor.message("rollout-not-allowed");
       return;
@@ -304,12 +312,12 @@ public final class ExchangeCommandRouter {
     Objects.requireNonNull(actor, "actor");
     if (args == null || args.length == 0) {
       return List.of("open", "market", "order", "cancel", "deposit", "withdraw", "orders",
-          "assets", "history", "stocks", "stock", "admin", "help");
+          "assets", "history", "stocks", "stock", "admin", "reload", "help");
     }
     if (args.length == 1) {
       String prefix = args[0].toLowerCase(java.util.Locale.ROOT);
       return List.of("open", "market", "order", "cancel", "deposit", "withdraw", "orders",
-          "assets", "history", "stocks", "stock", "admin", "help").stream()
+          "assets", "history", "stocks", "stock", "admin", "reload", "help").stream()
           .filter(value -> value.startsWith(prefix)).toList();
     }
     return switch (args[0].toLowerCase(java.util.Locale.ROOT)) {

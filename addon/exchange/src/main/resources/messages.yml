@@ -3,7 +3,7 @@ en-US:
   permission-denied: You do not have permission for this exchange action.
   rollout-not-allowed: This account is not included in the current exchange rollout.
   command-invalid: The exchange command or its arguments are invalid.
-  command-help: 'Exchange commands:\n/open: market list\n/market <id>: market detail\n/order limit|market <buy|sell> ...: place order\n/cancel <order-id>: cancel order\n/orders: my orders\n/assets: balances and transfers\n/history: account history\n/stock <symbol>: open a concept stock\n/deposit|withdraw money|item ...: deposit or withdraw'
+  command-help: 'Exchange commands:\n/open: market list\n/market <id>: market detail\n/order limit|market <buy|sell> ...: place order\n/cancel <order-id>: cancel order\n/orders: my orders\n/assets: balances and transfers\n/history: account history\n/stock <symbol>: open a concept stock\n/deposit|withdraw money|item ...: deposit or withdraw\n/reload: reload exchange configuration (admin)'
   market-not-open: This market currently accepts queries and cancellations only.
   request-accepted: 'Exchange request accepted: <requestId>'
   request-ready: 'Exchange request ready for confirmation: <requestId>'
@@ -16,6 +16,7 @@ en-US:
   admin-audit-exported: 'Exchange audit CSV exported: <0>'
   admin-audit-status: 'Exchange audit status:\n<0>'
   admin-audit-acknowledged: Exchange alert acknowledged.
+  reload-requested: Exchange configuration reload requested; the result will appear in the server console.
   admin-transfer-review-list: 'Transfers awaiting review:\n<0>'
   admin-transfer-review-detail: 'Transfer review detail: <0>'
   ui-data-unavailable: Exchange data is currently unavailable.
@@ -228,7 +229,7 @@ zh-CN:
   permission-denied: '你没有执行此交易所操作的权限。'
   rollout-not-allowed: '你的账号尚未加入当前交易所灰度名单。'
   command-invalid: '交易所命令或参数无效。'
-  command-help: '交易所命令：\n/open：市场列表\n/market <市场ID>：市场详情\n/order limit|market <买入|卖出> ...：下单\n/cancel <订单ID>：撤单\n/orders：我的订单\n/assets：资产与转账\n/history：账户历史\n/stock <代码>：打开概念股\n/deposit|withdraw money|item ...：存入或取出'
+  command-help: '交易所命令：\n/open：市场列表\n/market <市场ID>：市场详情\n/order limit|market <买入|卖出> ...：下单\n/cancel <订单ID>：撤单\n/orders：我的订单\n/assets：资产与转账\n/history：账户历史\n/stock <代码>：打开概念股\n/deposit|withdraw money|item ...：存入或取出\n/reload：重载交易所配置（管理员）'
   market-not-open: '当前市场只允许查询和撤单。'
   request-accepted: '交易请求已受理：<requestId>'
   request-ready: '交易请求已准备，等待确认：<requestId>'
@@ -241,6 +242,7 @@ zh-CN:
   admin-audit-exported: '交易所审计 CSV 已导出：<0>'
   admin-audit-status: '交易所审计状态：\n<0>'
   admin-audit-acknowledged: '交易所告警已确认。'
+  reload-requested: '已请求重载交易所配置，结果请查看服务器控制台。'
   admin-transfer-review-list: '等待审核的转账：\n<0>'
   admin-transfer-review-detail: '转账审核详情：<0>'
   ui-data-unavailable: '交易所数据暂时不可用。'

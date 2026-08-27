@@ -17,17 +17,21 @@ import com.ghostchu.quickshop.addon.exchange.runtime.ShutdownSequence;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeMenuListener;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeMenuService;
 import com.ghostchu.quickshop.api.command.CommandContainer;
+import com.ghostchu.quickshop.api.event.QSConfigurationReloadEvent;
 import java.io.File;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.logging.Level;
 import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.event.EventHandler;
 import org.bukkit.event.HandlerList;
+import org.bukkit.event.Listener;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public final class Main extends JavaPlugin {
+public final class Main extends JavaPlugin implements Listener {
   private ExchangeRuntime runtime;
+  private ExchangeRuntimeFactory runtimeFactory;
   private CommandContainer exchangeCommand;
   private PluginCommand qseCommand;
   private ExchangeMenuService menus;
@@ -51,12 +55,15 @@ public final class Main extends JavaPlugin {
       return;
     }
     try {
-      runtime = new ExchangeRuntimeFactory(this, QuickShop.getInstance()).create();
+      runtimeFactory = new ExchangeRuntimeFactory(this, QuickShop.getInstance());
+      runtime = runtimeFactory.create();
       runtime.start();
       registerPlayerEntrypoints();
+      Bukkit.getPluginManager().registerEvents(this, this);
     } catch (Exception failure) {
-      getLogger().log(Level.SEVERE, "Exchange startup failed safely", failure);
-      Bukkit.getPluginManager().disablePlugin(this);
+      getLogger().log(Level.SEVERE,
+          "Exchange startup failed; addon remains disabled. Fix the configuration and run"
+              + " /qse reload or restart the server. Cause:", failure);
     }
   }
 
@@ -70,6 +77,30 @@ public final class Main extends JavaPlugin {
           }
         }, failure -> getLogger().log(Level.SEVERE, "Exchange shutdown cleanup failed", failure));
     runtime = null;
+    runtimeFactory = null;
+  }
+
+  @EventHandler(ignoreCancelled = true)
+  public void onQuickShopReload(QSConfigurationReloadEvent event) {
+    reloadExchangeConfig();
+  }
+
+  /** Re-reads exchange configuration and hot-applies operational settings without restarting. */
+  public void reloadExchangeConfig() {
+    ExchangeRuntime activeRuntime = runtime;
+    ExchangeRuntimeFactory factory = runtimeFactory;
+    if (activeRuntime == null || factory == null) {
+      getLogger().warning("Exchange reload skipped: runtime is not started");
+      return;
+    }
+    try {
+      reloadConfig();
+      factory.reloadConfig();
+      getLogger().info("Exchange configuration reloaded successfully");
+    } catch (Exception failure) {
+      getLogger().log(Level.SEVERE,
+          "Exchange configuration reload failed; keeping previous settings. Cause:", failure);
+    }
   }
 
   private void registerPlayerEntrypoints() {
@@ -100,7 +131,7 @@ public final class Main extends JavaPlugin {
               public void open(ExchangeMenuRequest request) {
                 menus.open(player, request);
               }
-            });
+            }, this::reloadExchangeConfig);
     exchangeCommand = CommandContainer.builder()
         .prefix("exchange")
         .description(locale -> net.kyori.adventure.text.Component.text(

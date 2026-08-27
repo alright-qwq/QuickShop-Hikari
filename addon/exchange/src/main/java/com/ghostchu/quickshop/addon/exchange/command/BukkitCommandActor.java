@@ -13,13 +13,21 @@ public final class BukkitCommandActor implements CommandActor {
   private final AddonMessageService messages;
   private final Locale locale;
   private final MenuOpener menus;
+  private final Runnable reloadAction;
 
   public BukkitCommandActor(
       Player player, AddonMessageService messages, Locale locale, MenuOpener menus) {
+    this(player, messages, locale, menus, () -> {});
+  }
+
+  public BukkitCommandActor(
+      Player player, AddonMessageService messages, Locale locale, MenuOpener menus,
+      Runnable reloadAction) {
     this.player = Objects.requireNonNull(player, "player");
     this.messages = Objects.requireNonNull(messages, "messages");
     this.locale = Objects.requireNonNull(locale, "locale");
     this.menus = Objects.requireNonNull(menus, "menus");
+    this.reloadAction = Objects.requireNonNull(reloadAction, "reloadAction");
   }
 
   @Override
@@ -51,6 +59,12 @@ public final class BukkitCommandActor implements CommandActor {
   @Override
   public void openMenu(ExchangeMenuRequest request) {
     menus.open(request);
+  }
+
+  @Override
+  public void reloadRequested() {
+    player.sendMessage(messages.message("reload-requested", locale));
+    reloadAction.run();
   }
 
   @FunctionalInterface

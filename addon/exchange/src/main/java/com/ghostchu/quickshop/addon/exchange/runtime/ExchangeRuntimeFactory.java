@@ -3,6 +3,7 @@ package com.ghostchu.quickshop.addon.exchange.runtime;
 import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.config.AssetType;
 import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
+import com.ghostchu.quickshop.addon.exchange.config.MarketStateReader;
 import com.ghostchu.quickshop.addon.exchange.config.MarketRegistry;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
@@ -63,6 +64,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class ExchangeRuntimeFactory {
   private final JavaPlugin addon;
   private final QuickShop quickShop;
+  private volatile Map<String, PersistentOrderService> markets;
+  private volatile MarketDataService marketData;
+  private volatile MarketRegistry registry;
 
   public ExchangeRuntimeFactory(JavaPlugin addon, QuickShop quickShop) {
     this.addon = java.util.Objects.requireNonNull(addon, "addon");
@@ -92,8 +96,10 @@ public final class ExchangeRuntimeFactory {
       }
       JdbcExchangeRepository repository = bootstrapped.get();
       MarketRegistry registry = MarketRegistry.load(configFile, marketsFile, repository);
+    this.registry = registry;
 
     MarketDataService marketData = new MarketDataService(new CandleAggregator(), repository);
+    this.marketData = marketData;
     com.ghostchu.quickshop.addon.exchange.operations.ExchangeMetrics metrics =
         new com.ghostchu.quickshop.addon.exchange.operations.ExchangeMetrics();
     java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>
@@ -109,8 +115,10 @@ public final class ExchangeRuntimeFactory {
       }
     });
     Map<String, PersistentOrderService> markets = new java.util.LinkedHashMap<>();
+    Map<String, MarketDefinition> reloadedDefinitions = new java.util.LinkedHashMap<>();
     for (String marketId : registry.marketIds()) {
       MarketDefinition definition = registry.require(marketId);
+      reloadedDefinitions.put(marketId, definition);
       MarketRules rules = rules(definition);
       RiskLimits limits = limits(definition);
       AssetCustody custody = definition.assetType() == AssetType.VIRTUAL_SECURITY
@@ -120,6 +128,7 @@ public final class ExchangeRuntimeFactory {
           repository, rules, limits, RecoveryHandler.NO_OP,
           accountLimits(definition.risk()), marketData, custody));
     }
+    this.markets = java.util.Map.copyOf(markets);
 
     PlayerOperationSerialiser playerOperations = new PlayerOperationSerialiser();
     NamespacedKey marker = new NamespacedKey(addon, "exchange-transfer");
@@ -190,8 +199,10 @@ public final class ExchangeRuntimeFactory {
                 entry.getKey(), definition.displayName()));
       }
     }
+    long guiRefreshMs = Math.max(250L, addon.getConfig().getLong("market-data.gui-refresh-ms", 1000));
     ExchangeViewService views = new ExchangeViewService(marketViews, marketData, maintenance,
-        repository, java.util.List.copyOf(transferTargets.values()));
+        repository, java.util.List.copyOf(transferTargets.values()),
+        java.time.Duration.ofMillis(guiRefreshMs));
     java.nio.file.Path auditDirectory = requireAuditDirectory(
         addon.getDataFolder().toPath(),
         addon.getConfig().getString("operations.audit-export-directory", "audit"));
@@ -228,6 +239,19 @@ public final class ExchangeRuntimeFactory {
         database.writer(), () -> marketData.purgeOldCandles(
             java.time.Duration.ofDays(candleRetentionDays), marketIds)),
         30L, 24L * 60L, TimeUnit.MINUTES);
+    int reconciliationIntervalMinutes = addon.getConfig().getInt(
+        "operations.reconciliation-interval-minutes", 1440);
+    if (reconciliationIntervalMinutes > 0) {
+      maintenance.scheduleWithFixedDelay(() -> runWhileOwned(
+          database.writer(), () -> {
+            com.ghostchu.quickshop.addon.exchange.ledger.ReconciliationReport report =
+                repository.reconcile();
+            if (!report.balanced()) {
+              addon.getLogger().warning("Exchange reconciliation detected differences: "
+                  + report);
+            }
+          }), 15L, reconciliationIntervalMinutes, TimeUnit.MINUTES);
+    }
     maintenance.scheduleWithFixedDelay(marketData::publishPlayerUpdates,
         1L, 1L, TimeUnit.SECONDS);
 
@@ -249,6 +273,30 @@ public final class ExchangeRuntimeFactory {
       database.writer().close();
       throw failure;
     }
+  }
+
+  /** Re-reads markets.yml/config.yml and hot-applies operational risk settings. */
+  public void reloadConfig() {
+    Map<String, PersistentOrderService> liveMarkets = this.markets;
+    MarketRegistry liveRegistry = this.registry;
+    if (liveMarkets == null || liveRegistry == null) {
+      throw new IllegalStateException("exchange runtime is not started");
+    }
+    File reloadConfig = new File(addon.getDataFolder(), "config.yml");
+    File reloadMarkets = new File(addon.getDataFolder(), "markets.yml");
+    MarketRegistry reloaded = MarketRegistry.load(reloadConfig, reloadMarkets);
+    if (!liveMarkets.keySet().equals(reloaded.marketIds())) {
+      throw new IllegalStateException(
+          "market set cannot change during reload; pause markets and restart to apply structural changes");
+    }
+    liveRegistry.reload(reloaded.definitions(), market ->
+        new MarketStateReader.State(MarketStatus.PAUSED, 0));
+    for (String marketId : liveMarkets.keySet()) {
+      MarketDefinition next = reloaded.require(marketId);
+      PersistentOrderService service = liveMarkets.get(marketId);
+      service.updateRiskLimits(limits(next), accountLimits(next.risk()));
+    }
+    this.registry = liveRegistry;
   }
 
   static void flushWhileOwned(SingleWriterGuard writer, MarketDataService marketData, Instant at) {

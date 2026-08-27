@@ -35,28 +35,40 @@ public final class ExchangeViewService {
   private final ExchangeRepository repository;
   private final List<TransferTarget> transferTargets;
   private final MarketListPresenter presenter = new MarketListPresenter();
-  private static final Duration MARKET_UPDATE_MIN_INTERVAL = Duration.ofSeconds(1);
+  private final Duration marketUpdateMinInterval;
   private final java.util.Map<UUID, Long> lastMarketRefresh =
       new java.util.concurrent.ConcurrentHashMap<>();
 
   public ExchangeViewService(Map<String, MarketView> markets, MarketDataService marketData,
                              Executor executor) {
-    this(markets, marketData, executor, null, List.of());
+    this(markets, marketData, executor, null, List.of(), Duration.ofSeconds(1));
   }
 
   public ExchangeViewService(Map<String, MarketView> markets, MarketDataService marketData,
                              Executor executor, ExchangeRepository repository) {
-    this(markets, marketData, executor, repository, List.of());
+    this(markets, marketData, executor, repository, List.of(), Duration.ofSeconds(1));
   }
 
   public ExchangeViewService(Map<String, MarketView> markets, MarketDataService marketData,
                              Executor executor, ExchangeRepository repository,
                              List<TransferTarget> transferTargets) {
+    this(markets, marketData, executor, repository, transferTargets, Duration.ofSeconds(1));
+  }
+
+  public ExchangeViewService(Map<String, MarketView> markets, MarketDataService marketData,
+                             Executor executor, ExchangeRepository repository,
+                             List<TransferTarget> transferTargets,
+                             Duration marketUpdateMinInterval) {
     this.markets = Map.copyOf(new LinkedHashMap<>(markets));
     this.marketData = Objects.requireNonNull(marketData, "marketData");
     this.executor = Objects.requireNonNull(executor, "executor");
     this.repository = repository;
     this.transferTargets = List.copyOf(Objects.requireNonNull(transferTargets, "transferTargets"));
+    this.marketUpdateMinInterval = Objects.requireNonNull(marketUpdateMinInterval,
+        "marketUpdateMinInterval");
+    if (marketUpdateMinInterval.isZero() || marketUpdateMinInterval.isNegative()) {
+      throw new IllegalArgumentException("market update interval must be positive");
+    }
   }
 
   public List<TransferTarget> transferTargets() {
@@ -72,7 +84,7 @@ public final class ExchangeViewService {
       Long previous = lastMarketRefresh.get(playerId);
       boolean forward = previous == null
           ? lastMarketRefresh.putIfAbsent(playerId, now) == null
-          : now - previous >= MARKET_UPDATE_MIN_INTERVAL.toMillis()
+          : now - previous >= marketUpdateMinInterval.toMillis()
               && lastMarketRefresh.replace(playerId, previous, now);
       if (forward) {
         consumer.accept(update);

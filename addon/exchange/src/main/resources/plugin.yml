@@ -33,3 +33,5 @@ permissions:
     default: op
   quickshop.exchange.admin.stock:
     default: op
+  quickshop.exchange.admin.reload:
+    default: op

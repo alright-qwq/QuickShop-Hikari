@@ -886,6 +886,30 @@ class PersistentOrderServiceTest {
     assertThat(fixture.highAlertCount()).isEqualTo(1);
   }
 
+  @Test
+  void hotRiskUpdateAppliesNewCageAndLimitsWithoutDisturbingTheBook() throws Exception {
+    ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
+    UUID seller = fixture.accountWithItems(1);
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), seller, "diamond-usd",
+        OrderSide.SELL, "LIMIT", new BigDecimal("100.00"), null, 1));
+    UUID buyer = fixture.accountWithCurrency("1000.00");
+    fixture.service().place(new OrderRequest(UUID.randomUUID(), buyer, "diamond-usd",
+        OrderSide.BUY, "LIMIT", new BigDecimal("100.00"), null, 1));
+
+    RiskLimits tightCage = new RiskLimits(new BigDecimal("0.01"), new BigDecimal("0.05"),
+        new BigDecimal("0.20"), new BigDecimal("0.10"), Duration.ofMinutes(2),
+        new BigDecimal("0.20"), Duration.ofMinutes(10));
+    fixture.service().updateRiskLimits(tightCage, new AccountOrderLimits(
+        1, new BigDecimal("10.00"), 1, 5, 60));
+
+    assertThatThrownBy(() -> fixture.service().place(new OrderRequest(
+        UUID.randomUUID(), buyer, "diamond-usd", OrderSide.BUY, "LIMIT",
+        new BigDecimal("120.00"), null, 1)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("PRICE_OUTSIDE_CAGE");
+    assertThat(fixture.orderCount()).isEqualTo(2);
+  }
+
   private static void await(CountDownLatch latch) {
     try {
       if (!latch.await(5, TimeUnit.SECONDS)) {

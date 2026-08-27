@@ -71,11 +71,11 @@ public final class PersistentOrderService {
       new ConcurrentHashMap<>();
   private final ExchangeRepository repository;
   private final MarketRules rules;
-  private final RiskLimits riskLimits;
-  private final AccountOrderLimits accountLimits;
-  private final OrderRiskService orderRisks;
-  private final FeeCalculator fees;
-  private final ReservationCalculator reservations;
+  private final java.util.concurrent.atomic.AtomicReference<RiskLimits> riskLimits;
+  private final java.util.concurrent.atomic.AtomicReference<AccountOrderLimits> accountLimits;
+  private final java.util.concurrent.atomic.AtomicReference<OrderRiskService> orderRisks;
+  private final java.util.concurrent.atomic.AtomicReference<FeeCalculator> fees;
+  private final java.util.concurrent.atomic.AtomicReference<ReservationCalculator> reservations;
   private final AssetCustody custody;
   private final TimeOrderedIdGenerator ids;
   private final Supplier<Instant> now;
@@ -90,7 +90,17 @@ public final class PersistentOrderService {
   }
 
   public AccountOrderLimits accountOrderLimits() {
-    return accountLimits;
+    return accountLimits.get();
+  }
+
+  /** Atomically refreshes market-risk parameters without disturbing the live order book. */
+  public void updateRiskLimits(RiskLimits limits, AccountOrderLimits accountLimits) {
+    Objects.requireNonNull(limits, "limits");
+    Objects.requireNonNull(accountLimits, "accountLimits");
+    riskLimits.set(limits);
+    this.accountLimits.set(accountLimits);
+    orderRisks.set(new OrderRiskService(new OrderRateLimiter(
+        accountLimits.operationsPerSecond(), accountLimits.operationsPerMinute())));
   }
 
   /** Production wiring should prefer the constructor that supplies a recovery handler. */
@@ -188,19 +198,24 @@ public final class PersistentOrderService {
                          AssetCustody custody) {
     this.repository = Objects.requireNonNull(repository, "repository");
     this.rules = Objects.requireNonNull(rules, "rules");
-    this.riskLimits = Objects.requireNonNull(riskLimits, "riskLimits");
-    this.accountLimits = Objects.requireNonNull(accountLimits, "accountLimits");
-    this.orderRisks = new OrderRiskService(new OrderRateLimiter(
-        accountLimits.operationsPerSecond(), accountLimits.operationsPerMinute()));
+    this.riskLimits = new java.util.concurrent.atomic.AtomicReference<>(
+        Objects.requireNonNull(riskLimits, "riskLimits"));
+    this.accountLimits = new java.util.concurrent.atomic.AtomicReference<>(
+        Objects.requireNonNull(accountLimits, "accountLimits"));
+    this.orderRisks = new java.util.concurrent.atomic.AtomicReference<>(
+        new OrderRiskService(new OrderRateLimiter(
+            accountLimits.operationsPerSecond(), accountLimits.operationsPerMinute())));
     this.recovery = Objects.requireNonNull(recovery, "recovery");
     this.observer = Objects.requireNonNull(observer, "observer");
     this.marketData = marketData;
     this.ids = Objects.requireNonNull(ids, "ids");
     this.now = Objects.requireNonNull(now, "now");
-    this.fees = new FeeCalculator(rules.priceScale());
-    this.reservations = new ReservationCalculator(fees);
+    this.fees = new java.util.concurrent.atomic.AtomicReference<>(
+        new FeeCalculator(rules.priceScale()));
+    this.reservations = new java.util.concurrent.atomic.AtomicReference<>(
+        new ReservationCalculator(this.fees.get()));
     this.custody = Objects.requireNonNull(custody, "custody");
-    this.marketRecovery = new OrderBookRecoveryService(repository, rules, riskLimits);
+    this.marketRecovery = new OrderBookRecoveryService(repository, rules, this.riskLimits.get());
     MarketCoordinationKey coordinationKey = new MarketCoordinationKey(
         Objects.requireNonNull(repository.coordinationKey(), "repository coordination key"),
         rules.marketId());
@@ -209,7 +224,7 @@ public final class PersistentOrderService {
             new OrderBook(),
             new ReferencePriceTracker(rules.basePrice(), REFERENCE_DISCOVERY_QUANTITY,
                 REFERENCE_WINDOW, rules.priceScale()),
-            new CircuitBreaker(riskLimits),
+            new CircuitBreaker(this.riskLimits.get()),
             Long.MIN_VALUE));
   }
 
@@ -406,8 +421,9 @@ public final class PersistentOrderService {
     RuntimeRiskSnapshot runtimeRisk = runtimeRisk(tx, lockedState, evaluatedAt);
     MarketState beforeState = runtimeRisk.state();
     if (parseType(request.type()) == OrderType.MARKET) {
-      OrderRiskService.RejectReason rejection = orderRisks.checkMarketSlippage(
-          request.slippageBoundary(), beforeState.referencePrice(), riskLimits.maximumSlippage());
+      OrderRiskService.RejectReason rejection = orderRisks.get().checkMarketSlippage(
+          request.slippageBoundary(), beforeState.referencePrice(),
+          riskLimits.get().maximumSlippage());
       if (rejection != null) {
         throw new IllegalStateException(rejection.name());
       }
@@ -432,7 +448,7 @@ public final class PersistentOrderService {
     }
 
     if (incoming.type() == OrderType.LIMIT
-        && !riskLimits.insideCage(incoming.limitPrice(), beforeState.referencePrice())) {
+        && !riskLimits.get().insideCage(incoming.limitPrice(), beforeState.referencePrice())) {
       reject(OrderRiskService.RejectReason.PRICE_OUTSIDE_CAGE);
     }
     if (wouldSelfTrade(request, transactionBook, beforeState.referencePrice())) {
@@ -440,9 +456,9 @@ public final class PersistentOrderService {
     }
 
     Reservation reservation = incoming.type() == OrderType.MARKET
-        ? reservations.reserve(incoming, incomingRules, transactionBook,
-            price -> riskLimits.insideCage(price, beforeState.referencePrice()))
-        : reservations.reserve(incoming, incomingRules);
+        ? reservations.get().reserve(incoming, incomingRules, transactionBook,
+            price -> riskLimits.get().insideCage(price, beforeState.referencePrice()))
+        : reservations.get().reserve(incoming, incomingRules);
 
     long holding = custody.holding(tx, request.accountId(), rules.marketId());
     BigDecimal frozenCurrency = tx.existingCurrency(request.accountId(), rules.currencyId())
@@ -452,10 +468,10 @@ public final class PersistentOrderService {
         .count();
     AccountRiskSnapshot accountRisk = new AccountRiskSnapshot(
         holding, frozenCurrency, openOrders);
-    OrderRiskService.RejectReason exposureRejection = orderRisks.checkExposure(
+    OrderRiskService.RejectReason exposureRejection = orderRisks.get().checkExposure(
         incoming.side() == OrderSide.BUY ? incoming.originalQuantity() : 0,
         incoming.side() == OrderSide.BUY ? reservation.frozenCurrency() : BigDecimal.ZERO,
-        accountRisk, accountLimits, incoming.type() == OrderType.LIMIT);
+        accountRisk, accountLimits.get(), incoming.type() == OrderType.LIMIT);
     if (exposureRejection != null) {
       throw new IllegalStateException(exposureRejection.name());
     }
@@ -463,9 +479,9 @@ public final class PersistentOrderService {
     AtomicLong matchSequence = new AtomicLong(beforeState.matchSequence());
     ReferencePriceTracker transactionPrices = runtimeRisk.referencePrices();
     CircuitBreaker transactionBreaker = runtimeRisk.circuitBreaker();
-    MatchingEngine engine = new MatchingEngine(transactionBook, rules, fees,
+    MatchingEngine engine = new MatchingEngine(transactionBook, rules, fees.get(),
         matchSequence::incrementAndGet, now, ids,
-        price -> riskLimits.insideCage(price, beforeState.referencePrice()),
+        price -> riskLimits.get().insideCage(price, beforeState.referencePrice()),
         order -> feeSchedule.rates(order.feeVersion()));
     MatchResult match = engine.submit(incoming);
     Order taker = match.selfTradeRejected()
@@ -644,15 +660,15 @@ public final class PersistentOrderService {
       Instant asOf = now.get();
       BigDecimal reference = runtimeState.referencePrices.copy().referenceAt(asOf);
       BigDecimal bestBid = runtimeState.committedBook.bestExecutable(OrderSide.BUY,
-          price -> riskLimits.insideCage(price, reference)).map(Order::limitPrice).orElse(null);
+          price -> riskLimits.get().insideCage(price, reference)).map(Order::limitPrice).orElse(null);
       BigDecimal bestAsk = runtimeState.committedBook.bestExecutable(OrderSide.SELL,
-          price -> riskLimits.insideCage(price, reference)).map(Order::limitPrice).orElse(null);
+          price -> riskLimits.get().insideCage(price, reference)).map(Order::limitPrice).orElse(null);
       List<MarketDataService.DepthLevel> bids = data.depth(runtimeState.committedBook,
-              OrderSide.BUY, reference, riskLimits).stream()
+              OrderSide.BUY, reference, riskLimits.get()).stream()
           .sorted(Comparator.comparing(MarketDataService.DepthLevel::price).reversed())
           .limit(limit).toList();
       List<MarketDataService.DepthLevel> asks = data.depth(runtimeState.committedBook,
-              OrderSide.SELL, reference, riskLimits).stream()
+              OrderSide.SELL, reference, riskLimits.get()).stream()
           .sorted(Comparator.comparing(MarketDataService.DepthLevel::price))
           .limit(limit).toList();
       return new MarketBookSnapshot(status, asOf, reference, bestBid, bestAsk, bids, asks);
@@ -725,7 +741,7 @@ public final class PersistentOrderService {
 
   private OrderReceipt preflightRisk(OrderRequest request) throws SQLException {
     OrderRiskService.RejectReason rateLimitRejection =
-        orderRisks.checkRateLimit(request.accountId(), now.get());
+        orderRisks.get().checkRateLimit(request.accountId(), now.get());
     if (rateLimitRejection != null) {
       return storedOrReject(request, rateLimitRejection);
     }
@@ -735,7 +751,7 @@ public final class PersistentOrderService {
       }
       BigDecimal reference = runtimeState.referencePrices.copy().referenceAt(now.get());
       if (parseType(request.type()) == OrderType.LIMIT
-          && !riskLimits.insideCage(request.price(), reference)) {
+          && !riskLimits.get().insideCage(request.price(), reference)) {
         return storedOrReject(request, OrderRiskService.RejectReason.PRICE_OUTSIDE_CAGE);
       }
       if (wouldSelfTrade(request, runtimeState.committedBook, reference)) {
@@ -760,7 +776,7 @@ public final class PersistentOrderService {
     BigDecimal boundary = type == OrderType.LIMIT ? request.price() : request.slippageBoundary();
     OrderSide opposite = request.side() == OrderSide.BUY ? OrderSide.SELL : OrderSide.BUY;
     for (Order maker : book.executableOrders(opposite,
-        price -> riskLimits.insideCage(price, referencePrice))) {
+        price -> riskLimits.get().insideCage(price, referencePrice))) {
       boolean crosses = request.side() == OrderSide.BUY
           ? maker.limitPrice().compareTo(boundary) <= 0
           : maker.limitPrice().compareTo(boundary) >= 0;
@@ -892,7 +908,7 @@ public final class PersistentOrderService {
       return BigDecimal.ZERO;
     }
     BigDecimal reserved = currencyReservations.get(order.orderId());
-    BigDecimal required = reservations.reserve(order, rulesWithFees(
+    BigDecimal required = reservations.get().reserve(order, rulesWithFees(
         feeSchedule.rates(order.feeVersion()))).frozenCurrency();
     BigDecimal release = reserved.subtract(required);
     if (release.signum() < 0) {

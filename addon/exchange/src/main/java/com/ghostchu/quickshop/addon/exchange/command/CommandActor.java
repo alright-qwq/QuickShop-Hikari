@@ -20,4 +20,7 @@ public interface CommandActor {
   default void openMenu(ExchangeMenuRequest request) {
     openMenu(request.menuName(), request.page());
   }
+
+  /** Requests an administrator-triggered configuration reload. */
+  default void reloadRequested() {}
 }
