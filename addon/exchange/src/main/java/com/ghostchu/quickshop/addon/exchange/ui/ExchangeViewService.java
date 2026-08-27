@@ -110,10 +110,13 @@ public final class ExchangeViewService {
     }
     return CompletableFuture.supplyAsync(() -> {
       try {
+        Map<String, com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState> securities =
+            loadSecurityDefinitions();
         return presenter.rows(List.of(new MarketListPresenter.Entry(market.marketId(),
             market.displayName(), market.service().marketQuote(marketData),
             market.assetType(), market.symbol(), market.totalSupply(),
-            market.securityStatus().get(), issuedSupply(market), recentTrades(market.marketId()))))
+            securityStatus(securities, market.marketId()),
+            issuedSupply(securities, market), recentTrades(market.marketId()))))
             .getFirst();
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + marketId, failure);
@@ -202,9 +205,12 @@ public final class ExchangeViewService {
             .marketBookSnapshot(marketData, 5);
         MarketQuote quote = marketData.quote(marketId, book.referencePrice(), book.bestBid(),
             book.bestAsk(), book.status(), book.asOf());
+        Map<String, com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState> securities =
+            loadSecurityDefinitions();
         MarketListPresenter.Entry entry = new MarketListPresenter.Entry(market.marketId(),
             market.displayName(), quote, market.assetType(), market.symbol(),
-            market.totalSupply(), market.securityStatus().get(), issuedSupply(market),
+            market.totalSupply(), securityStatus(securities, market.marketId()),
+            issuedSupply(securities, market),
             recentTrades(market.marketId()));
         MarketRow row = presenter.rows(List.of(entry)).getFirst();
         if (row.notional24h() != null) {
@@ -423,11 +429,6 @@ public final class ExchangeViewService {
       throw new IllegalArgumentException("unknown market: " + marketId);
     }
     return market;
-  }
-
-  private static Long issuedSupply(MarketView market) {
-    return market.assetType() != null && "VIRTUAL_SECURITY".equals(market.assetType())
-        ? market.issuedSupply().get() : null;
   }
 
   private List<MarketRow.TradeLore> recentTrades(String marketId) {
