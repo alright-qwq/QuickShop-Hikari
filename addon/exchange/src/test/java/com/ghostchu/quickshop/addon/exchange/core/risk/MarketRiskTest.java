@@ -97,6 +97,18 @@ class MarketRiskTest {
   }
 
   @Test
+  void rejectsInvalidPriceSamples() {
+    assertThatThrownBy(() -> new PriceSample(null, 1, Instant.EPOCH))
+        .isInstanceOf(NullPointerException.class);
+    assertThatThrownBy(() -> new PriceSample(new BigDecimal("0"), 1, Instant.EPOCH))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> new PriceSample(new BigDecimal("1"), 0, Instant.EPOCH))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> new PriceSample(new BigDecimal("1"), 1, null))
+        .isInstanceOf(NullPointerException.class);
+  }
+
+  @Test
   void cagesPriceAndEscalatesBreaker() {
     RiskLimits limits = RiskLimits.defaults();
     assertThat(limits.insideCage(new BigDecimal("120.00"), new BigDecimal("100.00"))).isTrue();
