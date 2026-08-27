@@ -6,6 +6,7 @@ import com.ghostchu.quickshop.addon.exchange.core.matching.FeeCalculator;
 import com.ghostchu.quickshop.addon.exchange.core.matching.MatchResult;
 import com.ghostchu.quickshop.addon.exchange.core.matching.MatchingEngine;
 import com.ghostchu.quickshop.addon.exchange.core.model.Order;
+import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderType;
@@ -78,6 +79,21 @@ class MarketRiskTest {
 
     assertThat(permission.level()).isEqualTo(2);
     assertThat(breaker.level()).isEqualTo(2);
+  }
+
+  @Test
+  void rejectsRestoredTrackerWithNonPositiveBasePrice() {
+    assertThatThrownBy(() -> ReferencePriceTracker.restored(
+        new BigDecimal("0"), 100, Duration.ofMinutes(5), 2, 0, List.of()))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void rejectsRestoredBreakerWithNonPositiveReferencePrice() {
+    assertThatThrownBy(() -> CircuitBreaker.restored(
+        RiskLimits.defaults(), MarketStatus.OPEN,
+        new BigDecimal("0"), null, null))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test

@@ -18,8 +18,19 @@ public final class ReferencePriceTracker {
 
   public ReferencePriceTracker(BigDecimal basePrice, long discoveryQuantity,
                                Duration window, int scale) {
+    Objects.requireNonNull(basePrice, "basePrice");
+    if (basePrice.signum() <= 0) {
+      throw new IllegalArgumentException("base price must be positive");
+    }
     if (discoveryQuantity < 10) {
       throw new IllegalArgumentException("discovery quantity must be at least 10");
+    }
+    Objects.requireNonNull(window, "window");
+    if (window.isNegative() || window.isZero()) {
+      throw new IllegalArgumentException("reference window must be positive");
+    }
+    if (scale < 0 || scale > 12) {
+      throw new IllegalArgumentException("price scale must be between 0 and 12");
     }
     this.basePrice = basePrice;
     this.discoveryQuantity = discoveryQuantity;
