@@ -1,30 +1,33 @@
 # ============================================================================
 # 纯概念股市场配置示例（仅虚拟证券，无任何实物物品）
 #
-# 使用方法：
+# 使用方法（全新部署，默认全部开启）：
 #   1. 把下方 markets: 段替换服务器上 qssuite-exchange 数据目录里的
 #      markets.yml 对应内容（或把需要的条目合并进去）。
-#   2. 先用 enabled: false 启动一次服务器，让市场和证券行写入数据库。
-#   3. 把 enabled 改为 true 并重启；若市场状态不是 OPEN，
-#      先执行 /qse admin market resume <市场ID> <原因>。
-#   4. 逐个恢复证券（CLOSED -> OPEN）：
-#        /qse admin stock resume ALPHA 上线
-#        /qse admin stock resume BETA 上线
-#        /qse admin stock resume GAMMA 上线
-#        /qse admin stock resume DELTA 上线
-#        /qse admin stock resume EPSLN 上线
-#        /qse admin stock resume ZETA 上线
-#        /qse admin stock resume ETA 上线
-#        /qse admin stock resume THETA 上线
-#        /qse admin stock resume IOTA 上线
-#        /qse admin stock resume KAPPA 上线
-#        /qse admin stock resume LAMBDA 上线
-#        /qse admin stock resume OMEGA 上线
-#        /qse admin stock resume PIXEL 上线
-#        /qse admin stock resume NOVA 上线
-#        /qse admin stock resume MOON 上线
-#   5. 用 /qse admin stock issue <市场ID|代码> <玩家UUID> <数量> <原因>
-#      发行初始供应量，玩家才真正持有可交易的股票。
+#   2. 重启服务器。首次启动会自动为每个市场创建数据库行，并直接以
+#      OPEN 状态开放市场与证券（enabled: true），无需逐个 resume。
+#   3. 发行初始供应量，让玩家有股票可卖（每只一条，替换 <玩家UUID>）：
+#        /qse admin stock issue ALPHA <玩家UUID> 5000 首发
+#        /qse admin stock issue BETA <玩家UUID> 2000 首发
+#        /qse admin stock issue GAMMA <玩家UUID> 10000 首发
+#        /qse admin stock issue DELTA <玩家UUID> 3000 首发
+#        /qse admin stock issue EPSLN <玩家UUID> 1000 首发
+#        /qse admin stock issue ZETA <玩家UUID> 25000 首发
+#        /qse admin stock issue ETA <玩家UUID> 750 首发
+#        /qse admin stock issue THETA <玩家UUID> 4000 首发
+#        /qse admin stock issue IOTA <玩家UUID> 50000 首发
+#        /qse admin stock issue KAPPA <玩家UUID> 1250 首发
+#        /qse admin stock issue LAMBDA <玩家UUID> 500 首发
+#        /qse admin stock issue OMEGA <玩家UUID> 250 首发
+#        /qse admin stock issue PIXEL <玩家UUID> 7500 首发
+#        /qse admin stock issue NOVA <玩家UUID> 1750 首发
+#        /qse admin stock issue MOON <玩家UUID> 250000 首发
+#   4. 玩家即可在 /qse stocks 看到全部市场并开始交易。
+#
+# 注意：若数据库里已存在之前用 enabled: false 创建的 CLOSED 行，改配置
+# 不会改变已有状态，需要先执行一次 /qse admin stock resume <代码> 上线。
+# 规则：min-quantity 必须是 minimum-unit 的整数倍（IOTA/MOON 因最小单位
+# 为 10/100，min-quantity 已对应设为 10/100）。
 #
 # 设计说明：15 只股票覆盖不同"行业"与风险档位——
 #   大盘稳健：ALPHA / DELTA / PIXEL / IOTA / GAMMA
@@ -35,7 +38,7 @@
 config-version: 1
 markets:
   alpha:
-    enabled: false
+    enabled: true
     display-name: 阿尔法控股
     security:
       symbol: ALPHA
@@ -61,7 +64,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   beta:
-    enabled: false
+    enabled: true
     display-name: 贝塔动力
     security:
       symbol: BETA
@@ -87,7 +90,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   gamma:
-    enabled: false
+    enabled: true
     display-name: 伽马深矿
     security:
       symbol: GAMMA
@@ -113,7 +116,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   delta:
-    enabled: false
+    enabled: true
     display-name: 德尔塔物流
     security:
       symbol: DELTA
@@ -139,7 +142,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   epsln:
-    enabled: false
+    enabled: true
     display-name: 艾普西隆能源
     security:
       symbol: EPSLN
@@ -165,7 +168,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   zeta:
-    enabled: false
+    enabled: true
     display-name: 泽塔炼金
     security:
       symbol: ZETA
@@ -191,7 +194,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   eta:
-    enabled: false
+    enabled: true
     display-name: 伊塔附魔
     security:
       symbol: ETA
@@ -217,7 +220,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   theta:
-    enabled: false
+    enabled: true
     display-name: 西塔红石
     security:
       symbol: THETA
@@ -243,7 +246,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   iota:
-    enabled: false
+    enabled: true
     display-name: 艾奥塔农产
     security:
       symbol: IOTA
@@ -259,7 +262,7 @@ markets:
     tick-size: '0.01'
     price-scale: 2
     currency-scale: 2
-    min-quantity: 1
+    min-quantity: 10
     max-quantity: 10000
     discovery-quantity: 1000
     maker-fee-rate: '0.001'
@@ -269,7 +272,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   kappa:
-    enabled: false
+    enabled: true
     display-name: 卡帕酿酒
     security:
       symbol: KAPPA
@@ -295,7 +298,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   lambda:
-    enabled: false
+    enabled: true
     display-name: 兰布达下界工程
     security:
       symbol: LAMBDA
@@ -321,7 +324,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   omega:
-    enabled: false
+    enabled: true
     display-name: 欧米伽末地工业
     security:
       symbol: OMEGA
@@ -347,7 +350,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   pixel:
-    enabled: false
+    enabled: true
     display-name: 像素锻造
     security:
       symbol: PIXEL
@@ -373,7 +376,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   nova:
-    enabled: false
+    enabled: true
     display-name: 新星交通
     security:
       symbol: NOVA
@@ -399,7 +402,7 @@ markets:
     max-open-orders: 100
     block-container-shops: false
   moon:
-    enabled: false
+    enabled: true
     display-name: 月亮 Meme 币
     security:
       symbol: MOON
@@ -415,7 +418,7 @@ markets:
     tick-size: '0.01'
     price-scale: 2
     currency-scale: 2
-    min-quantity: 1
+    min-quantity: 100
     max-quantity: 50000
     discovery-quantity: 1000
     maker-fee-rate: '0.001'
