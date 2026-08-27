@@ -4,6 +4,7 @@ import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.Objects;
 
 public final class CircuitBreaker {
   private final RiskLimits limits;
@@ -69,6 +70,10 @@ public final class CircuitBreaker {
   public static CircuitBreaker restored(
       RiskLimits limits, MarketStatus status, BigDecimal referencePrice,
       BigDecimal lastPrice, Instant haltedUntil) {
+    Objects.requireNonNull(referencePrice, "referencePrice");
+    if (referencePrice.signum() <= 0) {
+      throw new IllegalArgumentException("reference price must be positive");
+    }
     CircuitBreaker restored = new CircuitBreaker(limits);
     if (lastPrice != null) {
       BigDecimal move = lastPrice.subtract(referencePrice).abs()
