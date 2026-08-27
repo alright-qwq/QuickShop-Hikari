@@ -1,60 +1,38 @@
-# QuickShop Exchange Operations
+# 交易所运营文档
 
-## Rollout
+> 本文件最初为英文，中文翻译可能存在滞后。
 
-1. Back up the QuickShop database and `plugins/qssuite-exchange` before installing a new build.
-2. Start once with `enabled: false`. Confirm that `config.yml` and `markets.yml` exist; this mode
-   does not construct the exchange runtime or accept orders.
-3. On a test server, enable one currency and a small set of common materials. Verify deposits,
-   withdrawals, a matched order, a restart, and a cancellation on both Paper and Folia.
-4. On production, enable the player whitelist and conservative holding, frozen-currency, and
-   open-order limits. Observe a complete economic cycle before increasing limits.
-5. Reconcile custody daily. Investigate `REVIEW_REQUIRED` transfers, circuit-breaker halts,
-   writer-lock failures, SQL latency, and any custody difference before reopening a paused market.
-6. Expand the whitelist and limits per market. Enabling `block-container-shops` prevents future
-   container-shop creation for that market's item; it never migrates or cancels existing shops.
+## 灰度发布（Rollout）
 
-## Database And Recovery
+1. 安装新构建之前，先备份 QuickShop 数据库和 `plugins/qssuite-exchange`。
+2. 先用 `enabled: false` 启动一次，确认 `config.yml` 和 `markets.yml` 已生成；该模式不会构建交易所运行时，也不会接受订单。
+3. 在测试服务器上启用一种货币和一小批常用物品，并在 Paper 和 Folia 上分别验证充值、取现、一笔撮合成交、一次重启和一次撤单。
+4. 在生产服务器上启用玩家白名单，并设置保守的持仓上限、冻结货币上限和挂单上限。在提高上限之前，先观察一个完整的经济循环。
+5. 每天对托管（custody）进行对账。在重新打开被暂停的市场之前，调查 `REVIEW_REQUIRED` 转账、熔断停牌、写入锁失败、SQL 延迟，以及任何托管差异。
+6. 按市场逐步扩大白名单和上限。启用 `block-container-shops` 会阻止该市场的物品今后再创建容器商店，但不会迁移或取消已有商店。
 
-`database.mode: quickshop` requires a shared MySQL database. The addon holds a dedicated MySQL
-advisory writer lock named `<dbPrefix>exchange_writer`; a second matcher must fail startup. A
-disconnected lock immediately applies a local write fence. Because ownership is then untrusted, the
-old instance performs no further database mutation, including attempts to mark markets `RECOVERING`.
-Persistent recovery state is established only by a later startup that legally acquires writer
-ownership; do not let the fenced instance retry or reclaim the lock automatically.
+## 数据库与恢复
 
-`database.mode: sqlite` is only for a regular file inside the addon data folder. The addon holds
-an operating-system lock adjacent to that file. Do not place this database on a shared network
-filesystem.
+`database.mode: quickshop` 需要共享的 MySQL 数据库。插件持有一把专用 MySQL 咨询写入锁，名为 `<dbPrefix>exchange_writer`；第二个匹配器实例必须启动失败。锁断开时立即施加本地写入围栏（write fence）。由于此时所有权已不可信，旧实例不再执行任何数据库变更，包括尝试把市场标记为 `RECOVERING`。持久化的恢复状态只能由之后合法取得写入所有权的启动流程建立；不要让被围栏隔离的实例自动重试或重新夺锁。
 
-After an unclean shutdown, retain open orders. On restart the runtime first acquires the writer
-lock, then runs migrations, market registration, order-book recovery, and money-transfer recovery
-inside the writer fence before accepting writes. Player login item-transfer recovery is also
-submitted through the runtime writer fence. Database faults or operator intervention should leave
-affected markets `PAUSED` or `RECOVERING`; never edit the orders, trades, ledger, or transfer tables
-by hand.
+`database.mode: sqlite` 仅适用于插件数据目录内的普通文件。插件持有该文件旁边的操作系统文件锁。不要把这个数据库放在共享网络文件系统上。
 
-## Player Order Entry
+非正常关闭后，保留未成交订单。重启时运行时先获取写入锁，然后在写入围栏内依次执行迁移、市场注册、订单簿恢复和资金划转恢复，之后才接受写入。玩家登录时的物品划转恢复也通过运行时写入围栏提交。数据库故障或运维干预应让受影响的市场保持 `PAUSED` 或 `RECOVERING`；绝不要手工编辑订单、成交、账本或划转表。
 
-Both `/qse` and `/quickshop exchange` open the same Exchange menu. A player must be in the rollout
-whitelist and hold `quickshop.exchange.use` plus the permission for the selected operation.
-Markets accept new orders only while `OPEN`.
+## 玩家下单
 
-The market detail page starts chat input with these formats:
+`/qse` 和 `/quickshop exchange` 打开的是同一个交易所菜单。玩家必须在灰度白名单内，并持有 `quickshop.exchange.use` 以及所选操作的对应权限。市场只在 `OPEN` 状态接受新订单。
 
-- Limit order: `<quantity> <price>`; the order is `GTC`.
-- Protected market order: `<quantity> <absolute-protection-boundary>`; the order is `IOC`.
+市场详情页以以下格式开始聊天输入：
 
-The second market-order value is an absolute worst acceptable price, not a percentage. It is stored
-unchanged through confirmation so a delayed confirmation cannot widen the player's protection.
-Invalid input leaves the chat prompt active. The confirmation page rechecks player identity, rollout
-whitelist membership, `quickshop.exchange.use`, and the operation-specific permission, and a request
-can be claimed only once. Removing a player from rollout therefore invalidates an already-open
-confirmation screen.
+- 限价单：`<数量> <价格>`；订单为 `GTC`。
+- 保护市价单：`<数量> <绝对保护价>`；订单为 `IOC`。
 
-## Audited Administration
+市价单的第二个值是绝对的最差可接受价格，不是百分比。它在确认过程中保持不变，因此延迟确认不会扩大玩家的保护范围。无效输入会让聊天提示保持激活。确认页会重新检查玩家身份、灰度白名单成员资格、`quickshop.exchange.use` 和操作专属权限，且一个请求只能被认领一次。因此，把玩家移出白名单会使已打开的确认界面失效。
 
-The supported privileged commands are:
+## 受审计的管理操作
+
+支持的带权限命令：
 
 ```text
 /qse admin order cancel <orderId> <reason>
@@ -67,73 +45,34 @@ The supported privileged commands are:
 /qse admin transfer review resolve <transferId> <success|failure> <evidence>
 ```
 
-Audit-export times accept epoch seconds or ISO-8601 instants. The configured export directory must
-be relative to the addon data directory. Mutating administration and reconciliation run behind the
-same writer fence as player settlement.
+审计导出的时间接受 epoch 秒或 ISO-8601 时刻。配置的导出目录必须是相对于插件数据目录的路径。变更型管理操作和对账与玩家结算一样，都运行在同一把写入围栏之后。
 
-A reconciliation difference immediately protects affected markets in the reconciliation
-transaction. An item/market difference pauses that market; a currency difference pauses every
-configured market using that currency. Under-reserved orders or a difference that cannot be mapped
-safely pauses every configured market. Each affected market receives a HIGH
-`RECONCILIATION_DIFFERENCE` alert; an `OPEN` or `HALTED` market is CAS-transitioned to `PAUSED` and
-gets an append-only `RECONCILIATION_AUTO_PAUSE` audit record. Do not resume until custody, ledger,
-and reservation evidence is understood and a subsequent reconciliation is balanced.
+对账差异会在对账事务中立即保护受影响的市场。物品/市场差异会暂停该市场；货币差异会暂停所有使用该货币的已配置市场。储备不足的订单或无法安全映射的差异会暂停所有已配置市场。每个受影响的市场都会收到 HIGH 级别 `RECONCILIATION_DIFFERENCE` 告警；`OPEN` 或 `HALTED` 市场会通过 CAS 转换到 `PAUSED`，并写入一条追加式 `RECONCILIATION_AUTO_PAUSE` 审计记录。在托管、账本和储备证据被查清、且随后一次对账平衡之前，不要恢复市场。
 
-## Emergency Handling
+## 应急处理
 
-Use the audited administration path for forced cancellation, market-state changes, reconciliation,
-and transfer review. Record the external economy or inventory evidence for every
-`REVIEW_REQUIRED` resolution. Do not repeat the external operation while investigating a transfer:
-the durable transfer record is the source of truth. Item deposit failure and item withdrawal
-success cannot be finalized while a persistent inventory marker may still require cleanup.
+强制撤单、市场状态变更、对账和转账审核请走受审计的管理路径。每次 `REVIEW_REQUIRED` 决议都要记录外部经济或库存证据。调查一笔转账时不要重复执行外部操作：持久化的划转记录才是事实来源。当持久化库存标记可能仍需要清理时，物品充值失败和物品取现成功都不能定稿。
 
-For an emergency shutdown, first stop accepting new exchange requests and let the GUI submitter,
-login-recovery fence executor, transfer-recovery executor, and player-custody executor drain before
-writer ownership is released. The final candle flush runs strictly inside the writer fence. If any
-drain or the final flush fails, treat shutdown as failed and retain the writer lock. On Folia,
-Exchange inventories are closed through each player's entity scheduler; if the platform rejects a
-shutdown-time task, the addon does not fall back to cross-thread inventory access. Keep the database
-and the addon data folder together in the backup so SQLite lock and configuration state remain
-auditable.
+应急关停时，先停止接受新的交易所请求，让 GUI 提交器、登录恢复围栏执行器、划转恢复执行器和玩家托管执行器在写入所有权释放前排空。最后一根 K 线的落盘严格在写入围栏内执行。如果任何排空或最终落盘失败，应将关停视为失败并保留写入锁。在 Folia 上，Exchange 库存通过每个玩家的实体调度器关闭；如果平台拒绝关停任务，插件不会回退到跨线程访问库存。备份时要把数据库和插件数据目录放在一起，保证 SQLite 锁和配置状态可审计。
 
-## Manual Acceptance
+## 人工验收
 
-On Paper and Folia, use two whitelisted test accounts to deposit funds and items, submit crossing
-limit orders and protected market orders, verify maker-price execution, IOC remainder cancellation,
-absolute protection boundaries and fees, restart with a partially filled order, cancel an order,
-and withdraw with both available and full inventories. Verify all five player views: markets,
-orders, assets, trades/transfers/ledger history, and confirmation feedback.
+在 Paper 和 Folia 上，用两个白名单测试账号充值货币和物品，提交交叉限价单和保护市价单，验证 maker 价成交、IOC 剩余部分自动撤单、绝对保护边界和手续费、带部分成交订单重启、撤单，以及用可用库存和满载库存两种方式取现。验证全部五个玩家视图：市场、订单、资产、成交/划转/账本历史，以及确认反馈。
 
-Folia validation must include players in different regions, login recovery, plugin disable while a
-custody operation is active, and a check for region-thread ownership errors. Run the cycle once with
-SQLite and once with MySQL. For MySQL, start a second addon instance and verify advisory-lock startup
-failure; for SQLite, verify the adjacent file lock and reject network-share deployment.
+Folia 验证必须包括不同区域（region）的玩家、登录恢复、托管操作进行中禁用插件，以及区域线程所有权错误检查。分别用 SQLite 和 MySQL 各跑一轮完整流程。MySQL 要启动第二个插件实例并验证咨询锁启动失败；SQLite 要验证相邻文件锁并拒绝网络共享部署。
 
-Before broad rollout, run `/qse admin audit reconcile`, verify that an injected test difference
-pauses the expected market and creates a HIGH alert, export the audit range, and confirm that no
-negative balances, duplicate external operations, unresolved custody differences, or
-`REVIEW_REQUIRED` transfers remain.
+在大范围灰度之前，运行 `/qse admin audit reconcile`，验证注入的测试差异会暂停预期市场并产生 HIGH 告警，导出审计范围，并确认不存在负余额、重复外部操作、未解决的托管差异或 `REVIEW_REQUIRED` 转账。
 
-## Virtual Concept Stocks
+## 虚拟概念股
 
-See [docs/virtual-concept-stocks.md](virtual-concept-stocks.md) for configuration, lifecycle, and
-player workflows.
+配置、生命周期和玩家操作参见 [docs/virtual-concept-stocks.md](virtual-concept-stocks.md)。
 
-Operational differences to remember:
+需要记住的运营差异：
 
-- Virtual securities are ledger-only. They never construct item templates and never use the item
-  deposit/withdraw path. If a log line ever mentions a virtual market in an item-transfer context,
-  treat it as a bug.
-- Reconciliation covers issued supply as custody and player security balances as liabilities.
-  A custody difference on a virtual market pauses that market like any other asset difference.
-- Startup verifies that configured asset types match the database and that virtual markets have
-  their security definition. Fix configuration or database state, then restart; do not hand-edit
-  the securities, security balances, or security ledger tables.
-- `/qse stocks` opens the market list; `/qse stock <symbol>` opens that market's detail page.
-- `stock pause/resume/close` keeps the security definition and the market state in sync:
-  pausing stops order entry, resuming reopens a paused market, and closing closes the market.
-- `/qse` and admin stock commands tab-complete security symbols, and admin stock lifecycle
-  commands accept either market ids or symbols.
-- The market list can be sorted and filtered by asset type, and the market-detail chart
-  switches timeframes (1m/15m/1h/4h). The assets page shows estimated values and links
-  securities to their market detail pages.
+- 虚拟证券纯账本运作。它们从不构造物品模板，也从不走物品存取路径。如果日志行在物品划转语境中提到虚拟市场，请视为 bug。
+- 对账把已发行供应量视为托管，把玩家证券余额视为负债。虚拟市场出现托管差异时，会像其他资产差异一样暂停该市场。
+- 启动时验证配置的资产类型与数据库一致，且虚拟市场拥有其证券定义。修复配置或数据库状态后重启；不要手工编辑 securities、security balances 或 security ledger 表。
+- `/qse stocks` 打开市场列表；`/qse stock <symbol>` 打开该市场的详情页。
+- `stock pause/resume/close` 让证券定义与市场状态保持同步：暂停会停止下单，恢复会重新打开被暂停的市场，关闭会关闭市场。
+- `/qse` 和管理员股票命令支持证券代码 tab 补全，股票生命周期管理命令接受市场 ID 或代码。
+- 市场列表可按资产类型排序和筛选，市场详情图表可切换时间周期（1m/15m/1h/4h）。资产页显示估算价值，并把证券链接到其市场详情页。
