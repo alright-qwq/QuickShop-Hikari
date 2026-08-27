@@ -35,6 +35,9 @@ public final class ExchangeViewService {
   private final ExchangeRepository repository;
   private final List<TransferTarget> transferTargets;
   private final MarketListPresenter presenter = new MarketListPresenter();
+  private static final Duration MARKET_UPDATE_MIN_INTERVAL = Duration.ofSeconds(1);
+  private final java.util.Map<UUID, Long> lastMarketRefresh =
+      new java.util.concurrent.ConcurrentHashMap<>();
 
   public ExchangeViewService(Map<String, MarketView> markets, MarketDataService marketData,
                              Executor executor) {
@@ -61,10 +64,24 @@ public final class ExchangeViewService {
   }
 
   public void subscribeMarketUpdates(UUID playerId, Consumer<MarketDataService.PlayerUpdate> consumer) {
-    marketData.subscribePlayer(playerId, consumer);
+    Objects.requireNonNull(playerId, "playerId");
+    Objects.requireNonNull(consumer, "consumer");
+    lastMarketRefresh.remove(playerId);
+    marketData.subscribePlayer(playerId, update -> {
+      long now = System.currentTimeMillis();
+      Long previous = lastMarketRefresh.get(playerId);
+      boolean forward = previous == null
+          ? lastMarketRefresh.putIfAbsent(playerId, now) == null
+          : now - previous >= MARKET_UPDATE_MIN_INTERVAL.toMillis()
+              && lastMarketRefresh.replace(playerId, previous, now);
+      if (forward) {
+        consumer.accept(update);
+      }
+    });
   }
 
   public void unsubscribeMarketUpdates(UUID playerId) {
+    lastMarketRefresh.remove(Objects.requireNonNull(playerId, "playerId"));
     marketData.unsubscribePlayer(playerId);
   }
 
@@ -340,20 +357,61 @@ public final class ExchangeViewService {
 
   private List<MarketListPresenter.Entry> loadMarketEntries() {
     List<MarketListPresenter.Entry> entries = new ArrayList<>();
+    Map<String, com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState> securities =
+        loadSecurityDefinitions();
     for (MarketView market : markets.values()) {
       try {
         String securityStatus = market.assetType() != null
             && "VIRTUAL_SECURITY".equals(market.assetType())
-            ? market.securityStatus().get() : null;
+            ? securityStatus(securities, market.marketId()) : null;
         entries.add(new MarketListPresenter.Entry(market.marketId(), market.displayName(),
             market.service().marketQuote(marketData), market.assetType(), market.symbol(),
-            market.totalSupply(), securityStatus, issuedSupply(market),
+            market.totalSupply(), securityStatus,
+            issuedSupply(securities, market),
             recentTrades(market.marketId())));
       } catch (SQLException failure) {
         throw new IllegalStateException("failed to load market quote: " + market.marketId(), failure);
       }
     }
     return List.copyOf(entries);
+  }
+
+  private Map<String, com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState>
+      loadSecurityDefinitions() {
+    if (repository == null) {
+      return Map.of();
+    }
+    try {
+      return repository.securityDefinitionStates();
+    } catch (SQLException failure) {
+      throw new IllegalStateException("failed to load security definitions", failure);
+    }
+  }
+
+  private static com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState
+      securityState(
+          Map<String, com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState> securities,
+          String marketId) {
+    return securities.get(marketId);
+  }
+
+  private static String securityStatus(
+      Map<String, com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState> securities,
+      String marketId) {
+    com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState state =
+        securityState(securities, marketId);
+    return state == null ? null : state.status();
+  }
+
+  private static Long issuedSupply(
+      Map<String, com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState> securities,
+      MarketView market) {
+    if (market.assetType() == null || !"VIRTUAL_SECURITY".equals(market.assetType())) {
+      return null;
+    }
+    com.ghostchu.quickshop.addon.exchange.repository.SecurityDefinitionState state =
+        securityState(securities, market.marketId());
+    return state == null ? null : state.issuedSupply();
   }
 
   private MarketView requiredMarket(String marketId) {

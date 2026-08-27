@@ -246,6 +246,27 @@ class ExchangeViewServiceTest {
   }
 
   @Test
+  void throttlesMarketUpdateRefreshesToOnePerSecond() throws Exception {
+    MarketDataService marketData = new MarketDataService(new CandleAggregator());
+    ExchangeViewService views = new ExchangeViewService(java.util.Map.of(), marketData,
+        Runnable::run);
+    UUID playerId = UUID.randomUUID();
+    AtomicInteger updates = new AtomicInteger();
+    views.subscribeMarketUpdates(playerId, update -> updates.incrementAndGet());
+
+    marketData.recordTrade("diamond-usd", new BigDecimal("100"), 1, Instant.EPOCH);
+    marketData.publishPlayerUpdates();
+    marketData.recordTrade("diamond-usd", new BigDecimal("101"), 1, Instant.EPOCH.plusSeconds(1));
+    marketData.publishPlayerUpdates();
+    assertThat(updates).hasValue(1);
+
+    Thread.sleep(1100);
+    marketData.recordTrade("diamond-usd", new BigDecimal("102"), 1, Instant.EPOCH.plusSeconds(2));
+    marketData.publishPlayerUpdates();
+    assertThat(updates).hasValue(2);
+  }
+
+  @Test
   void resolvesSecuritySymbolToItsMarketIdCaseInsensitively() throws Exception {
     ExchangeServiceFixture fixture = ExchangeServiceFixture.sqlite();
     MarketDataService marketData = new MarketDataService(new CandleAggregator());

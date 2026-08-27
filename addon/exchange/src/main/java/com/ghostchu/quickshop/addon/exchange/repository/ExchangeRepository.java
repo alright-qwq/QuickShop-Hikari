@@ -8,6 +8,7 @@ import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetecto
 import com.ghostchu.quickshop.addon.exchange.operations.SuspiciousTradingDetector.TradeActivity;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -188,6 +189,16 @@ public interface ExchangeRepository {
   default List<AccountLedgerEntry> accountLedgerEntries(
       UUID accountId, int limit, int offset) throws SQLException {
     throw new UnsupportedOperationException("account ledger reads are not supported by this repository");
+  }
+
+  /**
+   * Reads every registered security definition keyed by market id. Read-only and lock-free so
+   * market-list views can load all status and issued-supply values in one snapshot instead of
+   * opening one transaction per security.
+   */
+  default Map<String, SecurityDefinitionState> securityDefinitionStates() throws SQLException {
+    throw new UnsupportedOperationException(
+        "security definition batch reads are not supported by this repository");
   }
 
   @FunctionalInterface

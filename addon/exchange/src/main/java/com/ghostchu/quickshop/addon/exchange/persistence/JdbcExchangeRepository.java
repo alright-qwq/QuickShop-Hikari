@@ -749,6 +749,33 @@ public final class JdbcExchangeRepository
     }
   }
 
+  @Override
+  public Map<String, SecurityDefinitionState> securityDefinitionStates() throws SQLException {
+    try (Connection connection = connections.open();
+         PreparedStatement select = connection.prepareStatement(
+             "SELECT market_id,symbol,name,description,currency_id,base_price,total_supply,"
+                 + "issued_supply,minimum_unit,status,recovery_account,created_at,updated_at,version"
+                 + " FROM " + tables.securities())) {
+      try (ResultSet result = select.executeQuery()) {
+         Map<String, SecurityDefinitionState> definitions = new java.util.LinkedHashMap<>();
+         while (result.next()) {
+          SecurityDefinitionState definition = new SecurityDefinitionState(
+              result.getString("market_id"), result.getString("symbol"),
+              result.getString("name"), result.getString("description"),
+              result.getString("currency_id"),
+              new BigDecimal(result.getString("base_price")),
+              result.getLong("total_supply"), result.getLong("issued_supply"),
+              result.getLong("minimum_unit"), result.getString("status"),
+              nullableUuid(result, "recovery_account"),
+              Instant.ofEpochMilli(result.getLong("created_at")),
+              Instant.ofEpochMilli(result.getLong("updated_at")), result.getLong("version"));
+          definitions.put(definition.marketId(), definition);
+        }
+        return Map.copyOf(definitions);
+      }
+    }
+  }
+
   private static void requireCandle(Candle candle) {
     if (candle == null || candle.marketId() == null || candle.marketId().isBlank()
         || candle.bucketStart() == null || candle.open() == null || candle.high() == null
