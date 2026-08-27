@@ -4,9 +4,10 @@
 # 使用方法（全新部署，默认全部开启）：
 #   1. 把下方 markets: 段替换服务器上 qssuite-exchange 数据目录里的
 #      markets.yml 对应内容（或把需要的条目合并进去）。
-#   2. 重启服务器。首次启动会自动为每个市场创建数据库行，并直接以
+#   2. 确认插件 config.yml 里 enabled: true（默认是 false，不开不加载）。
+#   3. 重启服务器。首次启动会自动为每个市场创建数据库行，并直接以
 #      OPEN 状态开放市场与证券（enabled: true），无需逐个 resume。
-#   3. 发行初始供应量，让玩家有股票可卖（每只一条，替换 <玩家UUID>）：
+#   4. 发行初始供应量，让玩家有股票可卖（每只一条，替换 <玩家UUID>）：
 #        /qse admin stock issue ALPHA <玩家UUID> 5000 首发
 #        /qse admin stock issue BETA <玩家UUID> 2000 首发
 #        /qse admin stock issue GAMMA <玩家UUID> 10000 首发
@@ -22,7 +23,15 @@
 #        /qse admin stock issue PIXEL <玩家UUID> 7500 首发
 #        /qse admin stock issue NOVA <玩家UUID> 1750 首发
 #        /qse admin stock issue MOON <玩家UUID> 250000 首发
-#   4. 玩家即可在 /qse stocks 看到全部市场并开始交易。
+#   5. 玩家即可在 /qse stocks 看到全部市场并开始交易。
+#
+# 重要：上线前先检查插件 config.yml 的 rollout 白名单——
+#   rollout:
+#     whitelist-enabled: true        # 保持 true 表示只允许下列玩家
+#     allowed-players:               # 填入玩家 UUID（/qse 提示未在白名单）
+#       - 00000000-0000-0000-0000-000000000000
+#   若服务器没有现成的交易所用户体系，可临时设为 whitelist-enabled: false
+#   再重启，所有玩家即可访问；正式运营建议保留白名单。
 #
 # 注意：若数据库里已存在之前用 enabled: false 创建的 CLOSED 行，改配置
 # 不会改变已有状态，需要先执行一次 /qse admin stock resume <代码> 上线。

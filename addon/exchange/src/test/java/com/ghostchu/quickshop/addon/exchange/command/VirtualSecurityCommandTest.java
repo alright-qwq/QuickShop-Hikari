@@ -129,6 +129,23 @@ class VirtualSecurityCommandTest {
     assertThat(paused).isEqualTo("PAUSED");
   }
 
+  @Test
+  void resolvesUppercaseSymbolToCanonicalMarketIdWithoutConfiguredResolver() throws Exception {
+    Fixture fixture = new Fixture();
+    Actor actor = new Actor("quickshop.exchange.admin.stock");
+    fixture.router.execute(actor, new String[] {"stock", "create", "ALPHA", "Alpha",
+        "default", "10.00", "1000", "1", "concept stock"});
+    UUID owner = UUID.randomUUID();
+
+    fixture.router.execute(actor, new String[] {"stock", "issue", "ALPHA", owner.toString(),
+        "100", "initial allocation"});
+
+    assertThat(actor.message).isEqualTo("request-accepted");
+    Long issued = fixture.repository.inTransaction(
+        tx -> tx.securityDefinition("alpha").issuedSupply());
+    assertThat(issued).isEqualTo(100);
+  }
+
   private static final class Fixture {
     private final com.ghostchu.quickshop.addon.exchange.persistence.ConnectionProvider connections;
     private final com.ghostchu.quickshop.addon.exchange.persistence.TableNames tables;
@@ -136,7 +153,7 @@ class VirtualSecurityCommandTest {
     private final AdminCommandRouter router;
 
     private Fixture() throws Exception {
-      this(java.util.function.Function.identity());
+      this(raw -> null);
     }
 
     private Fixture(java.util.function.Function<String, String> symbolToMarketId) throws Exception {

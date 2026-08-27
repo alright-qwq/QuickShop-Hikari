@@ -159,7 +159,16 @@ public final class AdminCommandRouter {
       return null;
     }
     String resolved = symbolToMarketId.apply(raw);
-    return resolved == null || resolved.isBlank() ? raw : resolved;
+    if (resolved != null && !resolved.isBlank()) {
+      return resolved;
+    }
+    // A configured security symbol may not resolve when its market is not in the runtime
+    // registry (e.g. created via `/qse admin stock create`); fall back to the canonical
+    // lowercase market id derived from the symbol.
+    if (raw.matches("[A-Z][A-Z0-9_]{0,15}")) {
+      return raw.toLowerCase(java.util.Locale.ROOT);
+    }
+    return raw;
   }
 
   private void audit(CommandActor actor, String[] args) {
