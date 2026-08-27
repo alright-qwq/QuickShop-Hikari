@@ -3,7 +3,6 @@ package com.ghostchu.quickshop.addon.exchange.runtime;
 import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.config.AssetType;
 import com.ghostchu.quickshop.addon.exchange.config.MarketDefinition;
-import com.ghostchu.quickshop.addon.exchange.config.MarketStateReader;
 import com.ghostchu.quickshop.addon.exchange.config.MarketRegistry;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketRules;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
@@ -289,14 +288,16 @@ public final class ExchangeRuntimeFactory {
       throw new IllegalStateException(
           "market set cannot change during reload; pause markets and restart to apply structural changes");
     }
-    liveRegistry.reload(reloaded.definitions(), market ->
-        new MarketStateReader.State(MarketStatus.PAUSED, 0));
+    if (!liveRegistry.definitions().equals(reloaded.definitions())) {
+      throw new IllegalStateException(
+          "structural or fee changes require a paused market with no open orders;"
+              + " apply them manually or restart the server");
+    }
     for (String marketId : liveMarkets.keySet()) {
       MarketDefinition next = reloaded.require(marketId);
       PersistentOrderService service = liveMarkets.get(marketId);
       service.updateRiskLimits(limits(next), accountLimits(next.risk()));
     }
-    this.registry = liveRegistry;
   }
 
   static void flushWhileOwned(SingleWriterGuard writer, MarketDataService marketData, Instant at) {
