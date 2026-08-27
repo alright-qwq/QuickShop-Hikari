@@ -81,6 +81,28 @@ class SecurityServiceTest {
   }
 
   @Test
+  void createRejectsInvalidSymbolFormat() throws Exception {
+    UUID actor = UUID.randomUUID();
+
+    assertThatThrownBy(() -> service.create(actor, UUID.randomUUID(), marketId, "alpha",
+        "Alpha", "lowercase symbol", "default", new BigDecimal("10.00"), 1000, 1))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("uppercase");
+    assertThatThrownBy(() -> service.create(actor, UUID.randomUUID(), marketId, "ALPHA!",
+        "Alpha", "punctuation symbol", "default", new BigDecimal("10.00"), 1000, 1))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("uppercase");
+    assertThatThrownBy(() -> service.create(actor, UUID.randomUUID(), marketId,
+        "A".repeat(17), "Alpha", "too long symbol", "default", new BigDecimal("10.00"), 1000, 1))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("16 characters");
+
+    Optional<SecurityDefinitionState> existing =
+        repository.inTransaction(tx -> tx.existingSecurityDefinition(marketId));
+    assertThat(existing).isEmpty();
+  }
+
+  @Test
   void issueCreditsTargetAndIsIdempotentByRequest() throws Exception {
     UUID actor = UUID.randomUUID();
     UUID owner = UUID.randomUUID();

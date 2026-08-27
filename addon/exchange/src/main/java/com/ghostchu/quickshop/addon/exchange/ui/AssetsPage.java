@@ -2,11 +2,15 @@ package com.ghostchu.quickshop.addon.exchange.ui;
 
 import com.ghostchu.quickshop.QuickShop;
 import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
+import com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
+import com.ghostchu.quickshop.addon.exchange.repository.AccountAssetBalance;
 import com.ghostchu.quickshop.menu.shared.GuiChatInputManager;
 import com.ghostchu.quickshop.addon.exchange.transfer.model.TransferRecord;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import net.kyori.adventure.text.Component;
 import net.tnemc.menu.core.PlayerInstancePage;
 import net.tnemc.menu.core.builder.IconBuilder;
@@ -50,8 +54,15 @@ final class AssetsPage {
   private void refresh(PlayerInstancePage page, UUID playerId, ExchangeMenuRequest opened) {
     int pageNumber = AssetTransferPaging.page(opened.page());
     int offset = AssetTransferPaging.offset(pageNumber);
-    AssetPageSnapshot.combine(views.accountAssets(playerId),
-        views.accountTransfers(playerId, AssetTransferPaging.fetchLimit(), offset))
+    CompletableFuture<List<AccountAssetBalance>> assets = views.accountAssets(playerId);
+    CompletableFuture<List<TransferRecord>> transfers =
+        views.accountTransfers(playerId, AssetTransferPaging.fetchLimit(), offset);
+    CompletableFuture<Map<String, MarketQuote>> quotes = assets.thenApply(balances ->
+        balances.stream()
+            .filter(balance -> balance.kind() == AccountAssetBalance.Kind.SECURITY)
+            .map(AccountAssetBalance::assetId)
+            .toList()).thenCompose(views::marketQuotes);
+    AssetPageSnapshot.combine(assets, transfers, quotes)
         .whenComplete((snapshot, failure) -> {
       if (opened == null || !contexts.isCurrent(playerId, opened)) return;
       Player player = Bukkit.getPlayer(playerId);
@@ -78,7 +89,7 @@ final class AssetsPage {
     addMarketsNavigation(page, player);
     int slot = 9;
     AssetPageRows.Merged merged = AssetPageRows.merge(views.transferTargets(), snapshot.assets());
-    addTotalValue(page, player, playerId, merged);
+    addTotalValue(page, player, playerId, merged, snapshot);
     for (AssetPageRows.Row row : merged.rows()) {
       if (slot >= 21) break;
       TransferTarget target = row.target();
@@ -110,7 +121,7 @@ final class AssetsPage {
           messages.component(player, "ui-assets-available", security.available().toPlainString()),
           messages.component(player, "ui-assets-frozen", security.frozen().toPlainString()),
           messages.component(player, "ui-assets-open-market")));
-      java.math.BigDecimal marketValue = marketValue(security);
+      java.math.BigDecimal marketValue = marketValue(security, snapshot.quotes());
       if (marketValue != null) {
         securityLore.add(messages.component(player, "ui-assets-market-value",
             marketValue.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()));
@@ -183,7 +194,7 @@ final class AssetsPage {
   }
 
   private void addTotalValue(PlayerInstancePage page, Player player, UUID playerId,
-                             AssetPageRows.Merged merged) {
+                             AssetPageRows.Merged merged, AssetPageSnapshot snapshot) {
     java.math.BigDecimal total = java.math.BigDecimal.ZERO;
     java.math.BigDecimal frozen = java.math.BigDecimal.ZERO;
     for (AssetPageRows.Row row : merged.rows()) {
@@ -193,7 +204,7 @@ final class AssetsPage {
       }
     }
     for (AssetPageRows.SecurityRow security : merged.securities()) {
-      java.math.BigDecimal value = marketValue(security);
+      java.math.BigDecimal value = marketValue(security, snapshot.quotes());
       if (value != null) {
         total = total.add(value);
       }
@@ -210,12 +221,13 @@ final class AssetsPage {
         .withSlot(4).build());
   }
 
-  private java.math.BigDecimal marketValue(AssetPageRows.SecurityRow security) {
+  private java.math.BigDecimal marketValue(AssetPageRows.SecurityRow security,
+                                           Map<String, MarketQuote> quotes) {
     String marketId = security.marketId();
-    if (marketId == null) {
+    if (marketId == null || quotes == null) {
       return null;
     }
-    com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote = views.marketQuote(marketId);
+    MarketQuote quote = quotes.get(marketId);
     if (quote == null || quote.lastPrice() == null) {
       return null;
     }

@@ -16,6 +16,7 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -141,6 +142,21 @@ public final class ExchangeViewService {
   /** Loads the latest market quote on the background read executor. */
   public CompletableFuture<MarketQuote> marketQuoteAsync(String marketId) {
     return CompletableFuture.supplyAsync(() -> marketQuote(marketId), executor);
+  }
+
+  /** Loads quotes for the requested market ids on the background read executor. */
+  public CompletableFuture<Map<String, MarketQuote>> marketQuotes(Collection<String> marketIds) {
+    List<String> ids = marketIds == null ? List.of() : List.copyOf(marketIds);
+    return CompletableFuture.supplyAsync(() -> {
+      Map<String, MarketQuote> quotes = new java.util.HashMap<>();
+      for (String marketId : ids) {
+        MarketQuote quote = marketQuote(marketId);
+        if (quote != null) {
+          quotes.put(marketId, quote);
+        }
+      }
+      return Map.copyOf(quotes);
+    }, executor);
   }
 
   /** Returns the configured market view, or null when the market id is unknown. */

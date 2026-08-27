@@ -42,6 +42,10 @@ public final class SecurityService {
     Objects.requireNonNull(requestId, "requestId");
     requireText(marketId, "market id");
     requireText(symbol, "symbol");
+    if (!symbol.matches("[A-Z][A-Z0-9_]{0,15}")) {
+      throw new IllegalArgumentException(
+          "symbol must be uppercase letters, digits, and underscores (up to 16 characters)");
+    }
     requireText(name, "name");
     requireText(description, "description");
     requireText(currencyId, "currency id");
