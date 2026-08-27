@@ -376,3 +376,11 @@ Autonomous UI/mechanism iteration continues on `codex/exchange-order-book`; no r
 needs to be produced for this handoff. Before any production rollout still follow
 `docs/exchange-operations.md`, including real SQLite + MySQL end-to-end cycles and reconciliation
 verification.
+
+## Latest packaged build (2026-08-27)
+
+- Shaded plugin jar: `addon/exchange/target/Addon-Exchange-6.3.0.0-SNAPSHOT-11.jar`
+  (939 KB, includes `plugin.yml`, `messages.yml`, and all runtime classes/dependencies).
+- Sources jar: `addon/exchange/target/Addon-Exchange-6.3.0.0-SNAPSHOT-11-sources.jar`.
+- Built with `mvn -pl addon/exchange -am package -q -DskipTests` after the full test suite
+  (447 tests, 0 failures) and `git diff --check` passed; branch is pushed to origin.
