@@ -111,8 +111,12 @@ public final class Main extends JavaPlugin implements Listener {
   }
 
   private void rewirePlayerEntrypoints() {
+    // Build and validate every replacement first so a malformed message/rollout configuration
+    // can never leave the plugin without command or GUI entry points.
+    AddonMessageService messages = buildMessages();
+    RolloutPolicy rollout = rolloutPolicy();
     unregisterPlayerEntrypoints();
-    registerPlayerEntrypoints();
+    installPlayerEntrypoints(messages, rollout);
   }
 
   private AddonMessageService buildMessages() {
