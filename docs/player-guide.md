@@ -1,287 +1,202 @@
-# QuickShop Exchange Player Guide
+# QuickShop 交易所玩家指南
 
-The exchange is a central order book where players trade fungible assets with each other:
-physical item markets (e.g. diamonds, iron) and virtual concept stocks (ledger-only securities
-with symbols such as `ALPHA`). This guide explains what you can do, the ideas you need to know,
-where the interesting gameplay is, and how to use every command and screen.
+交易所是一个中央订单簿（order book），玩家在这里互相交易可替代资产：实物物品市场（例如钻石、铁锭）和虚拟概念股（纯账本证券，带 `ALPHA` 这样的代码）。本指南说明你能做什么、需要掌握的核心概念、值得博弈的玩法，以及每条命令和每个界面的用法。
 
-## What is the exchange for?
+## 交易所是干什么的
 
-Your goal as a player is to grow a portfolio: buy assets when they are cheap, sell them when
-they are expensive, and manage the currency, items, and stock holdings shown on the assets
-page. The exchange is player-driven: prices move because other players buy and sell, not
-because the server sets them.
+作为玩家，你的目标是让资产组合增值：便宜时买入、贵时卖出，并管理资产页上的货币、物品和股票持仓。交易所由玩家驱动：价格因其他玩家的买卖而变动，不是服务器设定的。
 
-The interesting gameplay comes from:
+有意思的玩法来自：
 
-- **Price discovery.** A market's last price, 24h change, 24h high/low, and volatility tell you
-  how active and how risky a market is. Low-liquidity concept stocks can move sharply when one
-  large order trades.
-- **The spread.** The difference between the best bid (highest buy order) and the best ask
-  (lowest sell order) is what you pay to trade immediately. Buying at the ask and selling at
-  the bid in quick succession loses the spread plus fees; that is the cost of impatience.
-- **Making the market.** Placing a limit order slightly better than the current best price can
-  earn the spread when other players trade into your order, but your order may also sit unfilled
-  while the price moves against you. You earn the maker fee rate, which is lower than the taker
-  fee rate.
-- **Timing.** The candle chart (1m/15m/1h/4h), recent-trade direction (green aggressive buys,
-  red aggressive sells), and 24h volume help you read whether buying or selling pressure is
-  winning.
-- **Concept stocks.** A stock with a fixed total supply becomes more scarce as supply is issued
-  and held; its float market cap (issued supply × last price) shows how large it is. Lifecycle
-  news (issuance, pause, close) moves expectations about what it is worth.
+- **价格发现**。一个市场的最新价、24 小时涨跌、24 小时最高/最低和波动率告诉你这个市场有多活跃、有多大的风险。流动性低的概念股会在某一笔大单成交时剧烈波动。
+- **买卖价差（spread）**。最佳买一（最高的买单）和最佳卖一（最低的卖单）之间的差价，就是你立即成交要付出的成本。在卖一价买入、再在买一价卖出，会亏掉价差加手续费——这就是"着急"的代价。
+- **做市（making the market）**。在略优于当前最优价的位置挂限价单，当其他玩家成交到你的订单时赚取价差，但你的订单也可能一直不成交、价格反而朝不利方向移动。做市方享受更低的 maker 手续费。
+- **时机**。蜡烛图（1m/15m/1h/4h）、最近成交方向（绿色为主动买入、红色为主动卖出）和 24 小时成交量，能帮你判断买卖力量谁占上风。
+- **概念股**。总发行量固定的股票会随着供应被发行和持有而变得更稀缺；流通市值（发行量 × 最新价）显示它的体量。生命周期消息（发行、暂停、关闭）会影响市场对它价值的预期。
 
-## Before you start
+## 开始之前
 
-- You must be on the server's exchange whitelist (rollout). If you are not, commands answer
-  "This account is not included in the current exchange rollout."
-- You need the base permission `quickshop.exchange.use`, plus the specific permission for each
-  operation: `quickshop.exchange.order.limit`, `quickshop.exchange.order.market`,
-  `quickshop.exchange.order.cancel`, `quickshop.exchange.deposit`, and
-  `quickshop.exchange.withdraw`.
-- Two commands open the same menu: `/qse` and `/quickshop exchange`. `/qse help` prints a
-  command overview.
+- 你必须在服务器的交易所白名单（rollout）内。如果不在，命令会提示"你的账号尚未加入当前交易所灰度名单"。
+- 你需要基础权限 `quickshop.exchange.use`，以及每个操作对应的专属权限：`quickshop.exchange.order.limit`、`quickshop.exchange.order.market`、`quickshop.exchange.order.cancel`、`quickshop.exchange.deposit`、`quickshop.exchange.withdraw`。
+- 两个命令打开同一个菜单：`/qse` 和 `/quickshop exchange`。`/qse help` 会打印命令概览。
 
-## Core ideas you need to understand
+## 需要理解的核心概念
 
-### Orders are price/quantity promises
+### 订单是价格与数量的承诺
 
-- **Limit order** (`GTC`, good-until-cancelled): you choose quantity and price. It rests on the
-  book until someone trades into it or you cancel it. The confirmation page tells you whether it
-  will match immediately or rest, and shows the fee and frozen amount before you submit.
-- **Protected market order** (`IOC`, immediate-or-cancel): you choose quantity and an absolute
-  protection boundary — the worst price you will accept. It tries to fill immediately against
-  the book and cancels whatever cannot fill. The boundary is an absolute price, not a
-  percentage, and it is stored unchanged through confirmation so a delayed click cannot widen
-  your protection.
+- **限价单**（`GTC`，一直有效直到取消）：你指定数量和价格，它挂在订单簿上，直到有人成交到它或你主动取消。确认页会告诉你它会立即成交还是挂单，并在提交前显示手续费和冻结金额。
+- **市价保护单**（`IOC`，立即成交否则取消）：你指定数量和一个绝对保护价——你能接受的最差价格。它会立即尝试吃单，无法成交的部分自动取消。保护价是绝对价格而不是百分比，并且从确认到提交全程保持不变，延迟点击不会扩大你的保护范围。
 
-Chat format:
+聊天输入格式：
 
 ```text
-limit order:  <quantity> <price>            e.g. 2 100.00
-market order: <quantity> <protection price> e.g. buy 2 105.00 / sell 2 95.00
+限价单：  <数量> <价格>               例如 2 100.00
+市价单：  <数量> <保护价>             例如买入 2 105.00 / 卖出 2 95.00
 ```
 
-When the market has an executable quote, the chat prompt shows the current best ask (for buys)
-or best bid (for sells) and uses it in the example so you can size orders against the visible
-price.
+当市场有可成交报价时，聊天提示会直接显示当前最佳卖一（买入时）或最佳买一（卖出时），并用它作为示例，方便你按可见价格下单。
 
-### Prices must follow market rules
+### 价格必须遵守市场规则
 
-Every market enforces a price range (min/max), a tick size (the smallest price step), a
-quantity range (min/max), and a price scale (decimal places). Orders outside these rules are
-rejected before anything is frozen. The confirmation page shows all of these so you can check
-before submitting.
+每个市场强制价格区间（最低/最高）、tick size（最小价格步长）、数量区间（最小/最大）和价格精度（小数位数）。超出规则的订单会在冻结任何资产之前被拒绝。确认页会展示这些规则，提交前可以核对。
 
-### Frozen is reserved, not spent
+### 冻结是"预留"，不是"花掉"
 
-When you place a buy order, the worst-case cost (price × quantity plus the maximum fee) is
-frozen from your currency. When you place a sell order, the items or stock are frozen. The
-assets page and market detail show available and frozen separately:
+挂买单时，最坏成本（价格 × 数量 + 最高手续费）会从你的货币中冻结；挂卖单时，对应的物品或股票会被冻结。资产页和市场详情会分别显示"可用"和"冻结"：
 
-- A filled order consumes exactly what was traded; any unused frozen amount is released.
-- A cancelled order releases the full frozen amount back to available.
-- Frozen amounts cannot be used for other orders, deposits, or withdrawals until released.
+- 成交时只消耗实际成交的部分，多余的冻结金额自动释放。
+- 取消订单时，全部冻结金额释放回可用。
+- 冻结金额不能用于其他订单、存款或取款，直到释放。
 
-### Maker vs taker fees
+### maker 与 taker 手续费
 
-- **Maker**: your order rested on the book and someone traded into it. Lower fee.
-- **Taker**: your order traded against an existing order. Higher fee.
+- **maker**：你的订单先挂在簿上，别人成交到它。手续费更低。
+- **taker**：你的订单直接吃掉了已有的挂单。手续费更高。
 
-The confirmation page shows the applicable rate, an estimated fee, and the estimated net
-proceeds for sells. The account history shows the exact fee you paid ("My fee") as well as the
-combined trade fees.
+确认页会显示适用的费率、预估手续费，以及卖出的预估净收入。账户历史会显示你实际支付的精确手续费（"我的手续费"），同时也会显示双方合计手续费。
 
-### The order book and depth
+### 订单簿与深度
 
-The market detail page shows:
+市场详情页展示：
 
-- **Best bid / best ask**: the strongest buy and sell prices.
-- **Depth rows**: each price level with quantity and value (price × quantity). More depth means
-  a large order can fill without moving the price far.
-- **Executable depth**: the total bid and ask quantity currently executable inside the price
-  cage across the whole book — the liquidity you can hit right now.
-- **Recent trades**: the latest trades with direction; green rows are aggressive buys, red rows
-  are aggressive sells.
-- **Candles**: switch between 1m/15m/1h/4h. Every candle icon shows its change amount and
-  change percentage.
+- **最佳买一 / 最佳卖一**：最强的买价和卖价。
+- **深度行**：每个价格档位的数量和金额（价格 × 数量）。深度越大，大单成交时价格移动越小。
+- **可执行深度**：当前在价格笼（price cage）内、整个簿上可以立即成交的买/卖总量——你现在能吃掉的全部流动性。
+- **最近成交**：最新成交及方向；绿色行是主动买入，红色行是主动卖出。
+- **蜡烛图**：可在 1 分钟、15 分钟、1 小时、4 小时之间切换。每个蜡烛图标都显示涨跌金额和涨跌百分比。
 
-### The market list is a dashboard
+### 市场列表就是仪表盘
 
-The market list (`/qse` or `/qse open`) shows every market with last price, bid/ask, 24h volume,
-24h turnover, status, and the most recent trade line. It supports:
+市场列表（`/qse` 或 `/qse open`）展示每个市场的最新价、买一/卖一、24 小时成交量、24 小时成交额、状态，以及最近一笔成交。支持：
 
-- **Sorting** (24h turnover / 24h change / last price) through the sort control; markets with no
-  trades sort last instead of breaking.
-- **Filtering** (all / virtual securities / physical items) through the filter control.
-- **Paging**: 36 markets per page with previous/next controls.
-- **Icons**: emerald for virtual stocks, chest for item markets, barrier for non-open markets.
-- **Colors**: 24h change is green (up), red (down), yellow (flat).
+- **排序**（24 小时成交额 / 24 小时涨跌 / 最新价），通过排序控件切换；没有成交的市场排在最后而不是报错。
+- **筛选**（全部 / 虚拟证券 / 实物物品），通过筛选控件切换。
+- **分页**：每页 36 个市场，带上一页/下一页控件。
+- **图标**：翡翠色为虚拟股票，箱子为物品市场，屏障为非开放市场。
+- **颜色**：24 小时涨跌为绿色（涨）、红色（跌）、黄色（平）。
 
-The header overview shows market count, rising/falling counts, total volume and turnover, and
-the most active, top gainer, and top loser.
+顶部概览显示市场数量、上涨/下跌数量、总成交量和总成交额，以及最活跃、涨幅最大、跌幅最大的市场。
 
-## Screen-by-screen guide
+## 逐屏使用指南
 
-### Market detail (the page you will live on)
+### 市场详情（你最常待的页面）
 
-Click a market row or run `/qse market <marketId>` or `/qse stock <symbol>`. The page shows:
+点击市场行，或运行 `/qse market <市场ID>`、`/qse stock <代码>`。页面展示：
 
-- Candle chart with timeframe control, 24h high/low, 24h change, volatility, spread, and volume.
-- For virtual stocks: issued/total supply and float market cap (issued supply × last price).
-- Your balances for that market (currency available/frozen; item or security holding).
-- How much you can afford to buy at the last price (currency divided by worst-case price,
-  rounded down to minimum quantity) and how much you can sell.
-- Your open-order count in this market out of the per-market limit (e.g. `3 / 100`).
-- Order buttons: limit buy/sell and market buy/sell. On virtual stocks they remind you that
-  settlement is a ledger balance, not an item.
-- Executable depth summary, depth rows, and recent trades.
+- 带时间周期控件的蜡烛图、24 小时最高/最低、24 小时涨跌、波动率、价差和成交量。
+- 虚拟股票：已发行/总发行量和流通市值（已发行量 × 最新价）。
+- 该市场的个人余额（货币可用/冻结；物品或股票持仓）。
+- 按最新价估算的可买数量（货币 ÷ 含最高手续费的最坏价格，向下取整到最小数量）和可卖数量。
+- 你在该市场的未完成订单数/上限（例如 `3 / 100`）。
+- 订单按钮：限价买/卖、市价买/卖。虚拟股票上会提示结算为账本余额而非物品。
+- 可执行深度汇总、深度行和最近成交。
 
-Clicking an order button closes the inventory and starts a chat prompt; type the order and press
-Enter to move to the confirmation page. If the market is not `OPEN`, clicking returns "This
-market currently accepts queries and cancellations only."
+点击订单按钮会关闭背包并进入聊天输入；输入订单后按回车进入确认页。如果市场不是 `OPEN`，点击会提示"当前市场只允许查询和撤单"。
 
-### Order confirmation
+### 订单确认
 
-Before anything is submitted you can review:
+提交前可以核对：
 
-- The current best quote and whether a limit order will match immediately or rest.
-- The fee rate, estimated fee, worst-case frozen currency, and estimated net proceeds (sells).
-- Quantity range, price range, and tick size.
+- 当前最优报价，以及限价单会立即成交还是挂单。
+- 手续费率、预估手续费、最坏冻结货币，以及卖出的预估净收入。
+- 数量区间、价格区间和 tick size。
 
-After confirming, you return to the market detail page. A rejected request (identity, whitelist,
-permission, or market-state change) keeps you on the confirmation page so you can retry safely.
-Each confirmation carries a request id and can only be claimed once.
+确认后回到市场详情页。被拒绝的请求（身份、白名单、权限或市场状态变化）会停留在确认页，方便安全重试。每个确认都带有请求 ID，且只能被认领一次。
 
-### My Orders
+### 我的订单
 
-`/qse orders` lists your open orders with market, side, type, remaining quantity, the frozen
-currency/quantity, and the current last price for context. Orders and balances refresh
-automatically when trades occur. The page is paginated and shows an explicit empty state.
+`/qse orders` 列出你的未完成订单，显示市场、方向、类型、剩余数量、冻结的货币/数量，以及当前最新价作为参考。订单和余额会在成交发生时自动刷新。页面带分页，并有明确的空状态提示。
 
-Cancelling goes through a confirmation page that shows the market, side, remaining quantity, and
-exactly how much frozen currency/quantity will be released. If the order already filled or was
-cancelled, the page tells you instead of showing a stuck loading line.
+撤单会经过确认页，显示市场、方向、剩余数量，以及撤单将精确释放多少冻结货币/数量。如果订单已经成交或已被取消，页面会直接说明，而不是一直显示加载中。
 
-### Assets
+### 资产
 
-`/qse assets` shows, in fixed sections:
+`/qse assets` 分固定区块展示：
 
-- Currency balances (available/frozen).
-- Item holdings for item markets.
-- Virtual securities: emerald icons with "Virtual security (ledger-only, cannot deposit or
-  withdraw)", symbol, available/frozen, estimated market value, and total portfolio value.
-- Recent transfers (paginated, 12 per page).
+- 货币余额（可用/冻结）。
+- 物品市场的物品持仓。
+- 虚拟证券：翡翠色图标，标注"虚拟证券（纯账本，不可充值/提现）"，显示代码、可用/冻结、估算市值和总资产估值。
+- 最近转账（分页，每页 12 条）。
 
-Security rows have no deposit/withdraw actions — concept stocks cannot be moved into or out of
-your inventory. Clicking a security row opens its market detail page.
+证券行没有存入/取出按钮——概念股不能转入或转出你的背包。点击证券行会打开对应市场详情页。
 
-### Account history
+### 账户历史
 
-`/qse history` shows trades (with direction, quantity, notional value, and the fee you paid),
-transfers (with status and failure reason), and ledger entries (with reference ids), each in its
-own section with paging.
+`/qse history` 分区块展示成交（方向、数量、成交额、你支付的手续费）、转账（状态和失败原因）和账本条目（带关联请求 ID），各自带分页。
 
-### Admin page
+### 管理员页
 
-`/qse admin` opens the operator menu for players holding any admin permission. It lists market
-controls (pause/resume), order cancellation, transfer review, audit controls, and stock controls.
-Only the icons for permissions you hold are shown.
+持有任一管理员权限的玩家可用 `/qse admin` 打开运营菜单，列出市场控制（暂停/恢复）、订单取消、转账审核、审计控制和证券控制。只显示你拥有权限对应的图标。
 
-## Concept stocks
+## 概念股
 
-Concept stocks are pure-ledger securities with a symbol (`/qse stock <symbol>` resolves it
-case-insensitively), a fixed total supply, a minimum unit, and a lifecycle (`OPEN`, `PAUSED`,
-`HALTED`, `CLOSED`). There is no item deposit/withdrawal: balances live only in the exchange
-database. Issuance and lifecycle changes are administrator actions and are audited. See
-[Virtual Concept Stocks](virtual-concept-stocks.md) for configuration and administration.
+概念股是纯账本证券，有代码（`/qse stock <代码>` 大小写不敏感地解析）、固定总发行量、最小单位和一个生命周期（`OPEN`、`PAUSED`、`HALTED`、`CLOSED`）。没有物品存入/取出：余额只存在于交易所数据库中。发行和生命周期变更是管理员操作且全程审计。配置与管理参见 [虚拟概念股](virtual-concept-stocks.md)。
 
-Players buy and sell them exactly like item markets, but you cannot craft, drop, or transfer the
-holding outside the exchange, and a closed stock moves outstanding balances to the recovery
-account.
+玩家像交易物品市场一样买卖概念股，但不能在交易所外合成、丢弃或转移持仓；关闭的股票会把所有未结持仓转移到恢复账户。
 
-## Getting started (5-minute walkthrough)
+## 五分钟上手
 
-1. Run `/qse` and confirm the whitelist and permissions allow you in.
-2. Open the assets page and deposit currency (`/qse deposit money <currency> <amount>`) or items
-   (`/qse deposit item <marketId> <quantity>`). Withdrawals work the same way and need your
-   inventory to have room.
-3. Open the market list, sort by 24h turnover, and open a market with real volume.
-4. Read the depth, last price, and 24h change. Decide on a side and a price.
-5. Click limit buy, type `10 100.00`, and confirm. Your currency is now frozen at worst case.
-6. Open My Orders to watch it. If it fills, your holding appears on the assets page; the unused
-   frozen currency is released automatically.
-7. To leave a position, sell with a limit order, or use a market order with an absolute
-   protection boundary you can live with.
-8. Check history to see the fees you paid and reconcile your actual P&L.
+1. 运行 `/qse`，确认白名单和权限放行。
+2. 打开资产页，存入货币（`/qse deposit money <货币> <金额>`）或物品（`/qse deposit item <市场ID> <数量>`）。取款方式相同，但需要背包有空间。
+3. 打开市场列表，按 24 小时成交额排序，选一个真实有量的市场进入。
+4. 阅读深度、最新价和 24 小时涨跌，决定方向和价格。
+5. 点击限价买入，输入 `10 100.00` 并确认。你的货币现在以最坏情况被冻结。
+6. 打开我的订单观察。成交后持仓出现在资产页，多余冻结货币自动释放。
+7. 平仓用限价卖出，或用带绝对保护价的市价单。
+8. 打开历史核对手续费，计算真实盈亏。
 
-## FAQ and common pitfalls
+## 常见问题与误区
 
-- **Why is nothing happening to my order?** A resting limit order fills only when another player
-  trades into it. The market may simply be quiet. Watch the depth and recent trades; if your
-  price is worse than the best ask/bid, yours rests further back.
-- **Why was my order rejected?** The quantity or price was outside the market rules (range, tick,
-  min/max quantity), you hit an account limit (holding, frozen currency, open orders), or the
-  market is not `OPEN`.
-- **Where did my money go?** A buy order freezes the worst-case cost. Until the order fills or
-  cancels, that amount is `frozen`, not lost. Cancel the order to release it.
-- **Can I deposit a concept stock?** No. Stocks are ledger-only by design and never touch your
-  inventory.
-- **What does the protection price mean for a market order?** It is the worst absolute price you
-  accept. Buying `2 105.00` means "fill up to 2 units, never paying more than 105.00 per unit,
-  cancel the rest."
-- **Why did my market order not fill everything?** Market orders are IOC: whatever cannot fill
-  inside your boundary is cancelled, so a thin book leaves part of your quantity unfilled.
-- **Why is my sell worth less than price × quantity?** Maker/taker fees are deducted. The
-  confirmation page and history show the exact fee.
-- **Can I trade with myself?** No. Self-trade is rejected before anything is frozen.
-- **What are the audit alerts for?** The exchange watches for reciprocal high-frequency trades
-  and high cancel/place ratios between the same accounts; operators are alerted and can
-  acknowledge each alert with `/qse admin audit ack <alertId>`. Legitimate trading is not
-  blocked by detection.
+- **为什么我的订单没有动静？** 挂单限价单只有其他玩家成交到它才会成交，市场可能只是比较冷清。观察深度和最近成交；如果你的价格比最佳买一/卖一差，你的订单排在更后面。
+- **为什么订单被拒绝？** 数量或价格超出市场规则（区间、tick、最小/最大数量），触发了账户限制（持仓、冻结货币、未完成订单数），或市场不是 `OPEN`。
+- **我的钱去哪了？** 买单会冻结最坏成本。在订单成交或取消前，这笔钱是"冻结"状态而不是丢失。取消订单即可释放。
+- **概念股可以存入吗？** 不可以。概念股是纯账本资产，永远不进入你的背包。
+- **市价单的保护价是什么意思？** 它是你能接受的最差绝对价格。买入 `2 105.00` 表示"最多买 2 个单位，每个单位绝不高于 105.00，剩余部分取消"。
+- **为什么市价单没有全部成交？** 市价单是 IOC：保护价内无法成交的部分自动取消，薄盘会留下部分数量未成交。
+- **为什么卖出到账少于 价格 × 数量？** maker/taker 手续费会被扣除。确认页和历史页显示精确手续费。
+- **能和自己交易吗？** 不能。自成交在冻结任何资产之前就被拒绝。
+- **审计告警是什么？** 交易所会监控同一对账户之间的高频对倒和高撤单/挂单比，运营者会收到告警，并可用 `/qse admin audit ack <告警ID>` 确认。检测不会阻止正常交易。
 
-## Command reference
+## 命令速查
 
-Player commands:
+玩家命令：
 
 ```text
-/qse                       Open the market list
-/qse open                  Open the market list
-/qse market <marketId>     Open a market detail page
-/qse stock <symbol>        Open a concept stock by symbol
-/qse stocks                Open the market list
-/qse order limit <buy|sell> <marketId> <price> <quantity>
-/qse order market <buy|sell> <marketId> <quantity> <protectionPrice>
-/qse cancel <orderId>      Cancel an open order
-/qse orders                My open orders
-/qse assets                Balances, holdings, and transfers
-/qse history               Account history
+/qse                       打开市场列表
+/qse open                  打开市场列表
+/qse market <市场ID>       打开市场详情
+/qse stock <代码>          按代码打开概念股
+/qse stocks                打开市场列表
+/qse order limit <买|卖> <市场ID> <价格> <数量>
+/qse order market <买|卖> <市场ID> <数量> <保护价>
+/qse cancel <订单ID>       取消未完成订单
+/qse orders                我的未完成订单
+/qse assets                余额、持仓与转账
+/qse history               账户历史
 /qse deposit|withdraw money|item ...
-/qse help                  Command overview
+/qse help                  命令概览
 ```
 
-Administrator commands (each requires its own `quickshop.exchange.admin.*` permission):
+管理员命令（各需对应 `quickshop.exchange.admin.*` 权限）：
 
 ```text
-/qse admin market pause|resume <marketId> <reason>
-/qse admin order cancel <orderId> <reason>
+/qse admin market pause|resume <市场ID> <原因>
+/qse admin order cancel <订单ID> <原因>
 /qse admin transfer review list|show|resolve ...
-/qse admin audit status|ack <alertId>|reconcile|export <from> <to>
+/qse admin audit status|ack <告警ID>|reconcile|export <起> <止>
 /qse admin stock create|issue|transfer|pause|resume|close ...
 ```
 
-Tab completion covers player symbols (`/qse stock <sym>`), admin audit subcommands, and admin
-stock actions plus concept-stock symbols, so you rarely need to type a raw market id.
+Tab 补全覆盖玩家代码（`/qse stock <代码>`）、admin audit 子命令，以及 admin stock 的动作和概念股代码，很少需要手输原始市场 ID。
 
-## Permissions summary
+## 权限汇总
 
-- `quickshop.exchange.use` — open menus, view markets, history, orders, and assets.
-- `quickshop.exchange.order.limit` / `quickshop.exchange.order.market` — place each order type.
-- `quickshop.exchange.order.cancel` — cancel your own orders.
-- `quickshop.exchange.deposit` / `quickshop.exchange.withdraw` — move currency and items.
-- `quickshop.exchange.admin.market`, `quickshop.exchange.admin.orders`,
-  `quickshop.exchange.admin.recovery`, `quickshop.exchange.admin.audit`,
-  `quickshop.exchange.admin.stock` — operator controls shown on the admin page.
+- `quickshop.exchange.use` —— 打开菜单、查看市场、历史、订单和资产。
+- `quickshop.exchange.order.limit` / `quickshop.exchange.order.market` —— 分别下达两种订单。
+- `quickshop.exchange.order.cancel` —— 取消自己的订单。
+- `quickshop.exchange.deposit` / `quickshop.exchange.withdraw` —— 转移货币和物品。
+- `quickshop.exchange.admin.market`、`quickshop.exchange.admin.orders`、
+  `quickshop.exchange.admin.recovery`、`quickshop.exchange.admin.audit`、
+  `quickshop.exchange.admin.stock` —— 管理员页上的运营控制。
 
-For server operators, see [Exchange Operations](exchange-operations.md) for rollout, database
-and recovery, reconciliation, and production checklist guidance.
+服务器运营者请参阅 [交易所运营文档](exchange-operations.md)，了解灰度发布、数据库与恢复、对账和生产环境检查清单。
