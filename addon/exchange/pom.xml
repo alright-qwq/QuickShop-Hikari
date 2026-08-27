@@ -33,6 +33,19 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>default</id>
+            <configuration>
+              <relocations combine.self="override">
+                <relocation>
+                  <pattern>net.tnemc</pattern>
+                  <shadedPattern>com.ghostchu.quickshop.addon.exchange.shade.tne</shadedPattern>
+                </relocation>
+              </relocations>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
