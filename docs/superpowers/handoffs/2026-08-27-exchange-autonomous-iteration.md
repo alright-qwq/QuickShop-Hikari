@@ -4,7 +4,7 @@
 
 - Worktree: `/Users/ztrnb/QuickShop-Hikari/.worktrees/exchange-order-book`
 - Branch: `codex/exchange-order-book`
-- Current HEAD: `e2abb7f94`
+- Current HEAD: `cace2f8d1`
 - State: clean except untracked `docs/superpowers/plans/2026-08-26-virtual-concept-stock.md`
   (intentional plan document; do not commit unless the next AI decides the plan is stale).
 - The user is asleep and has granted full autonomy; push failures are transient (503) and should
@@ -343,6 +343,15 @@ Full exchange test suite: 444 tests, 0 failures.
   backwards-compatible overloads. (`e2abb7f94`)
 
 Full exchange test suite: 446 tests, 0 failures.
+
+## Twenty-fifth continuation (same day)
+
+- Order chat prompts now surface the current executable quote: when the market has a
+  best ask/bid, the limit and market order prompts name the best price for the chosen
+  side and show it in the example, so players can reference the visible price while
+  typing. Markets without an executable quote keep the generic prompt. (`cace2f8d1`)
+
+Full exchange test suite: 447 tests, 0 failures.
 
 ## Next iteration candidates (user-granted autonomy)
 
