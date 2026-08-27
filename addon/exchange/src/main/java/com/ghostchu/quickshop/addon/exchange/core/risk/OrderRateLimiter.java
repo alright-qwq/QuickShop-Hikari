@@ -23,15 +23,20 @@ public final class OrderRateLimiter {
   public boolean allow(UUID accountId, Instant now) {
     ArrayDeque<Instant> queue = events.computeIfAbsent(accountId, ignored -> new ArrayDeque<>());
     synchronized (queue) {
-      Instant minuteCutoff = now.minusSeconds(60);
+      Instant latest = queue.peekLast();
+      // A clock that moves backwards must not reset or bypass the rolling window; evaluate the
+      // request as if it arrived at the newest previously observed instant.
+      Instant evaluatedAt = latest != null && now.isBefore(latest) ? latest : now;
+      Instant minuteCutoff = evaluatedAt.minusSeconds(60);
       while (!queue.isEmpty() && !queue.peekFirst().isAfter(minuteCutoff)) {
         queue.removeFirst();
       }
-      long inSecond = queue.stream().filter(event -> event.isAfter(now.minusSeconds(1))).count();
+      long inSecond = queue.stream()
+          .filter(event -> event.isAfter(evaluatedAt.minusSeconds(1))).count();
       if (inSecond >= perSecond || queue.size() >= perMinute) {
         return false;
       }
-      queue.addLast(now);
+      queue.addLast(evaluatedAt);
       return true;
     }
   }

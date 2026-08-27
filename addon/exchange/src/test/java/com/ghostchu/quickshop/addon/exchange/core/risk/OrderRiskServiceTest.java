@@ -21,6 +21,20 @@ class OrderRiskServiceTest {
   }
 
   @Test
+  void clockRollbackCannotBypassTheRollingWindow() {
+    OrderRateLimiter limiter = new OrderRateLimiter(5, 60);
+    UUID account = UUID.randomUUID();
+    Instant now = Instant.EPOCH.plusSeconds(100);
+    for (int index = 0; index < 5; index++) {
+      assertThat(limiter.allow(account, now)).isTrue();
+    }
+
+    // A rolled-back clock must be evaluated at the newest previously seen instant and rejected.
+    assertThat(limiter.allow(account, now.minusSeconds(30))).isFalse();
+    assertThat(limiter.allow(account, now.minusSeconds(30))).isFalse();
+  }
+
+  @Test
   void enforcesAccountExposureLimits() {
     AccountRiskSnapshot snapshot = new AccountRiskSnapshot(
         100_000, new BigDecimal("10000000.00"), 100);
