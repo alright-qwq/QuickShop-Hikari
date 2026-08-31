@@ -56,7 +56,17 @@ final class MyOrdersPage {
     int offset = Math.max(0, (opened == null ? 1 : opened.page()) - 1) * PAGE_SIZE;
     views.accountOrders(playerId, PAGE_SIZE + 1, offset).whenComplete((orders, failure) -> {
       if (!contexts.isCurrent(playerId, opened)) return;
-      java.util.Map<String, MarketRow> quotes = new java.util.HashMap<>();
+      if (failure != null || orders == null) {
+        if (player == null || !player.isOnline()) return;
+        ExchangeSchedulers.folia().getScheduler().runAtEntityLater(player, () -> {
+          if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
+            render(page, player, List.of(), java.util.Map.of(), failure);
+            ExchangeMenuIcons.update(player, page);
+          }
+        }, 1L);
+        return;
+      }
+      java.util.Map<String, MarketRow> quotes = new java.util.concurrent.ConcurrentHashMap<>();
       List<CompletableFuture<Void>> loads = new java.util.ArrayList<>();
       for (ExchangeTransaction.PersistedOrder persisted : orders) {
         String marketId = persisted.order().marketId();
