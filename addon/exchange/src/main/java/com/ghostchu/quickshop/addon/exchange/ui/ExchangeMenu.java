@@ -2,6 +2,7 @@ package com.ghostchu.quickshop.addon.exchange.ui;
 
 import com.ghostchu.quickshop.addon.exchange.command.RolloutPolicy;
 import com.ghostchu.quickshop.addon.exchange.platform.AddonMessageService;
+import java.util.UUID;
 import net.tnemc.menu.core.Menu;
 import net.tnemc.menu.core.PlayerInstancePage;
 
@@ -46,6 +47,12 @@ public final class ExchangeMenu extends Menu {
     addPage(page(ExchangeMenuPage.ADMIN, new AdminPage(messages, admin)::open));
     addPage(page(ExchangeMenuPage.MARKET_TRADES,
         new MarketTradesPage(views, contexts, messages)::open));
+  }
+
+  /** Releases one player's UI preferences when their viewer is no longer usable. */
+  void clearPlayerPreferences(UUID playerId) {
+    marketListPage.playerQuit(playerId);
+    marketDetailPage.playerQuit(playerId);
   }
 
   /** Releases per-player UI preferences when the menu is shut down. */

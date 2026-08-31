@@ -50,7 +50,7 @@ public final class ExchangeMenuService implements AutoCloseable {
       MenuManager.instance().removeViewer(playerId);
       this.views.unsubscribeMarketUpdates(playerId);
       ExchangeMenuIcons.forget(playerId);
-      menu.clearPlayerPreferences();
+      menu.clearPlayerPreferences(playerId);
     });
     MenuManager.instance().addMenu(menu);
   }
