@@ -23,11 +23,16 @@ import com.ghostchu.quickshop.addon.exchange.ui.ExchangeMenuService;
 import com.ghostchu.quickshop.api.command.CommandContainer;
 import com.ghostchu.quickshop.api.event.QSConfigurationReloadEvent;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.logging.Level;
 import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
@@ -246,7 +251,14 @@ public final class Main extends JavaPlugin implements Listener {
    */
   public ReloadResult reloadExchangeConfig() {
     synchronized (lifecycleLock) {
-      reloadConfig();
+      String configFailure = reloadConfigWithSyntaxRecovery();
+      if (configFailure != null) {
+        Level level = runtime == null ? Level.SEVERE : Level.WARNING;
+        getLogger().log(level,
+            "Exchange configuration could not be reloaded; the previous configuration"
+                + " remains active. Cause:", new IllegalArgumentException(configFailure));
+        return new ReloadResult(false, configFailure);
+      }
       if (!getConfig().getBoolean("enabled", false)) {
         closeRuntime();
         // Keep /qse reload available so the operator can re-enable without a restart.
@@ -283,6 +295,54 @@ public final class Main extends JavaPlugin implements Listener {
             ? failure.getClass().getSimpleName() : failure.getMessage();
         return new ReloadResult(false, cause);
       }
+    }
+  }
+
+  /**
+   * Reloads {@code config.yml} without exposing Bukkit's empty-on-parse-error behavior to the
+   * runtime. A syntactically broken file is first backed up and replaced by the bundled default;
+   * if that impossible, the method refuses to reload and leaves the previous in-memory values
+   * untouched so a live exchange can keep trading.
+   */
+  private String reloadConfigWithSyntaxRecovery() {
+    File configFile = new File(getDataFolder(), "config.yml");
+    String failure = yamlSyntaxError(configFile);
+    if (failure == null) {
+      reloadConfig();
+      return null;
+    }
+    try {
+      File backup = new File(getDataFolder(), "config.yml.corrupted");
+      Files.move(configFile.toPath(), backup.toPath(), StandardCopyOption.REPLACE_EXISTING);
+      saveResource("config.yml", true);
+      getLogger().warning("config.yml was not parseable; backed it up to " + backup.getName()
+          + " and restored the bundled default. Cause: " + failure);
+    } catch (IOException | IllegalArgumentException recoveryFailure) {
+      String cause = recoveryFailure.getMessage() == null
+          ? recoveryFailure.getClass().getSimpleName() : recoveryFailure.getMessage();
+      getLogger().warning("config.yml is not parseable and could not be self-recovered; keeping"
+          + " the previous in-memory configuration. Cause: " + cause);
+      return failure + "; self-recovery failed: " + cause;
+    }
+    failure = yamlSyntaxError(configFile);
+    if (failure != null) {
+      return failure;
+    }
+    reloadConfig();
+    return null;
+  }
+
+  static String yamlSyntaxError(File source) {
+    if (!source.isFile()) {
+      return "file does not exist";
+    }
+    try {
+      new YamlConfiguration().loadFromString(Files.readString(source.toPath()));
+      return null;
+    } catch (IOException | InvalidConfigurationException failure) {
+      String cause = failure.getMessage() == null
+          ? failure.getClass().getSimpleName() : failure.getMessage();
+      return cause.isBlank() ? failure.getClass().getSimpleName() : cause;
     }
   }
 
