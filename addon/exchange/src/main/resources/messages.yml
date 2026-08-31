@@ -253,6 +253,7 @@ en-US:
   ui-confirm-estimated-net: 'Estimated net received: <0>'
   ui-confirm-order: 'Order: <0>'
   ui-confirm-cancel-loading: Loading order details...
+  ui-confirm-cancel-ready: Order details loaded.
   ui-confirm-cancel-gone: This order is no longer cancellable (filled or already cancelled).
   ui-confirm-cancel-release-currency: 'Frozen currency released on cancel: <0>'
   ui-confirm-cancel-release-quantity: 'Frozen quantity released on cancel: <0>'
@@ -542,6 +543,7 @@ zh-CN:
   ui-confirm-estimated-net: '预估到手：<0>'
   ui-confirm-order: '订单：<0>'
   ui-confirm-cancel-loading: 正在加载订单详情...
+  ui-confirm-cancel-ready: 订单详情已加载。
   ui-confirm-cancel-gone: 该订单已不可撤销（可能已成交或已撤单）。
   ui-confirm-cancel-release-currency: '撤销后释放冻结资金：<0>'
   ui-confirm-cancel-release-quantity: '撤销后释放冻结数量：<0>'

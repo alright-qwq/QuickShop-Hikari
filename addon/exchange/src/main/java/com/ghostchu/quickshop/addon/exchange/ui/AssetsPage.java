@@ -105,11 +105,14 @@ final class AssetsPage {
     for (AssetPageRows.Row row : merged.rows()) {
       if (slot >= 20) break;
       TransferTarget target = row.target();
+      boolean itemAsset = target.kind() == TransferTarget.Kind.ITEM;
       List<Component> lore = new java.util.ArrayList<>(List.of(
           messages.component(player, "ui-assets-available",
-              messages.formatCurrency(row.available())),
+              itemAsset ? messages.formatAmount(row.available())
+                  : messages.formatCurrency(row.available())),
           messages.component(player, "ui-assets-frozen",
-              messages.formatCurrency(row.frozen())),
+              itemAsset ? messages.formatAmount(row.frozen())
+                  : messages.formatCurrency(row.frozen())),
           messages.component(player, "ui-assets-deposit-action"),
           messages.component(player, "ui-assets-withdraw-action")));
       if (target.kind() == TransferTarget.Kind.ITEM && target.marketId() != null) {
@@ -150,8 +153,8 @@ final class AssetsPage {
       java.util.ArrayList<Component> securityLore = new java.util.ArrayList<>(List.of(
           messages.component(player, "ui-assets-virtual-security"),
           messages.component(player, "ui-assets-symbol", security.symbol()),
-          messages.component(player, "ui-assets-available", security.available().toPlainString()),
-          messages.component(player, "ui-assets-frozen", security.frozen().toPlainString()),
+          messages.component(player, "ui-assets-available", messages.formatAmount(security.available())),
+          messages.component(player, "ui-assets-frozen", messages.formatAmount(security.frozen())),
           messages.component(player, "ui-assets-open-market")));
       java.math.BigDecimal marketValue = marketValue(security, snapshot.quotes());
       if (marketValue != null) {
@@ -187,7 +190,9 @@ final class AssetsPage {
           messages.component(player, "ui-assets-transfer-kind",
               messages.localized(player, transfer.type()), transfer.assetId()),
           messages.component(player, "ui-assets-transfer-amount",
-              messages.formatCurrency(transfer.amount())),
+              transfer.type().name().startsWith("MONEY")
+                  ? messages.formatCurrency(transfer.amount())
+                  : messages.formatAmount(transfer.amount())),
           messages.component(player, "ui-assets-transfer-status",
               messages.localized(player, transfer.status()) + reason),
           messages.component(player, "ui-history-created-at",

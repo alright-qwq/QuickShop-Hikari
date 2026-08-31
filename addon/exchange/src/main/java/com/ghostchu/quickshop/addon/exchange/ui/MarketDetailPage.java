@@ -139,7 +139,8 @@ final class MarketDetailPage {
         messages.component(player, "ui-market-high-low",
             row.high24h() == null ? "-" : messages.formatCurrency(row.high24h(), scale),
             row.low24h() == null ? "-" : messages.formatCurrency(row.low24h(), scale)),
-        messages.component(player, "ui-market-volume", row.volume24h()),
+        messages.component(player, "ui-market-volume",
+            messages.formatAmount(java.math.BigDecimal.valueOf(row.volume24h()))),
         messages.component(player, "ui-market-status", messages.localized(player, row.status()))));
     if (row.assetType() != null) {
       lore.add(messages.component(player, "ui-market-asset-type", messages.localized(player, row.assetType())));
@@ -305,7 +306,8 @@ final class MarketDetailPage {
     ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(
         ExchangeMenuPlatform.stack().of("STRUCTURE_BLOCK", 1)
             .customName(messages.component(player, "ui-depth-executable-summary",
-                rows.executableBidQuantity(), rows.executableAskQuantity())))
+                messages.formatAmount(java.math.BigDecimal.valueOf(rows.executableBidQuantity())),
+                messages.formatAmount(java.math.BigDecimal.valueOf(rows.executableAskQuantity())))))
         .withSlot(7).build());
   }
 
@@ -323,8 +325,10 @@ final class MarketDetailPage {
     int scale = marketPriceScale(market.marketId());
     java.util.ArrayList<Component> lore = new java.util.ArrayList<>(List.of(
         messages.component(player, "ui-depth-price", messages.formatCurrency(row.price(), scale)),
-        messages.component(player, "ui-depth-quantity", row.quantity()),
-        messages.component(player, "ui-depth-cumulative", row.cumulativeQuantity()),
+        messages.component(player, "ui-depth-quantity",
+            messages.formatAmount(java.math.BigDecimal.valueOf(row.quantity()))),
+        messages.component(player, "ui-depth-cumulative",
+            messages.formatAmount(java.math.BigDecimal.valueOf(row.cumulativeQuantity()))),
         messages.component(player, "ui-depth-notional",
             row.price().multiply(java.math.BigDecimal.valueOf(row.quantity()))
                 .setScale(scale, java.math.RoundingMode.HALF_UP).toPlainString()),
@@ -375,7 +379,8 @@ final class MarketDetailPage {
               messages.formatCurrency(candle.low(), scale)),
           messages.component(player, "ui-trend-change", change.stripTrailingZeros().toPlainString(),
               changePercent.toPlainString()),
-          messages.component(player, "ui-trend-volume", candle.volume())));
+          messages.component(player, "ui-trend-volume",
+              messages.formatAmount(java.math.BigDecimal.valueOf(candle.volume())))));
       ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(material,
           Math.max(1, row.strength())).customName(messages.component(player, "ui-trend-title",
               direction + " " + changeLabel)).lore(lore))
@@ -393,7 +398,8 @@ final class MarketDetailPage {
         messages.component(player, "ui-market-trades-24h", summary.tradeCount()),
         messages.component(player, "ui-market-trades-buy-sell", summary.buyCount(),
             summary.sellCount()),
-        messages.component(player, "ui-market-volume", summary.volume()));
+        messages.component(player, "ui-market-volume",
+            messages.formatAmount(java.math.BigDecimal.valueOf(summary.volume()))));
     ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(
         ExchangeMenuPlatform.stack().of("BARREL", 1)
             .customName(messages.component(player, "ui-market-trades-title")).lore(lore))
@@ -542,9 +548,9 @@ final class MarketDetailPage {
   }
 
   private String orderPrompt(Player player, MarketRow row, OrderSide side, OrderType type) {
-    String best = side == OrderSide.BUY
-        ? row.bestAsk() == null ? null : row.bestAsk().toPlainString()
-        : row.bestBid() == null ? null : row.bestBid().toPlainString();
+    java.math.BigDecimal bestQuote = side == OrderSide.BUY ? row.bestAsk() : row.bestBid();
+    String best = bestQuote == null ? null : messages.formatCurrency(bestQuote,
+        marketPriceScale(row.marketId()));
     String key = promptKey(type, best != null);
     if (best == null) {
       return messages.text(player, key);

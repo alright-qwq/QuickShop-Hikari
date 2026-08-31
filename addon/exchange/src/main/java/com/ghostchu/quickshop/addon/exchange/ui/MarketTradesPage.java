@@ -130,7 +130,8 @@ private void renderNotSelected(PlayerInstancePage page, Player player) {
       boolean buy = trade.takerSide() == OrderSide.BUY;
       List<Component> lore = List.of(
           messages.component(player, "ui-market-recent-trade-id", trade.matchSequence()),
-          messages.component(player, "ui-market-recent-trade-quantity", trade.quantity()),
+          messages.component(player, "ui-market-recent-trade-quantity",
+              messages.formatAmount(java.math.BigDecimal.valueOf(trade.quantity()))),
           messages.component(player, "ui-market-recent-trade-notional",
               messages.formatCurrency(trade.price().multiply(
                   java.math.BigDecimal.valueOf(trade.quantity())), scale)),

@@ -63,7 +63,7 @@ final class RequestSummaryPage {
       ExchangeMenuIcons.update(player, page);
       return;
     }
-    render(page, player, request, null, null, false);
+    render(page, player, request, null, null, CancelLoadState.LOADING);
     if (request.order() != null && views != null) {
       views.marketQuoteAsync(request.marketId())
           .whenComplete((quote, failure) -> {
@@ -73,7 +73,7 @@ final class RequestSummaryPage {
             ExchangeSchedulers.folia().getScheduler().runAtEntityLater(online,
                 () -> {
                   if (ExchangePageRenderGuard.permits(contexts, playerId, request, online::isOnline)) {
-                    render(page, online, request, quote, null, false);
+                    render(page, online, request, quote, null, CancelLoadState.LOADING);
                     ExchangeMenuIcons.update(online, page);
                   }
                 }, 1L);
@@ -87,8 +87,12 @@ final class RequestSummaryPage {
             ExchangeSchedulers.folia().getScheduler().runAtEntityLater(online,
                 () -> {
                   if (ExchangePageRenderGuard.permits(contexts, playerId, request, online::isOnline)) {
-                    render(page, online, request, null,
-                        failure == null ? order.orElse(null) : null, true);
+                    ExchangeTransaction.PersistedOrder cancelOrder =
+                        failure == null && order.isPresent() ? order.get() : null;
+                    CancelLoadState cancelState = failure != null
+                        ? CancelLoadState.UNAVAILABLE
+                        : order.isPresent() ? CancelLoadState.LOADED : CancelLoadState.EMPTY;
+                    render(page, online, request, null, cancelOrder, cancelState);
                     ExchangeMenuIcons.update(online, page);
                   }
                 }, 1L);
@@ -98,11 +102,12 @@ final class RequestSummaryPage {
 
   private void render(PlayerInstancePage page, Player player, ExchangeMenuRequest request,
                       com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote,
-                      ExchangeTransaction.PersistedOrder cancelOrder, boolean cancelLoaded) {
+                      ExchangeTransaction.PersistedOrder cancelOrder,
+                      CancelLoadState cancelState) {
     UUID playerId = player.getUniqueId();
     ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
-    List<Component> lore = summary(player, request, quote, cancelOrder, cancelLoaded);
+    List<Component> lore = summary(player, request, quote, cancelOrder, cancelState);
     IconBuilder icon = new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
         .customName(messages.component(player, titleKey(request), localizedTitleArgument(player, request)))
         .lore(lore)).withSlot(22);
@@ -180,7 +185,7 @@ final class RequestSummaryPage {
   private List<Component> summary(Player player, ExchangeMenuRequest request,
                                   com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote,
                                   ExchangeTransaction.PersistedOrder cancelOrder,
-                                  boolean cancelLoaded) {
+                                  CancelLoadState cancelState) {
     List<Component> lines = new ArrayList<>();
     if (request.requestId() != null) {
       lines.add(messages.component(player, "ui-confirm-request", request.requestId()));
@@ -246,7 +251,8 @@ final class RequestSummaryPage {
       var transfer = request.transfer();
       lines.add(messages.component(player, "ui-confirm-asset", transfer.assetId()));
       if (transfer.amount() != null) {
-        lines.add(messages.component(player, "ui-confirm-amount", transfer.amount()));
+        lines.add(messages.component(player, "ui-confirm-amount",
+            messages.formatAmount(transfer.amount())));
       }
       if (transfer.quantity() > 0) {
         lines.add(messages.component(player, "ui-confirm-quantity", transfer.quantity()));
@@ -265,8 +271,12 @@ final class RequestSummaryPage {
             order.side() == OrderSide.BUY
                 ? cancelOrder.reservedCurrency() : cancelOrder.reservedQuantity()));
       } else {
-        lines.add(messages.component(player, cancelLoaded
-            ? "ui-confirm-cancel-gone" : "ui-confirm-cancel-loading"));
+        lines.add(messages.component(player, switch (cancelState) {
+          case EMPTY -> "ui-confirm-cancel-gone";
+          case LOADED -> "ui-confirm-cancel-ready";
+          case UNAVAILABLE -> "ui-data-unavailable";
+          case LOADING -> "ui-confirm-cancel-loading";
+        }));
       }
     }
     return List.copyOf(lines);
@@ -362,6 +372,8 @@ final class RequestSummaryPage {
     return scale;
   }
 
+  private enum CancelLoadState { LOADING, LOADED, EMPTY, UNAVAILABLE }
+
   private void submit(ExchangeMenuRequest request, UUID playerId) {
     Player player = Bukkit.getPlayer(playerId);
     if (player == null || !player.isOnline()
@@ -371,7 +383,15 @@ final class RequestSummaryPage {
     if (!contexts.claim(playerId, request)) {
       return;
     }
-    submitter.submit(request).whenComplete((result, failure) -> {
+    java.util.concurrent.CompletableFuture<ExchangeRequestSubmitter.SubmissionResult> future;
+    try {
+      future = submitter.submit(request);
+    } catch (RuntimeException submissionLaunchFailure) {
+      contexts.release(playerId, request);
+      player.sendMessage(messages.component(player, "ui-confirm-submit-failed"));
+      return;
+    }
+    future.whenComplete((result, failure) -> {
       if (failure != null || result == null
           || result.outcome() == ExchangeRequestSubmitter.Outcome.REJECTED) {
         // A failed/rejected submission is actionable: preserve the current request so the player
@@ -381,7 +401,7 @@ final class RequestSummaryPage {
       Player onlinePlayer = Bukkit.getPlayer(playerId);
       if (onlinePlayer == null || !onlinePlayer.isOnline()) return;
       ExchangeSchedulers.folia().getScheduler().runAtEntityLater(onlinePlayer, () -> {
-        if (failure != null) {
+        if (failure != null || result == null) {
           onlinePlayer.sendMessage(messages.component(onlinePlayer, "ui-confirm-submit-failed"));
         } else {
           String reason = messages.reasonText(onlinePlayer, result.reason());

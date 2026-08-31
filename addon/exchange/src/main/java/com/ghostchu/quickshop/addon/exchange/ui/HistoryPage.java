@@ -123,7 +123,10 @@ final class HistoryPage {
       String reason = transfer.failureReason() == null ? "" : " " + transfer.failureReason();
       List<Component> lore = List.of(
           text(player, "ui-history-transfer-asset", transfer.assetId()),
-          text(player, "ui-history-transfer-amount", transfer.amount().toPlainString()),
+          text(player, "ui-history-transfer-amount",
+              transfer.type().name().startsWith("MONEY")
+                  ? ui.formatCurrency(transfer.amount())
+                  : ui.formatAmount(transfer.amount())),
           text(player, "ui-history-transfer-status", localized(player, transfer.status()) + reason),
           text(player, "ui-history-created-at", relativeTime(transfer.updatedAt())));
       String transferMaterial = switch (transfer.status()) {
@@ -140,7 +143,10 @@ final class HistoryPage {
       if (slot >= 45) break;
       List<Component> lore = List.of(
           text(player, "ui-history-ledger-asset", entry.assetId()),
-          text(player, "ui-history-ledger-amount", entry.amount().toPlainString()),
+          text(player, "ui-history-ledger-amount",
+              "TRADE_CURRENCY".equalsIgnoreCase(entry.journalType())
+                  ? ui.formatCurrency(entry.amount())
+                  : ui.formatAmount(entry.amount())),
           text(player, "ui-history-ledger-reference", entry.referenceId()),
           text(player, "ui-history-created-at", relativeTime(entry.createdAt())));
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("WRITABLE_BOOK", 1)

@@ -131,7 +131,8 @@ final class MarketListPage {
           messages.component(player, "ui-market-last", row.lastPrice() == null ? "-"
               : messages.formatCurrency(row.lastPrice(), scale)),
           messages.component(player, "ui-market-bid-ask", bid, ask),
-          messages.component(player, "ui-market-volume", row.volume24h()),
+          messages.component(player, "ui-market-volume",
+              messages.formatAmount(java.math.BigDecimal.valueOf(row.volume24h()))),
           messages.component(player, "ui-market-list-notional",
               row.notional24h() == null ? "-"
                   : messages.formatCurrency(row.notional24h(), scale)),
@@ -139,7 +140,7 @@ final class MarketListPage {
       for (MarketRow.TradeLore trade : row.recentTrades()) {
         Component tradeLine = messages.component(player, "ui-market-last-trade",
             trade.buy() ? trade.side() : "SELL", messages.formatCurrency(trade.price(), scale),
-            trade.quantity());
+            messages.formatAmount(java.math.BigDecimal.valueOf(trade.quantity())));
         tradeLine = tradeLine.color(trade.buy()
             ? net.kyori.adventure.text.format.NamedTextColor.GREEN
             : net.kyori.adventure.text.format.NamedTextColor.RED);

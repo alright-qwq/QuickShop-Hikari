@@ -1,5 +1,6 @@
 package com.ghostchu.quickshop.addon.exchange.ui;
 
+import com.ghostchu.quickshop.addon.exchange.command.ExchangeMenuRequest;
 import com.ghostchu.quickshop.addon.exchange.config.AssetType;
 import com.ghostchu.quickshop.addon.exchange.core.model.MarketStatus;
 import com.ghostchu.quickshop.addon.exchange.core.model.OrderSide;
@@ -47,12 +48,26 @@ final class ExchangeUiMessages {
     return value.setScale(scale, RoundingMode.HALF_UP).toPlainString();
   }
 
+  /** Formats quantities or user-entered amounts without forcing currency precision. */
+  String formatAmount(BigDecimal value) {
+    if (value == null) return "-";
+    return value.stripTrailingZeros().toPlainString();
+  }
+
   /** Renders user-facing enums in the viewer locale instead of leaking Java names. */
   Object localized(Player player, Object value) {
     if (value == null) return "-";
     if (value instanceof OrderSide orderSide) {
       return text(player, orderSide == OrderSide.BUY ? "ui-history-trade-buy"
           : "ui-history-trade-sell");
+    }
+    if (value instanceof ExchangeMenuRequest.TransferKind transferKind) {
+      return text(player, switch (transferKind) {
+        case MONEY_DEPOSIT -> "ui-transfer-type-money-deposit";
+        case MONEY_WITHDRAWAL -> "ui-transfer-type-money-withdrawal";
+        case ITEM_DEPOSIT -> "ui-transfer-type-item-deposit";
+        case ITEM_WITHDRAWAL -> "ui-transfer-type-item-withdrawal";
+      });
     }
     if (value instanceof OrderType orderType) {
       return text(player, orderType == OrderType.LIMIT
@@ -136,6 +151,9 @@ final class ExchangeUiMessages {
   static String localizeReason(AddonMessageService messages, Locale locale, String rawReason) {
     if (rawReason == null || rawReason.isBlank()) {
       return "";
+    }
+    if (messages == null) {
+      return rawReason;
     }
     String key = switch (rawReason.toUpperCase(Locale.ROOT)) {
       case "MARKET_NOT_OPEN" -> "ui-reject-market-not-open";
