@@ -51,12 +51,12 @@ final class RequestSummaryPage {
     if (player == null || !player.isOnline()) return;
     ExchangeMenuRequest request = contexts.get(playerId).orElse(null);
     if (request == null || !expected.menuName().equals(request.menuName())) {
-      page.getIcons(playerId).clear();
+      ExchangeMenuIcons.clear(page, playerId);
       page.setLockEmptySlots(true);
       IconBuilder icon = new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(messages.component(player, "ui-confirm-not-selected")))
           .withSlot(22);
-      page.addIcon(playerId, icon.build());
+      ExchangeMenuIcons.add(page, playerId, icon.build());
       return;
     }
     render(page, player, request, null, null, false);
@@ -70,6 +70,7 @@ final class RequestSummaryPage {
                 () -> {
                   if (ExchangePageRenderGuard.permits(contexts, playerId, request, online::isOnline)) {
                     render(page, online, request, quote, null, false);
+                    ExchangeMenuIcons.update(online, page);
                   }
                 }, 1L);
           });
@@ -84,6 +85,7 @@ final class RequestSummaryPage {
                   if (ExchangePageRenderGuard.permits(contexts, playerId, request, online::isOnline)) {
                     render(page, online, request, null,
                         failure == null ? order.orElse(null) : null, true);
+                    ExchangeMenuIcons.update(online, page);
                   }
                 }, 1L);
           });
@@ -94,15 +96,15 @@ final class RequestSummaryPage {
                       com.ghostchu.quickshop.addon.exchange.marketdata.MarketQuote quote,
                       ExchangeTransaction.PersistedOrder cancelOrder, boolean cancelLoaded) {
     UUID playerId = player.getUniqueId();
-    page.getIcons(playerId).clear();
+    ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     List<Component> lore = summary(player, request, quote, cancelOrder, cancelLoaded);
     IconBuilder icon = new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
         .customName(messages.component(player, titleKey(request), titleArgument(request)))
         .lore(lore)).withSlot(22);
-    page.addIcon(playerId, icon.build());
+    ExchangeMenuIcons.add(page, playerId, icon.build());
     if (request.order() != null && request.marketId() != null) {
-      page.addIcon(playerId, new IconBuilder(
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(
           ExchangeMenuPlatform.stack().of("COMPASS", 1)
               .customName(messages.component(player, "ui-confirm-back-market")))
           .withActions(new RunnableAction(click -> {
@@ -111,7 +113,7 @@ final class RequestSummaryPage {
                 ExchangeMenuPage.MARKET_DETAIL.page(), click.player());
           })).withSlot(0).build());
     } else if (request.transfer() != null) {
-      page.addIcon(playerId, new IconBuilder(
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(
           ExchangeMenuPlatform.stack().of("CHEST", 1)
               .customName(messages.component(player, "ui-nav-assets")))
           .withActions(new RunnableAction(click -> {
@@ -121,7 +123,7 @@ final class RequestSummaryPage {
                 ExchangeMenuPage.ASSETS.page(), click.player());
           })).withSlot(0).build());
     } else if (request.orderId() != null) {
-      page.addIcon(playerId, new IconBuilder(
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(
           ExchangeMenuPlatform.stack().of("WRITABLE_BOOK", 1)
               .customName(messages.component(player, "ui-nav-orders")))
           .withActions(new RunnableAction(click -> {
@@ -131,7 +133,7 @@ final class RequestSummaryPage {
                 ExchangeMenuPage.ORDERS.page(), click.player());
           })).withSlot(0).build());
     }
-    page.addIcon(playerId, new IconBuilder(
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(
         ExchangeMenuPlatform.stack().of("CLOCK", 1)
             .customName(messages.component(player, "ui-nav-history")))
         .withActions(new RunnableAction(click -> {
@@ -140,7 +142,7 @@ final class RequestSummaryPage {
           MenuManager.instance().open(ExchangeMenu.NAME,
               ExchangeMenuPage.HISTORY.page(), click.player());
         })).withSlot(1).build());
-    page.addIcon(playerId, new IconBuilder(
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(
         ExchangeMenuPlatform.stack().of("CHEST", 1)
             .customName(messages.component(player, "ui-nav-assets")))
         .withActions(new RunnableAction(click -> {
@@ -154,7 +156,7 @@ final class RequestSummaryPage {
       IconBuilder confirm = new IconBuilder(ExchangeMenuPlatform.stack().of("LIME_CONCRETE", 1)
           .customName(messages.component(player, "ui-confirm-action")));
       confirm.withActions(new RunnableAction(click -> submit(request, playerId))).withSlot(31);
-      page.addIcon(playerId, confirm.build());
+      ExchangeMenuIcons.add(page, playerId, confirm.build());
     }
   }
 

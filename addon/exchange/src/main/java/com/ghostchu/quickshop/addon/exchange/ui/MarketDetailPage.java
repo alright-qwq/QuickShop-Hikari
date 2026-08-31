@@ -100,6 +100,7 @@ final class MarketDetailPage {
                   render(page, player, data == null ? null : data.dashboard(),
                       data == null ? List.of() : data.assets(),
                       data == null ? List.of() : data.orders(), failure);
+                  ExchangeMenuIcons.update(player, page);
                 }
               }, 1L);
         });
@@ -117,7 +118,7 @@ final class MarketDetailPage {
       renderFailure(page, player, playerId, "ui-data-unavailable");
       return;
     }
-    page.getIcons(playerId).clear();
+    ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     MarketRow row = dashboard.market();
     int scale = marketPriceScale(row.marketId());
@@ -170,7 +171,7 @@ final class MarketDetailPage {
     if (row.change24h() != null && row.change24h().signum() != 0) {
       quoteTitle = quoteTitle.color(changeColor(row.change24h()));
     }
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BOOK", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BOOK", 1)
         .customName(quoteTitle).lore(lore)).withSlot(4).build());
     navigation.addHeader(page, player, messages);
     addTimeframeControl(page, player,
@@ -200,7 +201,7 @@ final class MarketDetailPage {
     UUID playerId = player.getUniqueId();
     Duration current = timeframes.getOrDefault(playerId, TIMEFRAMES.getFirst());
     int index = Math.max(0, TIMEFRAMES.indexOf(current));
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
         .customName(messages.component(player, TIMEFRAME_KEYS.get(index))))
         .withActions(new RunnableAction(click -> {
           int next = (index + 1) % TIMEFRAMES.size();
@@ -300,7 +301,7 @@ final class MarketDetailPage {
 
   private void addExecutableDepthSummary(PlayerInstancePage page, Player player,
                                          MarketDashboardPresenter.DashboardRows rows) {
-    page.addIcon(player.getUniqueId(), new IconBuilder(
+    ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(
         ExchangeMenuPlatform.stack().of("STRUCTURE_BLOCK", 1)
             .customName(messages.component(player, "ui-depth-executable-summary",
                 rows.executableBidQuantity(), rows.executableAskQuantity())))
@@ -311,7 +312,7 @@ final class MarketDetailPage {
                             MarketDashboardPresenter.DepthRow row, boolean bid, int slot,
                             MarketRow market) {
     if (row.empty()) {
-      page.addIcon(player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(
+      ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(
           "BLACK_STAINED_GLASS_PANE", 1).customName(messages.component(player, "ui-depth-empty")))
           .withSlot(slot).build());
       return;
@@ -331,7 +332,7 @@ final class MarketDetailPage {
     if (distance != null) {
       lore.add(messages.component(player, "ui-depth-distance", percent(distance)));
     }
-    page.addIcon(player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(material,
+    ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(material,
         Math.max(1, row.strength())).customName(messages.component(player,
             bid ? "ui-depth-bid" : "ui-depth-ask")).lore(lore)).withSlot(slot).build());
   }
@@ -343,7 +344,7 @@ final class MarketDetailPage {
       MarketDashboardPresenter.CandleRow row = rows.candles().get(index);
       int slot = 19 + index;
       if (row.empty()) {
-        page.addIcon(player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(
+        ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(
             "BLACK_STAINED_GLASS_PANE", 1)
             .customName(messages.component(player, "ui-trend-empty"))).withSlot(slot).build());
         continue;
@@ -374,7 +375,7 @@ final class MarketDetailPage {
           messages.component(player, "ui-trend-change", change.stripTrailingZeros().toPlainString(),
               changePercent.toPlainString()),
           messages.component(player, "ui-trend-volume", candle.volume())));
-      page.addIcon(player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(material,
+      ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(material,
           Math.max(1, row.strength())).customName(messages.component(player, "ui-trend-title",
               direction + " " + changeLabel)).lore(lore))
           .withSlot(slot).build());
@@ -392,7 +393,7 @@ final class MarketDetailPage {
         messages.component(player, "ui-market-trades-buy-sell", summary.buyCount(),
             summary.sellCount()),
         messages.component(player, "ui-market-volume", summary.volume()));
-    page.addIcon(player.getUniqueId(), new IconBuilder(
+    ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(
         ExchangeMenuPlatform.stack().of("BARREL", 1)
             .customName(messages.component(player, "ui-market-trades-title")).lore(lore))
         .withSlot(6).build());
@@ -403,13 +404,13 @@ final class MarketDetailPage {
     int scale = marketPriceScale(market.marketId());
     List<ExchangeRepository.MarketTradeRow> trades = dashboard.recentTrades();
     if (trades.isEmpty()) {
-      page.addIcon(player.getUniqueId(), new IconBuilder(
+      ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(
           ExchangeMenuPlatform.stack().of("GRAY_STAINED_GLASS_PANE", 1)
               .customName(messages.component(player, "ui-market-recent-empty")))
           .withSlot(45).build());
       return;
     }
-    page.addIcon(player.getUniqueId(), new IconBuilder(
+    ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(
         ExchangeMenuPlatform.stack().of("PAPER", 1)
             .customName(messages.component(player, "ui-market-recent-trades")))
         .withSlot(45).build());
@@ -426,7 +427,7 @@ final class MarketDetailPage {
                   .toPlainString()),
           messages.component(player, "ui-market-recent-trade-time",
               messages.relativeTime(trade.executedAt())));
-      page.addIcon(player.getUniqueId(), new IconBuilder(
+      ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(
           ExchangeMenuPlatform.stack().of(buy ? "GREEN_CONCRETE" : "RED_CONCRETE", 1)
               .customName(messages.component(player, "ui-market-recent-trade-title",
                   buy ? messages.text(player, "ui-market-recent-active-buy")
@@ -441,7 +442,7 @@ final class MarketDetailPage {
   private void addNavigation(PlayerInstancePage page, Player player, int slot, String material,
                              String title, ExchangeMenuPage target) {
     UUID playerId = player.getUniqueId();
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
         .customName(messages.component(player, title)))
         .withActions(new RunnableAction(click -> {
           if (target == ExchangeMenuPage.MARKET_TRADES) {
@@ -515,7 +516,7 @@ final class MarketDetailPage {
     if ("VIRTUAL_SECURITY".equals(row.assetType())) {
       lore.add(messages.component(player, "ui-order-virtual-hint"));
     }
-    page.addIcon(player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
+    ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
         .customName(messages.component(player, title)).lore(lore))
         .withActions(new RunnableAction(click -> requestOrder(player, row, side, type), actionType))
         .withSlot(slot).build());
@@ -556,10 +557,10 @@ final class MarketDetailPage {
   }
 
   private void renderFailure(PlayerInstancePage page, Player player, UUID playerId, String key) {
-    page.getIcons(playerId).clear();
+    ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     Component title = player == null ? Component.text(key) : messages.component(player, key);
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
         .customName(title)).withSlot(22).build());
   }
 }

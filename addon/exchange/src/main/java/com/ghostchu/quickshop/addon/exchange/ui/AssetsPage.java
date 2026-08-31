@@ -75,6 +75,7 @@ final class AssetsPage {
           () -> {
             if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
               render(page, player, snapshot, failure, pageNumber);
+              ExchangeMenuIcons.update(player, page);
             }
           }, 1L);
     });
@@ -83,10 +84,10 @@ final class AssetsPage {
   private void render(PlayerInstancePage page, Player player, AssetPageSnapshot snapshot,
                       Throwable failure, int pageNumber) {
     UUID playerId = player.getUniqueId();
-    page.getIcons(playerId).clear();
+    ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     if (failure != null || snapshot == null || snapshot.failure() != null) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
       return;
     }
@@ -124,10 +125,10 @@ final class AssetsPage {
       }
       icon
           .withSlot(slot++);
-      page.addIcon(playerId, icon.build());
+      ExchangeMenuIcons.add(page, playerId, icon.build());
     }
     if (merged.rows().size() > 12) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BOOK", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BOOK", 1)
           .customName(messages.component(player, "ui-assets-more-currency",
               merged.rows().size() - 12)))
           .withActions(new RunnableAction(click -> {
@@ -159,10 +160,10 @@ final class AssetsPage {
         MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKET_DETAIL.page(),
             click.player());
       })).withSlot(slot++);
-      page.addIcon(playerId, icon.build());
+      ExchangeMenuIcons.add(page, playerId, icon.build());
     }
     if (merged.securities().size() > 12) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("MAP", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("MAP", 1)
           .customName(messages.component(player, "ui-assets-more-securities",
               merged.securities().size() - 12)))
           .withActions(new RunnableAction(click -> {
@@ -189,12 +190,12 @@ final class AssetsPage {
         case FAILED -> "RED_CONCRETE";
         default -> "HOPPER";
       };
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(transferMaterial, 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(transferMaterial, 1)
           .customName(messages.component(player, "ui-assets-transfer-title", transfer.status()))
           .lore(transferLore)).withSlot(slot++).build());
     }
     if (snapshot.transfers().isEmpty()) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
           .customName(messages.component(player, "ui-assets-transfers-empty"))).withSlot(slot++).build());
     }
     addTransferNavigation(page, player, pageNumber,
@@ -205,16 +206,16 @@ final class AssetsPage {
                                      boolean hasNext) {
     UUID playerId = player.getUniqueId();
     if (currentPage > 1) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("ARROW", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("ARROW", 1)
           .customName(messages.component(player, "ui-history-previous")))
           .withActions(new RunnableAction(click -> openAssetsPage(click.player(), currentPage - 1)))
           .withSlot(45).build());
     }
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
         .customName(messages.component(player, "ui-assets-transfers-page", currentPage)))
         .withSlot(49).build());
     if (hasNext) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("ARROW", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("ARROW", 1)
           .customName(messages.component(player, "ui-history-next")))
           .withActions(new RunnableAction(click -> openAssetsPage(click.player(), currentPage + 1)))
           .withSlot(53).build());
@@ -256,7 +257,7 @@ final class AssetsPage {
       lore.add(messages.component(player, "ui-assets-total-value-frozen",
           messages.formatCurrency(frozen, aggregateScale)));
     }
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("DIAMOND", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("DIAMOND", 1)
         .customName(messages.component(player, "ui-assets-total-value")).lore(lore))
         .withSlot(4).build());
   }

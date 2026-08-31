@@ -75,18 +75,19 @@ final class MarketListPage {
             if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
               render(page, player, snapshot, failure);
             }
-          }, 1L);
+          }, 2L);
     });
   }
 
   private void render(PlayerInstancePage page, Player player, MarketListSnapshot snapshot,
                       Throwable failure) {
     UUID playerId = player.getUniqueId();
-    page.getIcons(playerId).clear();
+    ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     if (failure != null) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
+      ExchangeMenuIcons.update(player, page);
       return;
     }
     addOverview(page, player, snapshot.overview());
@@ -106,6 +107,10 @@ final class MarketListPage {
       start = (currentPage - 1) * MARKET_PAGE_SIZE;
     }
     int end = Math.min(sorted.size(), start + MARKET_PAGE_SIZE);
+    final ExchangeMenuRequest previousRequest =
+        ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName(), Math.max(1, currentPage - 1));
+    final ExchangeMenuRequest nextRequest =
+        ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName(), currentPage + 1);
     for (MarketRow row : sorted.subList(start, end)) {
       if (slot >= 45) break;
       int scale = priceScale(row);
@@ -173,7 +178,7 @@ final class MarketListPage {
       } else {
         material = "BARRIER";
       }
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
           .customName(net.kyori.adventure.text.Component.text(row.displayName()))
           .lore(lore))
           .withActions(new RunnableAction(click -> {
@@ -183,32 +188,32 @@ final class MarketListPage {
           })).withSlot(slot++).build());
     }
     if (start > 0) {
-      addPageNavigation(page, player, 45, "ARROW", "ui-history-previous", currentPage - 1);
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("ARROW", 1)
+          .customName(messages.component(player, "ui-history-previous")))
+          .withActions(new RunnableAction(click -> {
+            contexts.put(playerId, previousRequest);
+            MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKETS.page(),
+                click.player());
+          })).withSlot(45).build());
     }
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
         .customName(messages.component(player, "ui-history-page", currentPage))).withSlot(49).build());
     if (end < sorted.size()) {
-      addPageNavigation(page, player, 53, "ARROW", "ui-history-next", currentPage + 1);
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("ARROW", 1)
+          .customName(messages.component(player, "ui-history-next")))
+          .withActions(new RunnableAction(click -> {
+            contexts.put(playerId, nextRequest);
+            MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKETS.page(),
+                click.player());
+          })).withSlot(53).build());
     }
-  }
-
-  private void addPageNavigation(PlayerInstancePage page, Player player, int slot, String material,
-                                 String key, int targetPage) {
-    UUID playerId = player.getUniqueId();
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
-        .customName(messages.component(player, key)))
-        .withActions(new RunnableAction(click -> {
-          contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName(),
-              targetPage));
-          MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKETS.page(),
-              click.player());
-        })).withSlot(slot).build());
+    ExchangeMenuIcons.update(player, page);
   }
 
   private void addFilterControl(PlayerInstancePage page, Player player) {
     UUID playerId = player.getUniqueId();
     AssetFilter filter = assetFilters.getOrDefault(playerId, AssetFilter.ALL);
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(
         filter == AssetFilter.SECURITY ? "PAPER"
             : filter == AssetFilter.ITEM ? "CHEST" : "HOPPER", 1)
         .customName(messages.component(player, "ui-filter-title",
@@ -256,7 +261,7 @@ final class MarketListPage {
     UUID playerId = player.getUniqueId();
     MarketListSnapshot.SortMode mode =
         sortModes.getOrDefault(playerId, MarketListSnapshot.SortMode.NOTIONAL);
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("COMPARATOR", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("COMPARATOR", 1)
         .customName(messages.component(player, "ui-sort-title",
             sortLabel(player, mode)))
         .lore(List.of(messages.component(player, "ui-sort-hint"),
@@ -274,7 +279,7 @@ final class MarketListPage {
     String active = overview.mostActive() == null ? "-" : overview.mostActive().displayName();
     String gainer = overview.biggestGainer() == null ? "-" : overview.biggestGainer().displayName();
     String loser = overview.biggestLoser() == null ? "-" : overview.biggestLoser().displayName();
-    page.addIcon(player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of("MAP", 1)
+    ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(ExchangeMenuPlatform.stack().of("MAP", 1)
         .customName(messages.component(player, "ui-overview-title"))
         .lore(List.of(
             messages.component(player, "ui-overview-markets", overview.marketCount()),
@@ -304,7 +309,7 @@ final class MarketListPage {
   private void addNavigation(PlayerInstancePage page, Player player, int slot, String material,
                              String title, ExchangeMenuPage target) {
     UUID playerId = player.getUniqueId();
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
         .customName(messages.component(player, title)))
         .withActions(new RunnableAction(click -> {
           contexts.put(playerId, ExchangeMenuRequest.page(target.menuName()));

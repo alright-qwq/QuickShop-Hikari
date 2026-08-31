@@ -29,7 +29,7 @@ final class AdminPage {
     if (!(callback.getPage() instanceof PlayerInstancePage page)) return;
     UUID playerId = callback.getPlayer().identifier();
     Player player = Bukkit.getPlayer(playerId);
-    page.getIcons(playerId).clear();
+    ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     if (player == null) return;
     add(page, playerId, player, "quickshop.exchange.admin.market", "COMPASS",
@@ -54,7 +54,7 @@ final class AdminPage {
     net.kyori.adventure.text.Component usage = messages.component(player, usageKey)
         .clickEvent(net.kyori.adventure.text.event.ClickEvent.suggestCommand(
             usageText.startsWith("/qse ") ? usageText : "/qse " + usageText));
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
         .customName(messages.component(player, titleKey))
         .lore(java.util.List.of(usage,
             messages.component(player, actionArgs == null

@@ -56,6 +56,7 @@ final class MarketTradesPage {
             if (ExchangePageRenderGuard.permits(contexts, playerId, opened, online::isOnline)) {
               render(page, online, opened, data == null ? List.of() : data.trades(),
                   failure, data == null ? null : data.row());
+              ExchangeMenuIcons.update(online, page);
             }
           }, 1L);
         });
@@ -65,10 +66,10 @@ final class MarketTradesPage {
                       List<ExchangeRepository.MarketTradeRow> trades, Throwable failure,
                       MarketRow header) {
     UUID playerId = player.getUniqueId();
-    page.getIcons(playerId).clear();
+    ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     if (failure != null) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
       return;
     }
@@ -89,7 +90,7 @@ final class MarketTradesPage {
                 .stripTrailingZeros().toPlainString()));
       }
     }
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BOOK", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BOOK", 1)
         .customName(Component.text(title)).lore(headerLore)).withSlot(4).build());
     addNavigation(page, player, 0, "COMPASS", "ui-nav-markets", ExchangeMenuPage.MARKETS);
     addNavigation(page, player, 1, "CHEST", "ui-nav-assets", ExchangeMenuPage.ASSETS);
@@ -97,7 +98,7 @@ final class MarketTradesPage {
     addNavigation(page, player, 3, "WRITABLE_BOOK", "ui-nav-orders", ExchangeMenuPage.ORDERS);
     addNavigation(page, player, 4, "CLOCK", "ui-nav-history", ExchangeMenuPage.HISTORY);
     if (trades.isEmpty()) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
           .customName(messages.component(player, "ui-market-recent-empty"))).withSlot(22).build());
     }
     int slot = 9;
@@ -112,7 +113,7 @@ final class MarketTradesPage {
                   .stripTrailingZeros().toPlainString()),
           messages.component(player, "ui-market-recent-trade-time",
               messages.relativeTime(trade.executedAt())));
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(
           buy ? "GREEN_CONCRETE" : "RED_CONCRETE", 1)
           .customName(messages.component(player, "ui-market-recent-trade-title",
               buy ? messages.text(player, "ui-market-recent-active-buy")
@@ -124,7 +125,7 @@ final class MarketTradesPage {
       addPageNavigation(page, player, 45, "ARROW", "ui-history-previous",
           opened.marketId(), opened.page() - 1);
     }
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
         .customName(messages.component(player, "ui-history-page", opened.page()))).withSlot(49).build());
     if (trades.size() > PAGE_SIZE) {
       addPageNavigation(page, player, 53, "ARROW", "ui-history-next",
@@ -135,7 +136,7 @@ final class MarketTradesPage {
   private void addPageNavigation(PlayerInstancePage page, Player player, int slot,
                                  String material, String key, String marketId, int targetPage) {
     UUID playerId = player.getUniqueId();
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
         .customName(messages.component(player, key)))
         .withActions(new RunnableAction(click -> {
           ExchangeMenuRequest request = ExchangeMenuRequest.marketTrades(marketId, targetPage);
@@ -148,7 +149,7 @@ final class MarketTradesPage {
   private void addNavigation(PlayerInstancePage page, Player player, int slot, String material,
                              String key, ExchangeMenuPage target) {
     UUID playerId = player.getUniqueId();
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
         .customName(messages.component(player, key)))
         .withActions(new RunnableAction(click -> {
           ExchangeMenuRequest request = target == ExchangeMenuPage.MARKET_DETAIL

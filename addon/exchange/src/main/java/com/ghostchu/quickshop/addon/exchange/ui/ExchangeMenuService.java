@@ -49,6 +49,7 @@ public final class ExchangeMenuService implements AutoCloseable {
       ExchangeChatInputManager.getInstance().cancelInput(playerId);
       MenuManager.instance().removeViewer(playerId);
       this.views.unsubscribeMarketUpdates(playerId);
+      ExchangeMenuIcons.forget(playerId);
       menu.clearPlayerPreferences();
     });
     MenuManager.instance().addMenu(menu);
@@ -137,6 +138,7 @@ public final class ExchangeMenuService implements AutoCloseable {
     }
     contexts.close();
     menu.clearPlayerPreferences();
+    ExchangeMenuIcons.forgetAll();
     // Viewers are per-player state; never stop or reset the global QuickShop menu manager.
   }
 }

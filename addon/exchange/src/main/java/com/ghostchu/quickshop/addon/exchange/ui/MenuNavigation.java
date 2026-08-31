@@ -29,7 +29,7 @@ final class MenuNavigation {
   private void add(PlayerInstancePage page, Player player, int slot, String material,
                    String title, ExchangeMenuPage target, ExchangeUiMessages messages) {
     java.util.UUID playerId = player.getUniqueId();
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
         .customName(messages.component(player, title)))
         .withActions(new RunnableAction(click -> {
           contexts.put(playerId, ExchangeMenuRequest.page(target.menuName()));

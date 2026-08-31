@@ -73,6 +73,7 @@ final class MyOrdersPage {
             () -> {
               if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
                 render(page, player, orders, quotes, failure);
+                ExchangeMenuIcons.update(player, page);
               }
             }, 1L);
       });
@@ -83,23 +84,23 @@ final class MyOrdersPage {
                       List<ExchangeTransaction.PersistedOrder> orders,
                       java.util.Map<String, MarketRow> quotes, Throwable failure) {
     UUID playerId = player.getUniqueId();
-    page.getIcons(playerId).clear();
+    ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     if (failure != null) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
       return;
     }
     navigation.addHeader(page, player, messages);
     if (orders.isEmpty()) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
           .customName(messages.component(player, "ui-orders-empty")))
           .withActions(new RunnableAction(click -> {
             contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName()));
             MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKETS.page(),
                 click.player());
           })).withSlot(22).build());
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("COMPASS", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("COMPASS", 1)
           .customName(messages.component(player, "ui-orders-empty-go-markets")))
           .withActions(new RunnableAction(click -> {
             contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName()));
@@ -159,14 +160,14 @@ final class MyOrdersPage {
         MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.CANCEL_CONFIRM.page(),
             click.player());
       })).withSlot(slot++);
-      page.addIcon(playerId, icon.build());
+      ExchangeMenuIcons.add(page, playerId, icon.build());
     }
     ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
     int currentPage = opened == null ? 1 : opened.page();
     if (currentPage > 1) {
       addNavigation(page, player, 45, "ARROW", "ui-history-previous", currentPage - 1);
     }
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
         .customName(messages.component(player, "ui-history-page", currentPage))).withSlot(49).build());
     if (orders.size() > PAGE_SIZE) {
       addNavigation(page, player, 53, "ARROW", "ui-history-next", currentPage + 1);
@@ -176,7 +177,7 @@ final class MyOrdersPage {
   private void addNavigation(PlayerInstancePage page, Player player, int slot, String material,
                              String key, int targetPage) {
     UUID playerId = player.getUniqueId();
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
         .customName(messages.component(player, key)))
         .withActions(new RunnableAction(click -> {
           ExchangeMenuRequest request = ExchangeMenuRequest.page(

@@ -52,6 +52,7 @@ final class HistoryPage {
               () -> {
                 if (ExchangePageRenderGuard.permits(contexts, playerId, opened, player::isOnline)) {
                   render(page, player, snapshot, failure);
+                  ExchangeMenuIcons.update(player, page);
                 }
               }, 1L);
         });
@@ -60,19 +61,19 @@ final class HistoryPage {
   private void render(PlayerInstancePage page, Player player, HistoryPageSnapshot snapshot,
                       Throwable failure) {
     UUID playerId = player.getUniqueId();
-    page.getIcons(playerId).clear();
+    ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     if (failure != null || snapshot == null || snapshot.failure() != null) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(text(player, "ui-data-unavailable"))).withSlot(22).build());
       return;
     }
     navigation.addHeader(page, player, new ExchangeUiMessages(messages));
     int slot = 9;
     if (snapshot.trades().isEmpty() && snapshot.transfers().isEmpty() && snapshot.ledger().isEmpty()) {
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
           .customName(text(player, "ui-history-empty"))).withSlot(22).build());
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("COMPASS", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("COMPASS", 1)
           .customName(text(player, "ui-orders-empty-go-markets")))
           .withActions(new RunnableAction(click -> {
             contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName()));
@@ -97,7 +98,7 @@ final class HistoryPage {
           text(player, "ui-history-trade-total-fee", totalFee.toPlainString()),
           text(player, "ui-history-trade-my-fee", myFee == null ? "-" : myFee.toPlainString()),
           text(player, "ui-history-created-at", relativeTime(trade.executedAt()))));
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(
           bought ? "GREEN_CONCRETE" : "RED_CONCRETE", 1)
           .customName(text(player, "ui-history-trade-title",
               direction + " " + trade.marketId(), trade.price().toPlainString()))
@@ -117,7 +118,7 @@ final class HistoryPage {
         case FAILED -> "RED_CONCRETE";
         default -> "HOPPER";
       };
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(transferMaterial, 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(transferMaterial, 1)
           .customName(text(player, "ui-history-transfer-title", transfer.type())).lore(lore))
           .withSlot(slot++).build());
     }
@@ -129,7 +130,7 @@ final class HistoryPage {
           text(player, "ui-history-ledger-amount", entry.amount().toPlainString()),
           text(player, "ui-history-ledger-reference", entry.referenceId()),
           text(player, "ui-history-created-at", relativeTime(entry.createdAt())));
-      page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("WRITABLE_BOOK", 1)
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("WRITABLE_BOOK", 1)
           .customName(text(player, "ui-history-ledger-title", entry.journalType())).lore(lore))
           .withSlot(slot++).build());
     }
@@ -138,7 +139,7 @@ final class HistoryPage {
     if (opened.page() > 1) {
       addNavigation(page, player, 45, "ARROW", "ui-history-previous", opened.page() - 1);
     }
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("CLOCK", 1)
         .customName(text(player, "ui-history-page", opened.page()))).withSlot(49).build());
     if (snapshot.hasNext()) {
       addNavigation(page, player, 53, "ARROW", "ui-history-next", opened.page() + 1);
@@ -148,7 +149,7 @@ final class HistoryPage {
   private void addNavigation(PlayerInstancePage page, Player player, int slot, String material,
                              String key, int targetPage) {
     UUID playerId = player.getUniqueId();
-    page.addIcon(playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(material, 1)
         .customName(text(player, key)))
         .withActions(new RunnableAction(click -> {
           ExchangeMenuRequest request = ExchangeMenuRequest.page("history", targetPage);
