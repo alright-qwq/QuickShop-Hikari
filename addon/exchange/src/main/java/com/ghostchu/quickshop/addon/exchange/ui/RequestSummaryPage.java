@@ -368,6 +368,12 @@ final class RequestSummaryPage {
       return;
     }
     submitter.submit(request).whenComplete((result, failure) -> {
+      if (failure != null || result == null
+          || result.outcome() == ExchangeRequestSubmitter.Outcome.REJECTED) {
+        // A failed/rejected submission is actionable: preserve the current request so the player
+        // can read the error and retry without being forced back to a fresh prompt.
+        contexts.release(playerId, request);
+      }
       Player onlinePlayer = Bukkit.getPlayer(playerId);
       if (onlinePlayer == null || !onlinePlayer.isOnline()) return;
       ExchangeSchedulers.folia().getScheduler().runAtEntityLater(onlinePlayer, () -> {

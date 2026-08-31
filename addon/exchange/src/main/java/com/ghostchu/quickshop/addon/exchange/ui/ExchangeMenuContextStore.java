@@ -47,6 +47,13 @@ public final class ExchangeMenuContextStore implements AutoCloseable {
         && context.claim();
   }
 
+  /** Allows a failed or rejected confirmation to be attempted again. */
+  public boolean release(UUID playerId, ExchangeMenuRequest request) {
+    Context context = requests.get(Objects.requireNonNull(playerId, "playerId"));
+    return context != null && context.request() == Objects.requireNonNull(request, "request")
+        && context.release();
+  }
+
   public Optional<ExchangeMenuRequest> remove(UUID playerId) {
     Context context = requests.remove(Objects.requireNonNull(playerId, "playerId"));
     return context == null ? Optional.empty() : Optional.of(context.request());
@@ -76,6 +83,10 @@ public final class ExchangeMenuContextStore implements AutoCloseable {
 
     private boolean claim() {
       return claimed.compareAndSet(false, true);
+    }
+
+    private boolean release() {
+      return claimed.compareAndSet(true, false);
     }
   }
 
