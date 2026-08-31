@@ -7,6 +7,7 @@ import java.util.UUID;
 /** Immutable player rollout gate. Administrative routes apply their own permissions instead. */
 public record RolloutPolicy(boolean whitelistEnabled, Set<UUID> allowedPlayers) {
   public static final RolloutPolicy DISABLED = new RolloutPolicy(false, Set.of());
+  public static final RolloutPolicy ALLOW_ALL = new RolloutPolicy(false, Set.of());
 
   public RolloutPolicy {
     allowedPlayers = Set.copyOf(Objects.requireNonNull(allowedPlayers, "allowedPlayers"));

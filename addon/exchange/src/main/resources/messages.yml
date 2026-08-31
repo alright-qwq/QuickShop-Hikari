@@ -219,6 +219,37 @@ en-US:
   ui-order-market-prompt: 'Enter quantity and protection price (worst acceptable), for example: 2 105.00'
   ui-order-market-prompt-hint: 'Best ask/bid is <0> for <1>. Enter quantity and protection price (worst acceptable), e.g. 2 <0>'
   ui-order-limit-invalid: 'Enter quantity and a positive limit price, for example: 2 100.00'
+  ui-order-price-invalid: 'Enter a positive price. Example: 100.00'
+  ui-order-builder-title: Order editor
+  ui-order-builder-market: 'Market: <0>'
+  ui-order-builder-reference: 'Market reference: <0>'
+  ui-order-builder-quantity: 'Quantity: <0>'
+  ui-order-builder-quantity-help: 'Click a preset, or use the custom button'
+  ui-order-builder-quantity-value: '<0>'
+  ui-order-builder-custom-quantity: 'Custom quantity: <0>'
+  ui-order-builder-increase-quantity: 'Increase to <0> (+)'
+  ui-order-builder-decrease-quantity: 'Decrease to <0> (-)'
+  ui-order-builder-price-limit-help: 'Limit orders use the price you accept.'
+  ui-order-builder-price-market-help: 'Market orders use a worst-acceptable boundary.'
+  ui-order-builder-price-preset: '<0> of market = <1>'
+  ui-order-builder-custom-price: 'Custom price: <0>'
+  ui-order-builder-custom-click: 'Click, then type one value in chat'
+  ui-order-builder-quantity-prompt: 'Type only the quantity, for example: 16'
+  ui-order-builder-quantity-invalid: Quantity must be a positive whole number.
+  ui-order-builder-price-limit-prompt: 'Type only the limit price, for example: 100.50'
+  ui-order-builder-price-market-prompt: 'Type only the worst acceptable protection price.'
+  ui-order-builder-price-invalid: 'Type a positive price, for example: 100.50'
+  ui-order-builder-protection-invalid: 'Type a positive protection boundary, for example: 105.00'
+  ui-order-builder-no-reference: No live reference price
+  ui-order-builder-total: 'Estimated total: <0>'
+  ui-order-builder-click-select: 'Click to select'
+  ui-order-builder-selected: Selected
+  ui-order-builder-confirm: Confirm order
+  ui-order-builder-click-confirm: 'Click to review and submit'
+  ui-order-builder-incomplete: Set a positive quantity and price first
+  ui-order-builder-invalid: The order draft is invalid. Please adjust it.
+  ui-shared-back: Back
+  ui-shared-close: Close
   ui-order-market-invalid: 'Enter quantity and a positive absolute protection boundary, for example: 2 105.00'
   ui-history-previous: Previous page
   ui-history-next: Next page
@@ -509,6 +540,37 @@ zh-CN:
   ui-order-market-prompt: '请在聊天栏输入数量和保护价（最差可接受价），例如：2 105.00'
   ui-order-market-prompt-hint: '当前最佳买一/卖一为 <0>（<1>）。请输入数量和保护价（最差可接受价），例如：2 <0>'
   ui-order-limit-invalid: '请输入数量和正数限价，例如：2 100.00'
+  ui-order-price-invalid: '请输入正数价格，例如：100.50'
+  ui-order-builder-title: 下单编辑器
+  ui-order-builder-market: '市场：<0>'
+  ui-order-builder-reference: '市场参考价：<0>'
+  ui-order-builder-quantity: '数量：<0>'
+  ui-order-builder-quantity-help: '点击预设数量，或使用自定义输入'
+  ui-order-builder-quantity-value: '<0>'
+  ui-order-builder-custom-quantity: '自定义数量：<0>'
+  ui-order-builder-increase-quantity: '增加到 <0>（+）'
+  ui-order-builder-decrease-quantity: '减少到 <0>（-）'
+  ui-order-builder-price-limit-help: '限价单按你设置的价格挂单或成交。'
+  ui-order-builder-price-market-help: '市价单设置最差可接受价；买入是最高支付价，卖出是最低接收价。'
+  ui-order-builder-price-preset: '市场价的 <0> = <1>'
+  ui-order-builder-custom-price: '自定义价格：<0>'
+  ui-order-builder-custom-click: '点击后在聊天栏只输入这一项'
+  ui-order-builder-quantity-prompt: '请在聊天栏只输入数量，例如：16'
+  ui-order-builder-quantity-invalid: '数量必须是正整数。'
+  ui-order-builder-price-limit-prompt: '请在聊天栏只输入限价，例如：100.50'
+  ui-order-builder-price-market-prompt: '请在聊天栏只输入保护边界（最差可接受价），例如：105.00'
+  ui-order-builder-price-invalid: '请输入正数价格，例如：100.50'
+  ui-order-builder-protection-invalid: '请输入正数保护边界，例如：105.00'
+  ui-order-builder-no-reference: '暂无可用参考价'
+  ui-order-builder-total: '预计总额：<0>'
+  ui-order-builder-click-select: '点击选择'
+  ui-order-builder-selected: 已选中
+  ui-order-builder-confirm: 确认订单
+  ui-order-builder-click-confirm: '点击确认并进入复核页'
+  ui-order-builder-incomplete: '请先选择数量和有效价格'
+  ui-order-builder-invalid: '下单内容无效，请调整后重试。'
+  ui-shared-back: 返回
+  ui-shared-close: 关闭
   ui-order-market-invalid: '请输入数量和正数绝对保护边界，例如：2 105.00'
   ui-history-previous: '上一页'
   ui-history-next: '下一页'

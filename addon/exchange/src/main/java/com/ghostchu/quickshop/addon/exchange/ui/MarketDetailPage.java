@@ -36,7 +36,7 @@ final class MarketDetailPage {
 
   private final ExchangeViewService views;
   private final ExchangeMenuContextStore contexts;
-  private final OrderEntryPrompt prompts;
+  private final OrderBuilderPage orderBuilderPage;
   private final OrderEntryAccess access;
   private final ExchangeUiMessages messages;
   private final MarketDashboardPresenter presenter = new MarketDashboardPresenter();
@@ -54,13 +54,14 @@ final class MarketDetailPage {
   }
 
   MarketDetailPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
-                   RolloutPolicy rollout, AddonMessageService messages) {
+                   RolloutPolicy rollout, AddonMessageService messages,
+                   OrderBuilderPage orderBuilderPage) {
     this.views = views;
     this.contexts = contexts;
-    this.prompts = new OrderEntryPrompt(contexts, UUID::randomUUID);
     this.access = new OrderEntryAccess(rollout);
     this.messages = new ExchangeUiMessages(messages);
     this.navigation = new MenuNavigation(contexts);
+    this.orderBuilderPage = orderBuilderPage;
   }
 
   void open(PageOpenCallback callback) {
@@ -536,15 +537,7 @@ final class MarketDetailPage {
       player.sendMessage(messages.component(player, denial));
       return;
     }
-    Function<String, Boolean> handler = type == OrderType.LIMIT
-        ? prompts.limit(player.getUniqueId(), row.marketId(), side,
-            () -> player.sendMessage(messages.component(player, "ui-order-limit-invalid")))
-        : prompts.market(player.getUniqueId(), row.marketId(), side,
-            () -> player.sendMessage(messages.component(player, "ui-order-market-invalid")));
-    String prompt = orderPrompt(player, row, side, type);
-    ExchangeChatInputManager.getInstance().requestInput(player, handler, prompt, ExchangeMenu.NAME,
-        ExchangeMenuPage.ORDER_CONFIRM.page());
-    player.closeInventory();
+    orderBuilderPage.start(player, row, side, type);
   }
 
   private String orderPrompt(Player player, MarketRow row, OrderSide side, OrderType type) {

@@ -12,6 +12,7 @@ public final class ExchangeMenu extends Menu {
   public static final String TITLE = "QuickShop Exchange";
   private final MarketListPage marketListPage;
   private final MarketDetailPage marketDetailPage;
+  private final OrderBuilderPage orderBuilderPage;
 
   public ExchangeMenu(ExchangeViewService views, ExchangeMenuContextStore contexts,
                       ExchangeRequestSubmitter submitter, RolloutPolicy rollout,
@@ -25,8 +26,11 @@ public final class ExchangeMenu extends Menu {
     name = NAME;
     title = TITLE;
     rows = 6;
+    OrderBuilderPage orderBuilderPage = new OrderBuilderPage(contexts, messages,
+        UUID::randomUUID, rollout);
+    this.orderBuilderPage = orderBuilderPage;
     marketListPage = new MarketListPage(views, contexts, messages);
-    marketDetailPage = new MarketDetailPage(views, contexts, rollout, messages);
+    marketDetailPage = new MarketDetailPage(views, contexts, rollout, messages, orderBuilderPage);
     AssetsPage assetsPage = new AssetsPage(views, contexts, messages);
     addPage(page(ExchangeMenuPage.MARKETS,
         marketListPage::open));
@@ -35,6 +39,7 @@ public final class ExchangeMenu extends Menu {
     addPage(page(ExchangeMenuPage.ORDER_CONFIRM,
         new RequestSummaryPage(views, ExchangeMenuPage.ORDER_CONFIRM, contexts, submitter, rollout,
             messages)::open));
+    addPage(page(ExchangeMenuPage.ORDER_ENTRY, orderBuilderPage::open));
     addPage(page(ExchangeMenuPage.CANCEL_CONFIRM,
         new RequestSummaryPage(views, ExchangeMenuPage.CANCEL_CONFIRM, contexts, submitter, rollout,
             messages)::open));
@@ -53,12 +58,14 @@ public final class ExchangeMenu extends Menu {
   void clearPlayerPreferences(UUID playerId) {
     marketListPage.playerQuit(playerId);
     marketDetailPage.playerQuit(playerId);
+    orderBuilderPage.playerQuit(playerId);
   }
 
   /** Releases per-player UI preferences when the menu is shut down. */
   void clearPlayerPreferences() {
     marketListPage.playerQuitAll();
     marketDetailPage.playerQuitAll();
+    orderBuilderPage.playerQuitAll();
   }
 
   private static PlayerInstancePage page(ExchangeMenuPage target,

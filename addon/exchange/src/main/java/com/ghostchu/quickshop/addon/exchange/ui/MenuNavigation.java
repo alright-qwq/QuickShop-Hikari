@@ -26,6 +26,15 @@ final class MenuNavigation {
     add(page, player, 5, "CLOCK", "ui-nav-history", ExchangeMenuPage.HISTORY, messages);
   }
 
+  /** Adds the shared close button used by sub-pages and edit pages. */
+  void addClose(PlayerInstancePage page, Player player, ExchangeUiMessages messages) {
+    ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(
+        ExchangeMenuPlatform.stack().of("BARRIER", 1)
+            .customName(messages.component(player, "ui-shared-close")))
+        .withActions(new RunnableAction(click -> click.player().inventory().close()))
+        .withSlot(8).build());
+  }
+
   private void add(PlayerInstancePage page, Player player, int slot, String material,
                    String title, ExchangeMenuPage target, ExchangeUiMessages messages) {
     java.util.UUID playerId = player.getUniqueId();
