@@ -283,7 +283,7 @@ public final class ExchangeRuntimeFactory {
     this.maintenance.scheduleWithFixedDelay(resumeHalted, 1L, 1L, TimeUnit.MINUTES);
     this.maintenance.scheduleWithFixedDelay(
         () -> runWhileOwned(database.writer(),
-            () -> retryRecoveringMarkets(markets)),
+            () -> retryLiveRecoveringMarkets()),
         1L, 1L, TimeUnit.MINUTES);
     this.maintenance.scheduleWithFixedDelay(() -> flushWhileOwned(
         database.writer(), marketData, Instant.now()), 1L, 1L, TimeUnit.MINUTES);
@@ -312,7 +312,7 @@ public final class ExchangeRuntimeFactory {
             recoveryExecutor.close();
             playerOperations.close();
             finalFlushWhileOwned(database.writer(), marketData, Instant.now());
-            closeMarketRuntimeStates(markets);
+            closeLiveMarketRuntimeStates();
             marketData.close();
           }, views, administration, actions);
       TransferLoginListener transferLogin = new TransferLoginListener(accountId ->
@@ -335,7 +335,7 @@ public final class ExchangeRuntimeFactory {
       startupPlayerOperations = null;
       startupRecoveryExecutor = null;
       startupRecoveryFenceExecutor = null;
-      closeMarketRuntimeStates(markets);
+      closeLiveMarketRuntimeStates();
       closeBestEffort(marketData);
       database.writer().close();
       throw failure;
@@ -1052,6 +1052,17 @@ public final class ExchangeRuntimeFactory {
       throws SQLException {
     for (PersistentOrderService market : markets.values()) {
       market.recoverIfRecovering();
+    }
+  }
+
+  private void retryLiveRecoveringMarkets() throws SQLException {
+    Map<String, PersistentOrderService> liveMarkets = this.markets;
+    retryRecoveringMarkets(liveMarkets == null ? Map.of() : liveMarkets);
+  }
+
+  private void closeLiveMarketRuntimeStates() {
+    synchronized (lifecycleLock) {
+      closeMarketRuntimeStates(this.markets);
     }
   }
 
