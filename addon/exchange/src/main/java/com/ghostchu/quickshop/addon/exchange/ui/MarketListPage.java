@@ -56,8 +56,14 @@ final class MarketListPage {
     UUID playerId = callback.getPlayer().identifier();
     Player player = Bukkit.getPlayer(playerId);
     if (player == null || !player.isOnline()) return;
-    ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
-    if (opened == null) return;
+    ExchangeMenuRequest fallbackRequest = contexts.get(playerId).orElse(null);
+    final ExchangeMenuRequest opened;
+    if (fallbackRequest == null) {
+      opened = ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName());
+      contexts.put(playerId, opened);
+    } else {
+      opened = fallbackRequest;
+    }
     views.subscribeMarketUpdates(playerId, update -> {
       if (contexts.isCurrent(playerId, opened) && player.isOnline()) {
         refresh(page, player, opened);
@@ -87,6 +93,7 @@ final class MarketListPage {
     if (failure != null) {
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
+      navigation.addHeader(page, player, messages);
       ExchangeMenuIcons.update(player, page);
       return;
     }
@@ -102,7 +109,7 @@ final class MarketListPage {
     List<MarketRow> sorted = MarketListSnapshot.sorted(filtered,
         sortModes.getOrDefault(playerId, MarketListSnapshot.SortMode.NOTIONAL));
     int start = (currentPage - 1) * MARKET_PAGE_SIZE;
-    if (start > sorted.size()) {
+    if (start >= sorted.size()) {
       currentPage = Math.max(1, (sorted.size() - 1) / MARKET_PAGE_SIZE + 1);
       start = (currentPage - 1) * MARKET_PAGE_SIZE;
     }
@@ -111,6 +118,10 @@ final class MarketListPage {
         ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName(), Math.max(1, currentPage - 1));
     final ExchangeMenuRequest nextRequest =
         ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName(), currentPage + 1);
+    if (sorted.isEmpty()) {
+      ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
+          .customName(messages.component(player, "ui-market-list-empty"))).withSlot(22).build());
+    }
     for (MarketRow row : sorted.subList(start, end)) {
       if (slot >= 45) break;
       int scale = priceScale(row);
@@ -124,7 +135,7 @@ final class MarketListPage {
           messages.component(player, "ui-market-list-notional",
               row.notional24h() == null ? "-"
                   : messages.formatCurrency(row.notional24h(), scale)),
-          messages.component(player, "ui-market-status", row.status().name())));
+          messages.component(player, "ui-market-status", messages.localized(player, row.status()))));
       for (MarketRow.TradeLore trade : row.recentTrades()) {
         Component tradeLine = messages.component(player, "ui-market-last-trade",
             trade.buy() ? trade.side() : "SELL", messages.formatCurrency(trade.price(), scale),
@@ -139,7 +150,7 @@ final class MarketListPage {
             percent(row.volatility24h())));
       }
       if (row.assetType() != null) {
-        lore.add(messages.component(player, "ui-market-asset-type", row.assetType()));
+        lore.add(messages.component(player, "ui-market-asset-type", messages.localized(player, row.assetType())));
       }
       if (row.symbol() != null) {
         lore.add(messages.component(player, "ui-market-symbol", row.symbol()));
@@ -153,7 +164,7 @@ final class MarketListPage {
         if ("VIRTUAL_SECURITY".equals(row.assetType()) && row.lastPrice() != null) {
           lore.add(messages.component(player, "ui-market-float-cap",
               row.lastPrice().multiply(java.math.BigDecimal.valueOf(row.issuedSupply()))
-                  .setScale(scale, java.math.RoundingMode.HALF_UP).toPlainString()));
+                  .setScale(scale < 0 ? 2 : scale, java.math.RoundingMode.HALF_UP).toPlainString()));
         }
       }
       Component changeLine = messages.component(player, "ui-market-change-percent",

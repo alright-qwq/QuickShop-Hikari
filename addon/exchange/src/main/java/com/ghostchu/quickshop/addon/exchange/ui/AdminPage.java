@@ -15,14 +15,20 @@ import org.bukkit.entity.Player;
 final class AdminPage {
   private final ExchangeUiMessages messages;
   private final AdminAction admin;
+  private final MenuNavigation navigation;
 
   AdminPage(AddonMessageService messages) {
     this(messages, AdminAction.none());
   }
 
   AdminPage(AddonMessageService messages, AdminAction admin) {
+    this(null, messages, admin);
+  }
+
+  AdminPage(ExchangeMenuContextStore contexts, AddonMessageService messages, AdminAction admin) {
     this.messages = new ExchangeUiMessages(messages);
     this.admin = admin == null ? AdminAction.none() : admin;
+    this.navigation = new MenuNavigation(contexts);
   }
 
   void open(PageOpenCallback callback) {
@@ -32,6 +38,7 @@ final class AdminPage {
     ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     if (player == null) return;
+    navigation.addHeader(page, player, messages);
     add(page, playerId, player, "quickshop.exchange.admin.market", "COMPASS",
         "ui-admin-market", "ui-admin-market-usage", null, 19);
     add(page, playerId, player, "quickshop.exchange.admin.orders", "PAPER",
@@ -58,7 +65,7 @@ final class AdminPage {
         .customName(messages.component(player, titleKey))
         .lore(java.util.List.of(usage,
             messages.component(player, actionArgs == null
-                ? "ui-admin-click-suggest" : "ui-admin-click-to-run"),
+                ? "ui-admin-click-send-usage" : "ui-admin-click-to-run"),
             messages.component(player, "ui-admin-click-usage"))))
         .withActions(
             new RunnableAction(click -> {

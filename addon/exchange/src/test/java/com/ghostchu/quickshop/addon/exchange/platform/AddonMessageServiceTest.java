@@ -30,13 +30,21 @@ class AddonMessageServiceTest {
     assertThat(messages.message("ui-history-trade-title", Locale.forLanguageTag("zh-CN"),
         "diamond/default", "100.00")).isEqualTo("diamond/default 成交 @ 100.00");
     assertThat(messages.message("ui-confirm-order-title", Locale.forLanguageTag("zh-CN"),
-        "LIMIT")).isEqualTo("确认 LIMIT 订单");
+        "限价")).isEqualTo("确认 限价 订单");
+    assertThat(messages.message("ui-transfer-status-failed", Locale.forLanguageTag("zh-CN")))
+        .isEqualTo("失败");
     assertThat(messages.message("ui-confirm-request", Locale.US, "abc-123"))
         .isEqualTo("Request: abc-123");
     assertThat(messages.message("ui-confirm-submit-failed", Locale.forLanguageTag("zh-CN")))
         .isEqualTo("交易请求提交失败，请稍后重试。");
     assertThat(messages.message("ui-confirm-submit-accepted", Locale.US, "order-1"))
         .isEqualTo("Exchange request accepted: order-1");
+    assertThat(messages.message("command-help", Locale.US))
+        .contains("\n/qse open: market list")
+        .doesNotContain("\\n");
+    assertThat(messages.message("command-help", Locale.forLanguageTag("zh-CN")))
+        .contains("\n/qse open：市场列表")
+        .doesNotContain("\\n");
     assertThat(messages.message("ui-confirm-submit-rejected",
         Locale.forLanguageTag("zh-CN"), "order-1", "RATE_LIMITED"))
         .isEqualTo("交易所请求被拒绝：order-1（RATE_LIMITED）");

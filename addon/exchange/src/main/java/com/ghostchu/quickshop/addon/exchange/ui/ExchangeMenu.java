@@ -44,7 +44,7 @@ public final class ExchangeMenu extends Menu {
     addPage(page(ExchangeMenuPage.ORDERS, new MyOrdersPage(views, contexts, messages)::open));
     addPage(page(ExchangeMenuPage.ASSETS, assetsPage::open));
     addPage(page(ExchangeMenuPage.HISTORY, new HistoryPage(views, contexts, messages)::open));
-    addPage(page(ExchangeMenuPage.ADMIN, new AdminPage(messages, admin)::open));
+    addPage(page(ExchangeMenuPage.ADMIN, new AdminPage(contexts, messages, admin)::open));
     addPage(page(ExchangeMenuPage.MARKET_TRADES,
         new MarketTradesPage(views, contexts, messages)::open));
   }

@@ -43,8 +43,14 @@ final class AssetsPage {
   void open(PageOpenCallback callback) {
     if (!(callback.getPage() instanceof PlayerInstancePage page)) return;
     UUID playerId = callback.getPlayer().identifier();
-    ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
-    if (opened == null) return;
+    ExchangeMenuRequest fallbackRequest = contexts.get(playerId).orElse(null);
+    final ExchangeMenuRequest opened;
+    if (fallbackRequest == null) {
+      opened = ExchangeMenuRequest.page(ExchangeMenuPage.ASSETS.menuName());
+      contexts.put(playerId, opened);
+    } else {
+      opened = fallbackRequest;
+    }
     views.subscribeMarketUpdates(playerId, update -> {
       if (contexts.isCurrent(playerId, opened) && Bukkit.getPlayer(playerId) != null
           && Bukkit.getPlayer(playerId).isOnline()) {
@@ -87,6 +93,7 @@ final class AssetsPage {
     ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
     if (failure != null || snapshot == null || snapshot.failure() != null) {
+      navigation.addHeader(page, player, messages);
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
       return;
@@ -96,7 +103,7 @@ final class AssetsPage {
     AssetPageRows.Merged merged = AssetPageRows.merge(views.transferTargets(), snapshot.assets());
     addTotalValue(page, player, playerId, merged, snapshot);
     for (AssetPageRows.Row row : merged.rows()) {
-      if (slot >= 21) break;
+      if (slot >= 20) break;
       TransferTarget target = row.target();
       List<Component> lore = new java.util.ArrayList<>(List.of(
           messages.component(player, "ui-assets-available",
@@ -127,10 +134,10 @@ final class AssetsPage {
           .withSlot(slot++);
       ExchangeMenuIcons.add(page, playerId, icon.build());
     }
-    if (merged.rows().size() > 12) {
+    if (merged.rows().size() > 11) {
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BOOK", 1)
           .customName(messages.component(player, "ui-assets-more-currency",
-              merged.rows().size() - 12)))
+              merged.rows().size() - 11)))
           .withActions(new RunnableAction(click -> {
             contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.HISTORY.menuName()));
             MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.HISTORY.page(),
@@ -139,7 +146,7 @@ final class AssetsPage {
     }
     slot = 21;
     for (AssetPageRows.SecurityRow security : merged.securities()) {
-      if (slot >= 33) break;
+      if (slot >= 32) break;
       java.util.ArrayList<Component> securityLore = new java.util.ArrayList<>(List.of(
           messages.component(player, "ui-assets-virtual-security"),
           messages.component(player, "ui-assets-symbol", security.symbol()),
@@ -162,10 +169,10 @@ final class AssetsPage {
       })).withSlot(slot++);
       ExchangeMenuIcons.add(page, playerId, icon.build());
     }
-    if (merged.securities().size() > 12) {
+    if (merged.securities().size() > 11) {
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("MAP", 1)
           .customName(messages.component(player, "ui-assets-more-securities",
-              merged.securities().size() - 12)))
+              merged.securities().size() - 11)))
           .withActions(new RunnableAction(click -> {
             contexts.put(playerId, ExchangeMenuRequest.page(ExchangeMenuPage.MARKETS.menuName()));
             MenuManager.instance().open(ExchangeMenu.NAME, ExchangeMenuPage.MARKETS.page(),
@@ -178,11 +185,11 @@ final class AssetsPage {
       String reason = transfer.failureReason() == null ? "" : " " + transfer.failureReason();
       java.util.List<Component> transferLore = List.of(
           messages.component(player, "ui-assets-transfer-kind",
-              transfer.type(), transfer.assetId()),
+              messages.localized(player, transfer.type()), transfer.assetId()),
           messages.component(player, "ui-assets-transfer-amount",
               messages.formatCurrency(transfer.amount())),
           messages.component(player, "ui-assets-transfer-status",
-              transfer.status() + reason),
+              messages.localized(player, transfer.status()) + reason),
           messages.component(player, "ui-history-created-at",
               messages.relativeTime(transfer.updatedAt())));
       String transferMaterial = switch (transfer.status()) {
@@ -191,7 +198,8 @@ final class AssetsPage {
         default -> "HOPPER";
       };
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(transferMaterial, 1)
-          .customName(messages.component(player, "ui-assets-transfer-title", transfer.status()))
+          .customName(messages.component(player, "ui-assets-transfer-title",
+              messages.localized(player, transfer.status())))
           .lore(transferLore)).withSlot(slot++).build());
     }
     if (snapshot.transfers().isEmpty()) {

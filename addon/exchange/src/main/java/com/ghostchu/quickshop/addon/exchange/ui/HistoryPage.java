@@ -24,6 +24,7 @@ final class HistoryPage {
   private final ExchangeViewService views;
   private final ExchangeMenuContextStore contexts;
   private final AddonMessageService messages;
+  private final ExchangeUiMessages ui;
   private final MenuNavigation navigation;
 
   HistoryPage(ExchangeViewService views, ExchangeMenuContextStore contexts,
@@ -31,14 +32,21 @@ final class HistoryPage {
     this.views = views;
     this.contexts = contexts;
     this.messages = messages;
+    this.ui = new ExchangeUiMessages(messages);
     this.navigation = new MenuNavigation(contexts);
   }
 
   void open(PageOpenCallback callback) {
     if (!(callback.getPage() instanceof PlayerInstancePage page)) return;
     UUID playerId = callback.getPlayer().identifier();
-    ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
-    if (opened == null) return;
+    ExchangeMenuRequest fallbackRequest = contexts.get(playerId).orElse(null);
+    final ExchangeMenuRequest opened;
+    if (fallbackRequest == null) {
+      opened = ExchangeMenuRequest.page(ExchangeMenuPage.HISTORY.menuName());
+      contexts.put(playerId, opened);
+    } else {
+      opened = fallbackRequest;
+    }
     int offset = HistoryPageSnapshot.offset(opened.page());
     HistoryPageSnapshot.combine(
         views.accountTrades(playerId, HistoryPageSnapshot.FETCH_SIZE, offset),
@@ -66,6 +74,7 @@ final class HistoryPage {
     if (failure != null || snapshot == null || snapshot.failure() != null) {
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(text(player, "ui-data-unavailable"))).withSlot(22).build());
+      navigation.addHeader(page, player, new ExchangeUiMessages(messages));
       return;
     }
     navigation.addHeader(page, player, new ExchangeUiMessages(messages));
@@ -93,15 +102,19 @@ final class HistoryPage {
           text(player, "ui-history-trade-id", trade.matchSequence()),
           text(player, "ui-history-trade-quantity", trade.quantity()),
           text(player, "ui-history-trade-notional",
-              trade.price().multiply(java.math.BigDecimal.valueOf(trade.quantity()))
-                  .stripTrailingZeros().toPlainString()),
-          text(player, "ui-history-trade-total-fee", totalFee.toPlainString()),
-          text(player, "ui-history-trade-my-fee", myFee == null ? "-" : myFee.toPlainString()),
+              ui.formatCurrency(trade.price().multiply(
+                  java.math.BigDecimal.valueOf(trade.quantity())),
+                  marketPriceScale(trade.marketId()))),
+          text(player, "ui-history-trade-total-fee", ui.formatCurrency(totalFee,
+              marketPriceScale(trade.marketId()))),
+          text(player, "ui-history-trade-my-fee", myFee == null ? "-"
+              : ui.formatCurrency(myFee, marketPriceScale(trade.marketId()))),
           text(player, "ui-history-created-at", relativeTime(trade.executedAt()))));
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(
           bought ? "GREEN_CONCRETE" : "RED_CONCRETE", 1)
           .customName(text(player, "ui-history-trade-title",
-              direction + " " + trade.marketId(), trade.price().toPlainString()))
+              direction + " " + views.marketDisplayName(trade.marketId()),
+              ui.formatCurrency(trade.price(), marketPriceScale(trade.marketId()))))
           .lore(lore)).withSlot(slot++).build());
     }
     slot = 21;
@@ -111,7 +124,7 @@ final class HistoryPage {
       List<Component> lore = List.of(
           text(player, "ui-history-transfer-asset", transfer.assetId()),
           text(player, "ui-history-transfer-amount", transfer.amount().toPlainString()),
-          text(player, "ui-history-transfer-status", transfer.status() + reason),
+          text(player, "ui-history-transfer-status", localized(player, transfer.status()) + reason),
           text(player, "ui-history-created-at", relativeTime(transfer.updatedAt())));
       String transferMaterial = switch (transfer.status()) {
         case COMPLETED -> "GREEN_CONCRETE";
@@ -119,7 +132,7 @@ final class HistoryPage {
         default -> "HOPPER";
       };
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(transferMaterial, 1)
-          .customName(text(player, "ui-history-transfer-title", transfer.type())).lore(lore))
+          .customName(text(player, "ui-history-transfer-title", localized(player, transfer.type()))).lore(lore))
           .withSlot(slot++).build());
     }
     slot = 33;
@@ -131,7 +144,7 @@ final class HistoryPage {
           text(player, "ui-history-ledger-reference", entry.referenceId()),
           text(player, "ui-history-created-at", relativeTime(entry.createdAt())));
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("WRITABLE_BOOK", 1)
-          .customName(text(player, "ui-history-ledger-title", entry.journalType())).lore(lore))
+          .customName(text(player, "ui-history-ledger-title", localized(player, entry.journalType()))).lore(lore))
           .withSlot(slot++).build());
     }
     ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
@@ -169,6 +182,14 @@ final class HistoryPage {
     if (messages == null) return key;
     Locale locale = player.locale();
     return messages.message(key, locale, arguments);
+  }
+
+private Object localized(Player player, Object value) {
+    return messages == null ? value : new ExchangeUiMessages(messages).localized(player, value);
+  }
+
+  private int marketPriceScale(String marketId) {
+    return views == null ? -1 : views.marketPriceScale(marketId);
   }
 
   private String relativeTime(java.time.Instant at) {

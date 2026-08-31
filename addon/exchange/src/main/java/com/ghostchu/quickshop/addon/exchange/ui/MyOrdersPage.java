@@ -39,8 +39,14 @@ final class MyOrdersPage {
   void open(PageOpenCallback callback) {
     if (!(callback.getPage() instanceof PlayerInstancePage page)) return;
     UUID playerId = callback.getPlayer().identifier();
-    ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
-    if (opened == null) return;
+    ExchangeMenuRequest fallbackRequest = contexts.get(playerId).orElse(null);
+    final ExchangeMenuRequest opened;
+    if (fallbackRequest == null) {
+      opened = ExchangeMenuRequest.page(ExchangeMenuPage.ORDERS.menuName());
+      contexts.put(playerId, opened);
+    } else {
+      opened = fallbackRequest;
+    }
     Player player = Bukkit.getPlayer(playerId);
     if (player == null || !player.isOnline()) return;
     views.subscribeMarketUpdates(playerId, update -> {
@@ -99,6 +105,7 @@ final class MyOrdersPage {
     if (failure != null) {
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
+      navigation.addHeader(page, player, messages);
       return;
     }
     navigation.addHeader(page, player, messages);
@@ -125,7 +132,7 @@ final class MyOrdersPage {
       Order order = persisted.order();
       int scale = marketPriceScale(order.marketId());
       List<Component> lore = List.of(
-          messages.component(player, "ui-order-status", order.status()),
+          messages.component(player, "ui-order-status", messages.localized(player, order.status())),
           messages.component(player, "ui-order-remaining", order.remainingQuantity(),
               order.originalQuantity()),
           messages.component(player, "ui-order-price", order.limitPrice() == null
@@ -156,7 +163,7 @@ final class MyOrdersPage {
       boolean buying = order.side() == OrderSide.BUY;
       IconBuilder icon = new IconBuilder(ExchangeMenuPlatform.stack().of(
           buying ? "GREEN_CONCRETE" : "RED_CONCRETE", 1)
-          .customName(messages.component(player, "ui-order-title", order.side(),
+          .customName(messages.component(player, "ui-order-title", messages.localized(player, order.side()),
               views.marketDisplayName(order.marketId())))
           .lore(lore));
       icon.withActions(new RunnableAction(click -> {

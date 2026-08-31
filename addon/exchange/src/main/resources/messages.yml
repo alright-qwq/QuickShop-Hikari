@@ -3,7 +3,7 @@ en-US:
   permission-denied: You do not have permission for this exchange action.
   rollout-not-allowed: This account is not included in the current exchange rollout.
   command-invalid: The exchange command or its arguments are invalid.
-  command-help: 'Exchange commands:\n/qse open: market list\n/qse market <id>: market detail\n/qse order limit|market <buy|sell> ...: place order\n/qse cancel <order-id>: cancel order\n/qse orders: my orders\n/qse assets: balances and transfers\n/qse history: account history\n/qse stock <symbol>: open a concept stock\n/qse deposit|withdraw money|item ...: deposit or withdraw\n/qse reload: reload exchange configuration (admin)'
+  command-help: "Exchange commands:\n/qse open: market list\n/qse market <id>: market detail\n/qse order limit|market <buy|sell> ...: place order\n/qse cancel <order-id>: cancel order\n/qse orders: my orders\n/qse assets: balances and transfers\n/qse history: account history\n/qse stock <symbol>: open a concept stock\n/qse deposit|withdraw money|item ...: deposit or withdraw\n/qse reload: reload exchange configuration (admin)"
   market-not-open: This market currently accepts queries and cancellations only.
   request-accepted: 'Exchange request accepted: <requestId>'
   request-ready: 'Exchange request ready for confirmation: <requestId>'
@@ -15,13 +15,13 @@ en-US:
   admin-reconciliation-balanced: Exchange reconciliation completed with no differences.
   admin-reconciliation-difference: Exchange reconciliation found differences; review the server audit logs.
   admin-audit-exported: 'Exchange audit CSV exported: <0>'
-  admin-audit-status: 'Exchange audit status:\n<0>'
+  admin-audit-status: "Exchange audit status:\n<0>"
   admin-audit-acknowledged: Exchange alert acknowledged.
   reload-requested: Exchange configuration reload requested.
   reload-success: Exchange configuration reloaded successfully.
   reload-failed: 'Exchange reload failed; previous settings are still active. Cause: <0>'
   runtime-not-started: 'The exchange runtime is not started. Fix the configuration and run /qse reload to retry.'
-  admin-transfer-review-list: 'Transfers awaiting review:\n<0>'
+  admin-transfer-review-list: "Transfers awaiting review:\n<0>"
   admin-transfer-review-detail: 'Transfer review detail: <0>'
   command-failed: The exchange command could not be completed. Please try again or check the server console.
   ui-data-unavailable: Exchange data is currently unavailable.
@@ -62,6 +62,35 @@ en-US:
   ui-market-issued-supply: 'Issued / Total: <0> / <1>'
   ui-market-float-cap: 'Float market cap: <0>'
   ui-market-security-status: 'Security status: <0>'
+  ui-order-type-limit: Limit
+  ui-order-type-market: Market
+  ui-order-status-open: Open
+  ui-order-status-partially-filled: Partially filled
+  ui-order-status-filled: Filled
+  ui-order-status-cancelled: Cancelled
+  ui-order-status-rejected: Rejected
+  ui-market-state-open: Open
+  ui-market-state-halted: Halted
+  ui-market-state-paused: Paused
+  ui-market-state-recovering: Recovering
+  ui-market-state-closed: Closed
+  ui-asset-type-physical-item: Physical item
+  ui-asset-type-virtual-security: Virtual security
+  ui-security-state-open: Open
+  ui-security-state-paused: Paused
+  ui-security-state-halted: Halted
+  ui-security-state-closed: Closed
+  ui-transfer-type-money-deposit: Money deposit
+  ui-transfer-type-money-withdrawal: Money withdrawal
+  ui-transfer-type-item-deposit: Item deposit
+  ui-transfer-type-item-withdrawal: Item withdrawal
+  ui-transfer-status-prepared: Prepared
+  ui-transfer-status-processing: Processing
+  ui-transfer-status-completed: Completed
+  ui-transfer-status-failed: Failed
+  ui-transfer-status-review-required: Review required
+  ui-ledger-type-trade-currency: Currency trade
+  ui-ledger-type-trade-item: Item trade
   ui-market-my-currency: 'Your currency: <0> available / <1> frozen'
   ui-market-afford-buy: 'At <0> you can buy about <1>'
   ui-market-afford-sell: 'You can sell about <0>'
@@ -79,6 +108,7 @@ en-US:
   ui-market-recent-trade-notional: 'Value: <0>'
   ui-market-recent-trade-time: 'Time: <0>'
   ui-market-recent-empty: No recent trades.
+  ui-market-list-empty: No markets are currently available.
   ui-market-recent-active-buy: Active buy
   ui-market-recent-active-sell: Active sell
   ui-market-recent-more: View full trade history
@@ -256,12 +286,13 @@ en-US:
   ui-admin-click-to-run: 'Left click: run the common action'
   ui-admin-click-suggest: 'Left click: copy the command to chat'
   ui-admin-click-usage: 'Right click: show usage'
+  ui-admin-click-send-usage: 'Left click: show usage'
 zh-CN:
   command-description: '打开中央物品交易所'
   permission-denied: '你没有执行此交易所操作的权限。'
   rollout-not-allowed: '你的账号尚未加入当前交易所灰度名单。'
   command-invalid: '交易所命令或参数无效。'
-  command-help: '交易所命令：\n/qse open：市场列表\n/qse market <市场ID>：市场详情\n/qse order limit|market <买入|卖出> ...：下单\n/qse cancel <订单ID>：撤单\n/qse orders：我的订单\n/qse assets：资产与转账\n/qse history：账户历史\n/qse stock <代码>：打开概念股\n/qse deposit|withdraw money|item ...：存入或取出\n/qse reload：重载交易所配置（管理员）'
+  command-help: "交易所命令：\n/qse open：市场列表\n/qse market <市场ID>：市场详情\n/qse order limit|market <买入|卖出> ...：下单\n/qse cancel <订单ID>：撤单\n/qse orders：我的订单\n/qse assets：资产与转账\n/qse history：账户历史\n/qse stock <代码>：打开概念股\n/qse deposit|withdraw money|item ...：存入或取出\n/qse reload：重载交易所配置（管理员）"
   market-not-open: '当前市场只允许查询和撤单。'
   request-accepted: '交易请求已受理：<requestId>'
   request-ready: '交易请求已准备，等待确认：<requestId>'
@@ -274,15 +305,16 @@ zh-CN:
   admin-reconciliation-balanced: '交易所对账完成，未发现差异。'
   admin-reconciliation-difference: '交易所对账发现差异，请检查服务器审计日志。'
   admin-audit-exported: '交易所审计 CSV 已导出：<0>'
-  admin-audit-status: '交易所审计状态：\n<0>'
+  admin-audit-status: "交易所审计状态：\n<0>"
   admin-audit-acknowledged: '交易所告警已确认。'
   reload-requested: '已请求重载交易所配置。'
   reload-success: '交易所配置重载成功。'
   reload-failed: '交易所重载失败，上一份设置仍然生效。原因：<0>'
   runtime-not-started: '交易所运行实例尚未启动。请修正配置后执行 /qse reload 重试。'
-  admin-transfer-review-list: '等待审核的转账：\n<0>'
+  admin-transfer-review-list: "等待审核的转账：\n<0>"
   admin-transfer-review-detail: '转账审核详情：<0>'
   ui-data-unavailable: '交易所数据暂时不可用。'
+  ui-market-list-empty: '当前暂无可用市场。'
   ui-history-trade-title: '<0> 成交 @ <1>'
   ui-history-trade-id: '成交序号 #<0>'
   ui-history-trade-buy: 买入
@@ -320,6 +352,35 @@ zh-CN:
   ui-market-issued-supply: '已发行 / 总供给：<0> / <1>'
   ui-market-float-cap: '流通市值：<0>'
   ui-market-security-status: '证券状态：<0>'
+  ui-order-type-limit: 限价
+  ui-order-type-market: 市价
+  ui-order-status-open: 挂单中
+  ui-order-status-partially-filled: 部分成交
+  ui-order-status-filled: 已成交
+  ui-order-status-cancelled: 已撤销
+  ui-order-status-rejected: 已拒绝
+  ui-market-state-open: 开放
+  ui-market-state-halted: 暂停交易
+  ui-market-state-paused: 已暂停
+  ui-market-state-recovering: 恢复中
+  ui-market-state-closed: 已关闭
+  ui-asset-type-physical-item: 实体物品
+  ui-asset-type-virtual-security: 虚拟证券
+  ui-security-state-open: 开放
+  ui-security-state-paused: 已暂停
+  ui-security-state-halted: 暂停交易
+  ui-security-state-closed: 已关闭
+  ui-transfer-type-money-deposit: 存入货币
+  ui-transfer-type-money-withdrawal: 取出货币
+  ui-transfer-type-item-deposit: 存入物品
+  ui-transfer-type-item-withdrawal: 取出物品
+  ui-transfer-status-prepared: 已准备
+  ui-transfer-status-processing: 处理中
+  ui-transfer-status-completed: 已完成
+  ui-transfer-status-failed: 失败
+  ui-transfer-status-review-required: 待人工审核
+  ui-ledger-type-trade-currency: 货币成交
+  ui-ledger-type-trade-item: 物品成交
   ui-market-my-currency: '你的货币：可用 <0> / 冻结 <1>'
   ui-market-afford-buy: '按 <0> 价格最多可买入约 <1>'
   ui-market-afford-sell: '你可卖出约 <0>'
@@ -514,3 +575,4 @@ zh-CN:
   ui-admin-click-to-run: '左键：执行常用操作'
   ui-admin-click-suggest: '左键：将命令填入聊天栏'
   ui-admin-click-usage: '右键：查看用法'
+  ui-admin-click-send-usage: '左键：查看用法'

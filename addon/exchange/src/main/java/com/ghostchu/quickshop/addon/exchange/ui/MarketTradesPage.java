@@ -40,6 +40,7 @@ final class MarketTradesPage {
     ExchangeMenuRequest opened = contexts.get(playerId).orElse(null);
     if (opened == null || !"market-trades".equals(opened.menuName())
         || opened.marketId() == null) {
+      renderNotSelected(page, player);
       return;
     }
     int offset = Math.max(0, opened.page() - 1) * PAGE_SIZE;
@@ -62,6 +63,19 @@ final class MarketTradesPage {
         });
   }
 
+private void renderNotSelected(PlayerInstancePage page, Player player) {
+    UUID playerId = player.getUniqueId();
+    ExchangeMenuIcons.clear(page, playerId);
+    page.setLockEmptySlots(true);
+    ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
+        .customName(messages.component(player, "ui-market-not-selected"))).withSlot(22).build());
+    addNavigation(page, player, 0, "COMPASS", "ui-nav-markets", ExchangeMenuPage.MARKETS);
+    addNavigation(page, player, 1, "CHEST", "ui-nav-assets", ExchangeMenuPage.ASSETS);
+    addNavigation(page, player, 3, "WRITABLE_BOOK", "ui-nav-orders", ExchangeMenuPage.ORDERS);
+    addNavigation(page, player, 4, "CLOCK", "ui-nav-history", ExchangeMenuPage.HISTORY);
+    ExchangeMenuIcons.update(player, page);
+  }
+
   private void render(PlayerInstancePage page, Player player, ExchangeMenuRequest opened,
                       List<ExchangeRepository.MarketTradeRow> trades, Throwable failure,
                       MarketRow header) {
@@ -71,22 +85,31 @@ final class MarketTradesPage {
     if (failure != null) {
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
           .customName(messages.component(player, "ui-data-unavailable"))).withSlot(22).build());
+      addNavigation(page, player, 0, "COMPASS", "ui-nav-markets", ExchangeMenuPage.MARKETS);
+      addNavigation(page, player, 1, "CHEST", "ui-nav-assets", ExchangeMenuPage.ASSETS);
+      addNavigation(page, player, 2, "PAPER", "ui-market-back-detail", ExchangeMenuPage.MARKET_DETAIL);
+      addNavigation(page, player, 3, "WRITABLE_BOOK", "ui-nav-orders", ExchangeMenuPage.ORDERS);
+      addNavigation(page, player, 4, "CLOCK", "ui-nav-history", ExchangeMenuPage.HISTORY);
       return;
     }
     String title = messages.text(player, "ui-market-trades-page-title",
         views.marketDisplayName(opened.marketId()));
+    int scale = marketPriceScale(opened.marketId());
     java.util.ArrayList<Component> headerLore = new java.util.ArrayList<>();
     if (header != null) {
       if (header.lastPrice() != null) {
         headerLore.add(messages.component(player, "ui-market-trades-header-last",
-            header.lastPrice().toPlainString()));
+            messages.formatCurrency(header.lastPrice(), scale)));
       }
-      String bid = header.bestBid() == null ? "-" : header.bestBid().toPlainString();
-      String ask = header.bestAsk() == null ? "-" : header.bestAsk().toPlainString();
+      String bid = header.bestBid() == null ? "-"
+          : messages.formatCurrency(header.bestBid(), scale);
+      String ask = header.bestAsk() == null ? "-"
+          : messages.formatCurrency(header.bestAsk(), scale);
       headerLore.add(messages.component(player, "ui-market-trades-header-bid-ask", bid, ask));
       if (header.change24h() != null) {
         headerLore.add(messages.component(player, "ui-market-trades-header-change",
             header.change24h().multiply(java.math.BigDecimal.valueOf(100))
+                .setScale(2, java.math.RoundingMode.HALF_UP)
                 .stripTrailingZeros().toPlainString()));
       }
     }
@@ -109,8 +132,8 @@ final class MarketTradesPage {
           messages.component(player, "ui-market-recent-trade-id", trade.matchSequence()),
           messages.component(player, "ui-market-recent-trade-quantity", trade.quantity()),
           messages.component(player, "ui-market-recent-trade-notional",
-              trade.price().multiply(java.math.BigDecimal.valueOf(trade.quantity()))
-                  .stripTrailingZeros().toPlainString()),
+              messages.formatCurrency(trade.price().multiply(
+                  java.math.BigDecimal.valueOf(trade.quantity())), scale)),
           messages.component(player, "ui-market-recent-trade-time",
               messages.relativeTime(trade.executedAt())));
       ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of(
@@ -118,7 +141,7 @@ final class MarketTradesPage {
           .customName(messages.component(player, "ui-market-recent-trade-title",
               buy ? messages.text(player, "ui-market-recent-active-buy")
                   : messages.text(player, "ui-market-recent-active-sell"),
-              trade.price().toPlainString()))
+              messages.formatCurrency(trade.price(), scale)))
           .lore(lore)).withSlot(slot++).build());
     }
     if (opened.page() > 1) {
@@ -161,6 +184,12 @@ final class MarketTradesPage {
             MenuManager.instance().open(ExchangeMenu.NAME, target.page(), click.player());
           }
         })).withSlot(slot).build());
+  }
+
+  private int marketPriceScale(String marketId) {
+    ExchangeViewService.MarketView market = views.market(marketId);
+    int scale = market == null ? -1 : market.service().marketRules().priceScale();
+    return scale < 0 ? 2 : scale;
   }
 
   private record PageData(List<ExchangeRepository.MarketTradeRow> trades, MarketRow row) {}

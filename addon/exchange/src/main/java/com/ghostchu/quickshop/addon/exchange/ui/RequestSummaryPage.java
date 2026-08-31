@@ -27,6 +27,7 @@ final class RequestSummaryPage {
   private final ExchangeRequestSubmitter submitter;
   private final RolloutPolicy rollout;
   private final ExchangeUiMessages messages;
+  private final MenuNavigation navigation;
 
   RequestSummaryPage(ExchangeMenuPage expected, ExchangeMenuContextStore contexts,
                      ExchangeRequestSubmitter submitter, AddonMessageService messages) {
@@ -42,6 +43,7 @@ final class RequestSummaryPage {
     this.submitter = submitter;
     this.rollout = rollout;
     this.messages = new ExchangeUiMessages(messages);
+    this.navigation = new MenuNavigation(contexts);
   }
 
   void open(PageOpenCallback callback) {
@@ -57,6 +59,8 @@ final class RequestSummaryPage {
           .customName(messages.component(player, "ui-confirm-not-selected")))
           .withSlot(22);
       ExchangeMenuIcons.add(page, playerId, icon.build());
+      navigation.addHeader(page, player, messages);
+      ExchangeMenuIcons.update(player, page);
       return;
     }
     render(page, player, request, null, null, false);
@@ -100,7 +104,7 @@ final class RequestSummaryPage {
     page.setLockEmptySlots(true);
     List<Component> lore = summary(player, request, quote, cancelOrder, cancelLoaded);
     IconBuilder icon = new IconBuilder(ExchangeMenuPlatform.stack().of("PAPER", 1)
-        .customName(messages.component(player, titleKey(request), titleArgument(request)))
+        .customName(messages.component(player, titleKey(request), localizedTitleArgument(player, request)))
         .lore(lore)).withSlot(22);
     ExchangeMenuIcons.add(page, playerId, icon.build());
     if (request.order() != null && request.marketId() != null) {
@@ -160,17 +164,17 @@ final class RequestSummaryPage {
     }
   }
 
+  private Object localizedTitleArgument(Player player, ExchangeMenuRequest request) {
+    if (request.order() != null) return messages.localized(player, request.order().type());
+    if (request.transfer() != null) return messages.localized(player, request.transfer().kind());
+    return "";
+  }
+
   private static String titleKey(ExchangeMenuRequest request) {
     if (request.order() != null) return "ui-confirm-order-title";
     if (request.transfer() != null) return "ui-confirm-transfer-title";
     if (request.orderId() != null) return "ui-confirm-cancel-title";
     return "ui-confirm-title";
-  }
-
-  private static Object titleArgument(ExchangeMenuRequest request) {
-    if (request.order() != null) return request.order().type();
-    if (request.transfer() != null) return request.transfer().kind();
-    return "";
   }
 
   private List<Component> summary(Player player, ExchangeMenuRequest request,
@@ -189,7 +193,7 @@ final class RequestSummaryPage {
     if (request.order() != null) {
       var order = request.order();
       int scale = marketPriceScale(order.marketId());
-      lines.add(messages.component(player, "ui-confirm-side", order.side()));
+      lines.add(messages.component(player, "ui-confirm-side", messages.localized(player, order.side())));
       lines.add(messages.component(player, "ui-confirm-quantity", order.quantity()));
       addQuantityLimitLine(lines, player, order);
       if (order.price() != null) {
@@ -254,7 +258,7 @@ final class RequestSummaryPage {
         var order = cancelOrder.order();
         lines.add(messages.component(player, "ui-confirm-market",
             views == null ? order.marketId() : views.marketDisplayName(order.marketId())));
-        lines.add(messages.component(player, "ui-confirm-side", order.side()));
+        lines.add(messages.component(player, "ui-confirm-side", messages.localized(player, order.side())));
         lines.add(messages.component(player, "ui-confirm-quantity", order.remainingQuantity()));
         lines.add(messages.component(player, order.side() == OrderSide.BUY
             ? "ui-confirm-cancel-release-currency" : "ui-confirm-cancel-release-quantity",

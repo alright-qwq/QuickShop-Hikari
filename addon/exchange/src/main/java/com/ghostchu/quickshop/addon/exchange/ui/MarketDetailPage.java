@@ -140,9 +140,9 @@ final class MarketDetailPage {
             row.high24h() == null ? "-" : messages.formatCurrency(row.high24h(), scale),
             row.low24h() == null ? "-" : messages.formatCurrency(row.low24h(), scale)),
         messages.component(player, "ui-market-volume", row.volume24h()),
-        messages.component(player, "ui-market-status", row.status().name())));
+        messages.component(player, "ui-market-status", messages.localized(player, row.status()))));
     if (row.assetType() != null) {
-      lore.add(messages.component(player, "ui-market-asset-type", row.assetType()));
+      lore.add(messages.component(player, "ui-market-asset-type", messages.localized(player, row.assetType())));
     }
     if (row.symbol() != null) {
       lore.add(messages.component(player, "ui-market-symbol", row.symbol()));
@@ -161,7 +161,8 @@ final class MarketDetailPage {
       }
     }
     if (row.securityStatus() != null) {
-      lore.add(messages.component(player, "ui-market-security-status", row.securityStatus()));
+      lore.add(messages.component(player, "ui-market-security-status",
+          messages.localized(player, row.securityStatus())));
     }
     addPlayerBalances(lore, player, row, assets);
     addOpenOrderCount(lore, player, row, orders);
@@ -478,7 +479,7 @@ final class MarketDetailPage {
   private int marketPriceScale(String marketId) {
     ExchangeViewService.MarketView market = views.market(marketId);
     int scale = market == null ? -1 : market.service().marketRules().priceScale();
-    return scale;
+    return scale < 0 ? 2 : scale;
   }
 
   private static java.math.BigDecimal distancePercent(java.math.BigDecimal price,
@@ -562,5 +563,8 @@ final class MarketDetailPage {
     Component title = player == null ? Component.text(key) : messages.component(player, key);
     ExchangeMenuIcons.add(page, playerId, new IconBuilder(ExchangeMenuPlatform.stack().of("BARRIER", 1)
         .customName(title)).withSlot(22).build());
+    if (player != null) {
+      navigation.addHeader(page, player, messages);
+    }
   }
 }

@@ -248,6 +248,12 @@ public final class ExchangeViewService {
     return market == null ? marketId : market.displayName();
   }
 
+  /** Returns the configured price scale, or -1 when the market is unavailable. */
+  public int marketPriceScale(String marketId) {
+    MarketView market = marketId == null ? null : markets.get(marketId);
+    return market == null ? -1 : market.service().marketRules().priceScale();
+  }
+
   public CompletableFuture<MarketDashboardSnapshot> marketDashboard(String marketId) {
     return marketDashboard(marketId, Duration.ofMinutes(9));
   }
