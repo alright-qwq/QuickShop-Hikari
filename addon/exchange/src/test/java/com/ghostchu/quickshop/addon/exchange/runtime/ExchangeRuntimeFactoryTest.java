@@ -14,6 +14,7 @@ import com.ghostchu.quickshop.addon.exchange.persistence.SqliteTestDatabase;
 import com.ghostchu.quickshop.addon.exchange.persistence.TableNames;
 import com.ghostchu.quickshop.addon.exchange.service.ExchangeServiceFixture;
 import java.math.BigDecimal;
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -32,6 +33,65 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 class ExchangeRuntimeFactoryTest {
+  @Test
+  void restoresMissingOpenSecurityConfiguration() throws Exception {
+    Path dataFolder = Files.createTempDirectory("quickshop-exchange-recovery-");
+    File configFile = dataFolder.resolve("config.yml").toFile();
+    File marketsFile = dataFolder.resolve("markets.yml").toFile();
+    Files.writeString(configFile.toPath(), """
+        risk-defaults:
+          price-cage-ratio: '0.20'
+          default-market-slippage: '0.05'
+          maximum-market-slippage: '0.20'
+          level-one-move: '0.10'
+          level-one-halt-seconds: 120
+          level-two-move: '0.20'
+          level-two-halt-seconds: 600
+          operations-per-second: 5
+          operations-per-minute: 60
+        """);
+    Files.writeString(marketsFile.toPath(), """
+        markets:
+          existing_diamond:
+            enabled: true
+            display-name: Diamond
+            item:
+              mode: VANILLA_MATERIAL
+              material: DIAMOND
+            currency: default
+            base-price: '100.00'
+            min-price: '1.00'
+            max-price: '10000.00'
+            tick-size: '0.01'
+            price-scale: 2
+            currency-scale: 2
+            min-quantity: 1
+            max-quantity: 2304
+            discovery-quantity: 100
+            maker-fee-rate: '0.001'
+            taker-fee-rate: '0.002'
+            max-account-holding: 100000
+            max-frozen-currency: '10000000.00'
+            max-open-orders: 100
+            block-container-shops: false
+        """);
+
+    ConnectionProvider connections = SqliteTestDatabase.at(
+        dataFolder.resolve("exchange.sqlite"));
+    TableNames tables = new TableNames("qs_");
+    new MigrationRunner(connections, SqlDialect.SQLITE, tables).migrate();
+    JdbcExchangeRepository repository = new JdbcExchangeRepository(
+        connections, SqlDialect.SQLITE, tables);
+    new com.ghostchu.quickshop.addon.exchange.security.SecurityService(repository).create(
+        UUID.randomUUID(), UUID.randomUUID(), "recovered_alpha", "RRECOVER", "Recovered",
+        "Recovered security", "default", new BigDecimal("10.00"), 1000, 1);
+
+    ExchangeRuntimeFactory.restoreMissingSecurityDefinitions(repository, marketsFile);
+
+    MarketRegistry registry = MarketRegistry.load(configFile, marketsFile);
+    assertThat(registry.marketIds()).contains("existing_diamond", "recovered_alpha");
+  }
+
   @Test
   void acceptsOnlyARegularSQLiteFileUnderTheAddonDataFolder() throws Exception {
     Path dataFolder = Files.createTempDirectory("quickshop-exchange-data-");

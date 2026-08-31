@@ -38,6 +38,7 @@ import com.ghostchu.quickshop.addon.exchange.transfer.TransferRecoveryService;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeViewService;
 import com.ghostchu.quickshop.addon.exchange.ui.ExchangeViewService.MarketView;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -49,9 +50,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.math.BigDecimal;
+import java.util.logging.Level;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -129,6 +133,17 @@ public final class ExchangeRuntimeFactory {
       }
       JdbcExchangeRepository repository = bootstrapped.get();
       this.repository = repository;
+      try {
+        // A security create can commit before its hot-add hook persists configuration. Recover
+        // the missing markets.yml entry before loading the active registry instead of leaving an
+        // unusable orphaned market until the next manual edit.
+        restoreMissingSecurityDefinitions(repository, marketsFile);
+      } catch (Exception recoveryFailure) {
+        LOGGER.log(Level.WARNING,
+            "Could not restore missing security configurations; startup will continue with the"
+                + " markets currently present in markets.yml",
+            recoveryFailure);
+      }
       MarketRegistry registry = MarketRegistry.load(configFile, marketsFile, repository);
       this.registry = registry;
 
@@ -395,6 +410,7 @@ public final class ExchangeRuntimeFactory {
       Map<String, PersistentOrderService> liveMarkets = this.markets;
       MarketRegistry liveRegistry = this.registry;
       ExchangeViewService liveViews = this.views;
+      ExchangeActionService liveActions = this.actions;
       AdminExchangeService liveAdministration = this.administration;
       JdbcExchangeRepository liveStore = this.repository;
       if (liveMarkets == null || liveRegistry == null || liveStore == null) {
@@ -402,6 +418,15 @@ public final class ExchangeRuntimeFactory {
       }
       File reloadConfig = new File(addon.getDataFolder(), "config.yml");
       File reloadMarkets = new File(addon.getDataFolder(), "markets.yml");
+      // A failed hot-add can leave the database and markets.yml ahead of the live runtime.
+      // Re-attach those markets before the set-equality check so reload recovers instead of
+      // permanently rejecting the new configuration.
+      recoverPendingSecurityMarkets();
+      liveMarkets = this.markets;
+      liveRegistry = this.registry;
+      liveViews = this.views;
+      liveActions = this.actions;
+      liveAdministration = this.administration;
       MarketRegistry reloaded;
       try {
         // Reload must not restore persisted versions onto the freshly parsed definitions: the live
@@ -551,6 +576,113 @@ public final class ExchangeRuntimeFactory {
     return administration.reconcileAndProtect(UUID.randomUUID());
   }
 
+  /** Best-effort recovery for security markets committed to the database before the runtime attach. */
+  public void recoverPendingSecurityMarkets() {
+    synchronized (lifecycleLock) {
+      MarketRegistry liveRegistry = this.registry;
+      Map<String, PersistentOrderService> liveMarkets = this.markets;
+      JdbcExchangeRepository liveStore = this.repository;
+      if (liveRegistry == null || liveMarkets == null || liveStore == null) {
+        return;
+      }
+      File marketsFile = new File(addon.getDataFolder(), "markets.yml");
+      try {
+        restoreMissingSecurityDefinitions(liveStore, marketsFile);
+      } catch (Exception recoveryFailure) {
+        LOGGER.log(Level.WARNING,
+            "Could not restore missing security configurations from the database",
+            recoveryFailure);
+      }
+      try {
+        YamlConfiguration configured = YamlConfiguration.loadConfiguration(marketsFile);
+        ConfigurationSection section = configured.getConfigurationSection("markets");
+        if (section == null) {
+          return;
+        }
+        Set<String> configuredIds = Set.copyOf(section.getKeys(false));
+        Set<String> missing = new TreeSet<>(configuredIds);
+        missing.removeAll(liveMarkets.keySet());
+        for (String marketId : missing) {
+          try {
+            addSecurityMarket(marketId, true);
+          } catch (RuntimeException failure) {
+            LOGGER.log(Level.WARNING,
+                "Could not re-attach configured security market: " + marketId, failure);
+          }
+        }
+      } catch (Exception recoveryFailure) {
+        LOGGER.log(Level.WARNING,
+            "Could not scan configured markets for pending runtime attachments", recoveryFailure);
+      }
+    }
+  }
+
+  static void restoreMissingSecurityDefinitions(
+      JdbcExchangeRepository repository, File marketsFile)
+      throws SQLException, IOException {
+    Map<String, SecurityDefinitionState> securities = repository.securityDefinitionStates();
+    if (securities.isEmpty()) {
+      return;
+    }
+    YamlConfiguration configured = YamlConfiguration.loadConfiguration(marketsFile);
+    ConfigurationSection section = configured.getConfigurationSection("markets");
+    Set<String> configuredIds = section == null
+        ? Set.of() : Set.copyOf(section.getKeys(false));
+    for (SecurityDefinitionState security : securities.values()) {
+      if (configuredIds.contains(security.marketId())
+          || "CLOSED".equalsIgnoreCase(security.status())) {
+        continue;
+      }
+      MarketDefinition definition = SecurityService.buildMarketDefinition(
+          security.marketId(), security.symbol(), security.name(), security.description(),
+          security.currencyId(), security.basePrice(), security.totalSupply(),
+          security.minimumUnit());
+      writeMarketDefinition(marketsFile, definition);
+    }
+  }
+
+  static void writeMarketDefinition(File marketsFile, MarketDefinition definition)
+      throws IOException {
+    YamlConfiguration markets = YamlConfiguration.loadConfiguration(marketsFile);
+    ConfigurationSection section = markets.getConfigurationSection("markets");
+    if (section == null) {
+      section = markets.createSection("markets");
+    }
+    if (section.contains(definition.marketId())) {
+      return;
+    }
+    ConfigurationSection market = section.createSection(definition.marketId());
+    market.set("enabled", false);
+    market.set("display-name", definition.displayName());
+    if (definition.assetType() == AssetType.VIRTUAL_SECURITY) {
+      ConfigurationSection security = market.createSection("security");
+      security.set("symbol", definition.security().symbol());
+      security.set("name", definition.security().name());
+      security.set("description", definition.security().description());
+      security.set("base-price", definition.security().basePrice().toPlainString());
+      security.set("total-supply", definition.security().totalSupply());
+      security.set("minimum-unit", definition.security().minimumUnit());
+    }
+    market.set("currency", definition.structural().currencyId());
+    market.set("base-price", definition.structural().basePrice().toPlainString());
+    market.set("min-price", definition.structural().minPrice().toPlainString());
+    market.set("max-price", definition.structural().maxPrice().toPlainString());
+    market.set("tick-size", definition.structural().tickSize().toPlainString());
+    market.set("price-scale", definition.structural().priceScale());
+    market.set("currency-scale", definition.structural().currencyScale());
+    market.set("min-quantity", definition.structural().minQuantity());
+    market.set("max-quantity", definition.structural().maxQuantity());
+    market.set("discovery-quantity", definition.structural().discoveryQuantity());
+    market.set("maker-fee-rate", definition.risk().makerFeeRate().toPlainString());
+    market.set("taker-fee-rate", definition.risk().takerFeeRate().toPlainString());
+    market.set("max-account-holding", definition.risk().maxAccountHolding());
+    market.set("max-frozen-currency", definition.risk().maxFrozenCurrency().toPlainString());
+    market.set("max-open-orders", definition.risk().maxOpenOrders());
+    market.set("block-container-shops", definition.blockContainerShops());
+    markets.set("markets", section);
+    markets.save(marketsFile);
+  }
+
   /**
    * Hot-adds a newly created virtual security market so it can be traded without a restart.
    * The persisted rows are created by {@link SecurityService}; this method only attaches the
@@ -636,44 +768,7 @@ public final class ExchangeRuntimeFactory {
   private void persistMarketToMarketsFile(MarketDefinition definition) {
     File marketsFile = new File(addon.getDataFolder(), "markets.yml");
     try {
-      YamlConfiguration markets = YamlConfiguration.loadConfiguration(marketsFile);
-      ConfigurationSection section = markets.getConfigurationSection("markets");
-      if (section == null) {
-        section = markets.createSection("markets");
-      }
-      if (section.contains(definition.marketId())) {
-        return;
-      }
-      ConfigurationSection market = section.createSection(definition.marketId());
-      market.set("enabled", false);
-      market.set("display-name", definition.displayName());
-      if (definition.assetType() == AssetType.VIRTUAL_SECURITY) {
-        ConfigurationSection security = market.createSection("security");
-        security.set("symbol", definition.security().symbol());
-        security.set("name", definition.security().name());
-        security.set("description", definition.security().description());
-        security.set("base-price", definition.security().basePrice().toPlainString());
-        security.set("total-supply", definition.security().totalSupply());
-        security.set("minimum-unit", definition.security().minimumUnit());
-      }
-      market.set("currency", definition.structural().currencyId());
-      market.set("base-price", definition.structural().basePrice().toPlainString());
-      market.set("min-price", definition.structural().minPrice().toPlainString());
-      market.set("max-price", definition.structural().maxPrice().toPlainString());
-      market.set("tick-size", definition.structural().tickSize().toPlainString());
-      market.set("price-scale", definition.structural().priceScale());
-      market.set("currency-scale", definition.structural().currencyScale());
-      market.set("min-quantity", definition.structural().minQuantity());
-      market.set("max-quantity", definition.structural().maxQuantity());
-      market.set("discovery-quantity", definition.structural().discoveryQuantity());
-      market.set("maker-fee-rate", definition.risk().makerFeeRate().toPlainString());
-      market.set("taker-fee-rate", definition.risk().takerFeeRate().toPlainString());
-      market.set("max-account-holding", definition.risk().maxAccountHolding());
-      market.set("max-frozen-currency", definition.risk().maxFrozenCurrency().toPlainString());
-      market.set("max-open-orders", definition.risk().maxOpenOrders());
-      market.set("block-container-shops", definition.blockContainerShops());
-      markets.set("markets", section);
-      markets.save(marketsFile);
+      writeMarketDefinition(marketsFile, definition);
     } catch (Exception failure) {
       throw new IllegalStateException(
           "created market could not be persisted to markets.yml: " + definition.marketId(),
@@ -681,7 +776,7 @@ public final class ExchangeRuntimeFactory {
     }
   }
 
-/** Reads a consistent runtime/database snapshot used to authorize structural hot reloads. */
+  /** Reads a consistent runtime/database snapshot used to authorize structural hot reloads. */
   private static Map<String, MarketStateReader.State> readLiveMarketStates(
       JdbcExchangeRepository repository, java.util.Collection<String> marketIds)
       throws SQLException {
@@ -855,7 +950,7 @@ public final class ExchangeRuntimeFactory {
             + " final candle flush skipped");
       }
     } catch (Exception failure) {
-      LOGGER.log(java.util.logging.Level.WARNING,
+      LOGGER.log(Level.WARNING,
           "final candle flush failed during shutdown", failure);
     }
   }
@@ -1105,7 +1200,7 @@ public final class ExchangeRuntimeFactory {
       }));
     } catch (Exception failure) {
       // A later maintenance tick retries; CAS versioning prevents stale automatic reopen.
-      LOGGER.log(java.util.logging.Level.WARNING,
+      LOGGER.log(Level.WARNING,
           "Exchange automatic market reopen scan failed", failure);
     }
   }
