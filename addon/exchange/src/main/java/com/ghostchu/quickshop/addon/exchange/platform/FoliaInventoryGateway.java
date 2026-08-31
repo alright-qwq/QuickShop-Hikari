@@ -11,6 +11,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
@@ -238,12 +239,12 @@ public final class FoliaInventoryGateway implements InventoryGateway {
       future.complete(offlineResult);
       return future;
     }
+    AtomicBoolean executionClaimed = new AtomicBoolean();
     try {
       entityScheduler.accept(player, () -> {
-        if (future.isDone()) {
-          // The caller already observed the timeout (or another completion) and may have
-          // moved custody state forward. A late inventory mutation must never happen after
-          // that point, or items could be marked/removed/delivered a second time.
+        if (!executionClaimed.compareAndSet(false, true)) {
+          // The timeout runner already claimed execution and may have moved custody forward.
+          // Claiming first here prevents the narrow "isDone then mutate" race.
           LOGGER.warning("Dropping late exchange inventory task for player " + playerId
               + " after the caller already gave up waiting");
           return;
@@ -259,7 +260,11 @@ public final class FoliaInventoryGateway implements InventoryGateway {
     }
     long timeout = timeoutMillis.get();
     if (timeout > 0) {
-      future.completeOnTimeout(offlineResult, timeout, TimeUnit.MILLISECONDS);
+      CompletableFuture.delayedExecutor(timeout, TimeUnit.MILLISECONDS).execute(() -> {
+        if (executionClaimed.compareAndSet(false, true)) {
+          future.complete(offlineResult);
+        }
+      });
     }
     future.whenComplete((result, failure) -> {
       if (failure == null) {
