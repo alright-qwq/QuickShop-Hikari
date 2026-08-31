@@ -82,29 +82,36 @@ final class OrderBuilderPage {
     UUID playerId = player.getUniqueId();
     ExchangeMenuIcons.clear(page, playerId);
     page.setLockEmptySlots(true);
+    addInfo(page, player, session);
     addMode(page, player, session, OrderSide.BUY, OrderType.LIMIT, 19, "ui-order-limit-buy");
     addMode(page, player, session, OrderSide.SELL, OrderType.LIMIT, 20, "ui-order-limit-sell");
     addMode(page, player, session, OrderSide.BUY, OrderType.MARKET, 21, "ui-order-market-buy");
-    addMode(page, player, session, OrderSide.SELL, OrderType.MARKET, 23, "ui-order-market-sell");
-    addInfo(page, player, session);
+    addMode(page, player, session, OrderSide.SELL, OrderType.MARKET, 22, "ui-order-market-sell");
     addQuantityControls(page, player, session);
     addPriceControls(page, player, session);
     addNavigation(page, player);
     addConfirm(page, player, session);
+    addFiller(page, player);
     ExchangeMenuIcons.update(player, page);
   }
 
   private void addInfo(PlayerInstancePage page, Player player, Session session) {
     List<Component> lore = List.of(
-        messages.component(player, "ui-order-builder-market", session.market().displayName()),
+        messages.component(player, "ui-order-builder-market", session.market().displayName()).color(
+            net.kyori.adventure.text.format.NamedTextColor.AQUA),
         messages.component(player, "ui-order-builder-reference",
-            formatPrice(Session.reference(session.market(), session.side()))),
-        messages.component(player, "ui-order-builder-quantity", session.quantity()),
-        messages.component(player, session.priceKey(), formatPrice(session.price())),
-        messages.component(player, "ui-order-builder-total", formatPrice(session.estimate())));
+            formatPrice(Session.reference(session.market(), session.side()))).color(
+            net.kyori.adventure.text.format.NamedTextColor.YELLOW),
+        messages.component(player, "ui-order-builder-quantity", session.quantity()).color(
+            net.kyori.adventure.text.format.NamedTextColor.GREEN),
+        messages.component(player, session.priceKey(), formatPrice(session.price())).color(
+            net.kyori.adventure.text.format.NamedTextColor.GOLD),
+        messages.component(player, "ui-order-builder-total", formatPrice(session.estimate())).color(
+            net.kyori.adventure.text.format.NamedTextColor.WHITE));
     ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(
-        ExchangeMenuPlatform.stack().of("BOOK", 1)
-            .customName(messages.component(player, "ui-order-builder-title")).lore(lore))
+        ExchangeMenuPlatform.stack().of("ENCHANTED_BOOK", 1)
+            .customName(messages.component(player, "ui-order-builder-title").color(
+            net.kyori.adventure.text.format.NamedTextColor.AQUA)).lore(lore))
         .withSlot(4).build());
   }
 
@@ -123,8 +130,9 @@ final class OrderBuilderPage {
   }
 
   private void addQuantityControls(PlayerInstancePage page, Player player, Session session) {
-    addPageItem(page, player, 27, "PAPER", messages.component(player,
-        "ui-order-builder-quantity", session.quantity()),
+    addPageItem(page, player, 27, "HOPPER", messages.component(player,
+        "ui-order-builder-quantity", session.quantity()).color(
+        net.kyori.adventure.text.format.NamedTextColor.AQUA),
         List.of(messages.component(player, "ui-order-builder-quantity-help")));
     int slot = 28;
     for (long value : QUANTITIES) {
@@ -141,18 +149,21 @@ final class OrderBuilderPage {
       slot++;
     }
     addChatInput(page, player, 35, "WRITABLE_BOOK", messages.component(player,
-            "ui-order-builder-custom-quantity", session.quantity()),
+            "ui-order-builder-custom-quantity", session.quantity()).color(
+            net.kyori.adventure.text.format.NamedTextColor.YELLOW),
         "ui-order-builder-quantity-prompt", raw -> session.quantity(parseQuantity(raw)),
         () -> player.sendMessage(messages.component(player, "ui-order-builder-quantity-invalid")));
-    addClickable(page, player, 36, "LIME_TERRACOTTA", messages.component(player,
-            "ui-order-builder-increase-quantity", session.quantity()),
+    addClickable(page, player, 36, "LIME_DYE", messages.component(player,
+            "ui-order-builder-increase-quantity", session.quantity()).color(
+            net.kyori.adventure.text.format.NamedTextColor.GREEN),
         List.of(messages.component(player, "ui-order-builder-click-select")),
         () -> {
           session.quantity(session.quantity() + 1);
           openPage(player);
         });
-    addClickable(page, player, 36, "ORANGE_TERRACOTTA", messages.component(player,
-            "ui-order-builder-decrease-quantity", session.quantity()),
+    addClickable(page, player, 37, "RED_DYE", messages.component(player,
+            "ui-order-builder-decrease-quantity", session.quantity()).color(
+            net.kyori.adventure.text.format.NamedTextColor.RED),
         List.of(messages.component(player, "ui-order-builder-click-select")),
         () -> {
           session.quantity(Math.max(1L, session.quantity() - 1));
@@ -163,14 +174,15 @@ final class OrderBuilderPage {
   private void addPriceControls(PlayerInstancePage page, Player player, Session session) {
     BigDecimal reference = Session.reference(session.market(), session.side());
     BigDecimal current = session.price();
-    addPageItem(page, player, 37, "GOLD_INGOT",
-        messages.component(player, session.priceKey(), formatPrice(current)),
+    addPageItem(page, player, 38, "GOLD_INGOT",
+        messages.component(player, session.priceKey(), formatPrice(current)).color(
+            net.kyori.adventure.text.format.NamedTextColor.YELLOW),
         List.of(messages.component(player, session.type() == OrderType.LIMIT
             ? "ui-order-builder-price-limit-help" : "ui-order-builder-price-market-help")));
     if (reference == null || reference.signum() <= 0) {
       addPageItem(page, player, 39, "BARRIER",
-          messages.component(player, "ui-order-builder-no-reference"),
-          List.of(messages.component(player, "ui-order-builder-custom-price")));
+        messages.component(player, "ui-order-builder-no-reference"),
+        List.of(messages.component(player, "ui-order-builder-custom-price")));
       return;
     }
     int slot = 39;
@@ -190,7 +202,8 @@ final class OrderBuilderPage {
       slot++;
     }
     addChatInput(page, player, 43, "NAME_TAG", messages.component(player,
-            "ui-order-builder-custom-price", formatPrice(current)),
+            "ui-order-builder-custom-price", formatPrice(current)).color(
+            net.kyori.adventure.text.format.NamedTextColor.YELLOW),
         session.type() == OrderType.LIMIT ? "ui-order-builder-price-limit-prompt"
             : "ui-order-builder-price-market-prompt",
         raw -> session.price(parsePrice(raw)),
@@ -225,6 +238,17 @@ final class OrderBuilderPage {
       return true;
     }, messages.text(player, promptKey), ExchangeMenu.NAME, ExchangeMenuPage.ORDER_ENTRY.page());
     player.closeInventory();
+  }
+
+  private void addFiller(PlayerInstancePage page, Player player) {
+    for (int slot : new int[]{0, 1, 2, 3, 5, 6, 7, 9, 10, 11, 12, 13,
+        14, 15, 16, 17, 18, 23, 24, 25, 26, 44, 46, 47, 48,
+        50, 51, 52, 53}) {
+      ExchangeMenuIcons.add(page, player.getUniqueId(), new IconBuilder(
+          ExchangeMenuPlatform.stack().of("GRAY_STAINED_GLASS_PANE", 1)
+              .customName(Component.text(" ")))
+          .withSlot(slot).build());
+    }
   }
 
   private void addClickable(PlayerInstancePage page, Player player, int slot, String material,
