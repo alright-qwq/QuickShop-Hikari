@@ -396,7 +396,8 @@ public final class ExchangeRuntimeFactory {
       MarketRegistry liveRegistry = this.registry;
       ExchangeViewService liveViews = this.views;
       AdminExchangeService liveAdministration = this.administration;
-      if (liveMarkets == null || liveRegistry == null) {
+      JdbcExchangeRepository liveStore = this.repository;
+      if (liveMarkets == null || liveRegistry == null || liveStore == null) {
         throw new IllegalStateException("exchange runtime is not started");
       }
       File reloadConfig = new File(addon.getDataFolder(), "config.yml");
@@ -456,8 +457,13 @@ public final class ExchangeRuntimeFactory {
       // Commit the registry first: its persistence write is the only step that can fail, and a
       // failure leaves the registry (and therefore every service/view) untouched. The subsequent
       // in-memory applications are pure swaps that cannot fail once the definitions are committed.
-      liveRegistry.reload(reloaded.definitions(),
-          ignored -> new MarketStateReader.State(MarketStatus.PAUSED, 0));
+      Map<String, MarketStateReader.State> liveStates;
+      try {
+        liveStates = readLiveMarketStates(liveStore, liveMarkets.keySet());
+      } catch (SQLException stateFailure) {
+        throw new IllegalStateException("failed to verify live market state for reload", stateFailure);
+      }
+      liveRegistry.reload(reloaded.definitions(), liveStates::get);
       for (String marketId : liveMarkets.keySet()) {
         MarketDefinition next = liveRegistry.require(marketId);
         PersistentOrderService service = liveMarkets.get(marketId);
@@ -673,6 +679,19 @@ public final class ExchangeRuntimeFactory {
           "created market could not be persisted to markets.yml: " + definition.marketId(),
           failure);
     }
+  }
+
+/** Reads a consistent runtime/database snapshot used to authorize structural hot reloads. */
+  private static Map<String, MarketStateReader.State> readLiveMarketStates(
+      JdbcExchangeRepository repository, java.util.Collection<String> marketIds)
+      throws SQLException {
+    java.util.Objects.requireNonNull(repository, "repository");
+    Map<String, MarketStateReader.State> states = new java.util.LinkedHashMap<>();
+    for (String marketId : marketIds) {
+      states.put(marketId, repository.inTransaction(tx -> new MarketStateReader.State(
+          tx.marketState(marketId).status(), tx.openOrders(marketId).size())));
+    }
+    return Map.copyOf(states);
   }
 
   private static Map<String, PersistentOrderService> extendMarkets(
